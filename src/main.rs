@@ -1,6 +1,6 @@
 use anyhow::{bail, Result};
 use clap::{Parser, Subcommand, ValueEnum};
-use pine_cli::{behavior, corpus, reference, search, syntax, validate};
+use pine_cli::{behavior, corpus, diff, reference, search, syntax, validate};
 use std::io::IsTerminal;
 
 #[derive(Parser)]
@@ -105,7 +105,7 @@ fn main() -> Result<()> {
         Command::Behavior { name } => cmd_behavior(&name, format),
         Command::Probe { slug } => cmd_probe(&slug, format),
         Command::Probes { grep } => cmd_probes(grep.as_deref(), format),
-        Command::Diff { .. } => bail!("diff: not implemented yet"),
+        Command::Diff { probe, trades_csv } => cmd_diff(&probe, &trades_csv, format),
         Command::Version => cmd_version(format),
     }
 }
@@ -238,6 +238,49 @@ fn cmd_probes(grep: Option<&str>, format: ResolvedFormat) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn cmd_diff(probe_slug: &str, trades_csv_path: &str, format: ResolvedFormat) -> Result<()> {
+    let user_csv = std::fs::read_to_string(trades_csv_path)
+        .map_err(|e| anyhow::anyhow!("reading {trades_csv_path}: {e}"))?;
+    let report = diff::diff(probe_slug, &user_csv)?;
+    match format {
+        ResolvedFormat::Json => {
+            println!("{}", serde_json::to_string(&report)?);
+        }
+        ResolvedFormat::Text => print_diff_text(&report),
+    }
+    Ok(())
+}
+
+fn print_diff_text(r: &diff::DiffReport) {
+    println!("probe:       {}", r.probe_slug);
+    println!("profile:     {:?}", r.profile);
+    println!(
+        "TV trades:   {}  user trades: {}  matched: {}",
+        r.tv_trade_count, r.user_trade_count, r.matched_count
+    );
+    println!(
+        "count delta:           {:>10.4}%  (threshold {:>7.4}%)",
+        r.count_delta * 100.0,
+        r.thresholds.count * 100.0
+    );
+    println!(
+        "entry-price p90 delta: {:>10.4}%  (threshold {:>7.4}%)",
+        r.entry_p90_delta * 100.0,
+        r.thresholds.entry * 100.0
+    );
+    println!(
+        "exit-price  p90 delta: {:>10.4}%  (threshold {:>7.4}%)",
+        r.exit_p90_delta * 100.0,
+        r.thresholds.exit * 100.0
+    );
+    println!(
+        "pnl         p90 delta: {:>10.4}%  (threshold {:>7.4}%)",
+        r.pnl_p90_delta * 100.0,
+        r.thresholds.pnl * 100.0
+    );
+    println!("tier:        {:?}", r.tier);
 }
 
 fn cmd_behavior(name: &str, format: ResolvedFormat) -> Result<()> {

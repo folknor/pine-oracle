@@ -23,6 +23,7 @@ Modules currently in `src/`:
 - `syntax`: Pine v6 lexer + AST + parser lifted from pinecone (MPL-2.0). Three sub-modules (`ast`, `lexer`, `parser`) re-exported through `syntax::*`. Drives `pine parse` and `pine tokens`. Parser regression tests run across 72 vendored `.pine` fixtures with `_ast.json` goldens.
 - `validate`: two tiers. Local: lex + parse via `syntax`, returns first failure as a structured `Diagnostic { severity, stage, message, line, column }` (single-error today; the lifted parser bails on the first failure). Strict: POSTs the source to `pine-facade.tradingview.com/pine-facade/translate_light` via `ureq`, maps every error + warning the API returns into Diagnostics with `Stage::Strict`. No auth (endpoint is open), no on-disk cache, 10-second timeout. Response decoding pinned by inline fixture tests; never hits the network in CI.
 - `behavior`: structured signature + polymorphism lookup over pine-tools' JSON exports (`vendor/pine-data/v6/{functions,variables,constants,keywords,function-behavior}.json`). Public API: `lookup(name) -> Option<Behavior>`, where `Behavior` is one of `Function` / `Variable` / `Constant` / `Keyword`. Function entries optionally carry a `RawBehaviorEntry` with polymorphism markers + argument-ordering. Lenient deserialization (serde defaults on optional fields) so pine-tools schema tweaks don't break the binary.
+- `diff`: trade-list parity scorer, port of PineForge's `scripts/verify_corpus.py`. Public API: `diff(probe_slug, user_csv) -> DiffReport`. Parses both CSVs into entry / exit pairs (Trade # joined, TV's "Date and time" interpreted in the chart timezone with default Asia/Taipei +8), aligns by direction + 1h window + $3 entry-price gate, trims to common window, computes 4-dim p90 deltas, classifies as excellent / strong / moderate / weak / minimal. Honours `inputs.json::expected_tier` ("anomaly", "engine_only") and `validation_overrides.expect_tv_match`. Strict vs production profile is auto-detected from `trail_*` parameters in `strategy.pine` (or forced via `inputs.json::parity_profile`). Threshold values mirror `verify_corpus.py` exactly. V1 does not implement interior trim (`trim_bars` / `warmup_bars`) since the OHLCV feed isn't baked.
 
 Planned modules per design:
 
@@ -116,5 +117,6 @@ Single-crate workspace, so `-p` is unnecessary.
 | `pine version` | done |
 | `pine behavior <name>` | done (functions / variables / constants / keywords from baked pine-tools JSON) |
 | `pine validate --strict` | done (POSTs to TV's pine-lint, maps errors + warnings to Diagnostics; no auth, no cache, 10s timeout) |
+| `pine diff <probe> <trades.csv>` | done v1 (verify_corpus port: align + p90 + tier; no interior trim until OHLCV bake) |
 | `pine diff` | TODO (needs verify_corpus.py port; will require OHLCV bake) |
 | `pine indicator --strict` | TODO (per-bar parity; will require OHLCV bake) |
