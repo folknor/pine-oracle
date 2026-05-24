@@ -20,6 +20,8 @@ Modules currently in `src/`:
 
 - `corpus`: in-binary PineForge validation corpus, embedded via `include_dir`. Exposes `load_probe(slug)` and `list_probes(grep)` over 235 probes (flat + nested under `symbol-specified/<SYMBOL>/`). Slug-aligned per-probe summaries are pending re-curation; `summary_for` returns `None` until that lands. Apache-2.0 + MPL-2.0 dual-licensed, attributing PineForge.
 - `search`: BM25 via tantivy over the v6 reference. RAM-backed Index built on first invocation (single-digit ms), OnceLock-cached. `name` field gets a 5x boost over `content`. Eventually grows to index `corpus` probe summaries + PineForge audit docs once those land.
+- `syntax`: Pine v6 lexer + AST + parser lifted from pinecone (MPL-2.0). Three sub-modules (`ast`, `lexer`, `parser`) re-exported through `syntax::*`. Drives `pine parse` and `pine tokens`. Parser regression tests run across 72 vendored `.pine` fixtures with `_ast.json` goldens.
+- `validate`: local-tier validator on top of `syntax`. Surfaces the first lex / parse failure as a structured `Diagnostic { severity, stage, message, line, column }`. Single-error today because the lifted parser bails on the first failure; multi-error recovery is future work that would touch `src/syntax/parser.rs`. The `--strict` tier (TV pine-lint HTTP call) belongs here later.
 
 Planned modules per design:
 
@@ -106,11 +108,11 @@ Single-crate workspace, so `-p` is unnecessary.
 | `pine search <query>` | done (tantivy BM25, 5x name boost) |
 | `pine probe <slug>` | done (baked corpus, flat + nested slugs) |
 | `pine probes [--grep TEXT]` | done (slug substring match; summary-text grep returns when summaries re-curate) |
+| `pine parse` | done (lifted pinecone parser; JSON / pretty-JSON output) |
+| `pine tokens` | done (lifted pinecone lexer; JSON / one-per-line text) |
+| `pine validate` | done v1 (first lex/parse error as structured Diagnostic; exit 1 on error) |
 | `pine version` | done |
-| `pine validate` | TODO |
 | `pine validate --strict` | TODO (network call to TV's pine-lint, no auth, no cache) |
-| `pine parse` | TODO |
-| `pine tokens` | TODO |
 | `pine behavior` | TODO (needs pine-tools `export:json`) |
 | `pine diff` | TODO (needs verify_corpus.py port; will require OHLCV bake) |
 | `pine indicator --strict` | TODO (per-bar parity; will require OHLCV bake) |

@@ -1,6 +1,6 @@
 use anyhow::{bail, Result};
 use clap::{Parser, Subcommand, ValueEnum};
-use pine_cli::{corpus, reference, search, syntax};
+use pine_cli::{corpus, reference, search, syntax, validate};
 use std::io::IsTerminal;
 
 #[derive(Parser)]
@@ -99,7 +99,7 @@ fn main() -> Result<()> {
     match cli.command {
         Command::Lookup { name } => cmd_lookup(&name, format),
         Command::Search { query, limit } => cmd_search(&query, limit, format),
-        Command::Validate { .. } => bail!("validate: not implemented yet"),
+        Command::Validate { code, strict } => cmd_validate(&code, strict, format),
         Command::Parse { code } => cmd_parse(&code, format),
         Command::Tokens { code } => cmd_tokens(&code, format),
         Command::Behavior { .. } => bail!("behavior: not implemented yet"),
@@ -236,6 +236,38 @@ fn cmd_probes(grep: Option<&str>, format: ResolvedFormat) -> Result<()> {
                 }
             }
         }
+    }
+    Ok(())
+}
+
+fn cmd_validate(code: &str, strict: bool, format: ResolvedFormat) -> Result<()> {
+    if strict {
+        bail!("validate --strict: not implemented yet (will shell to TradingView's pine-lint API)");
+    }
+    let report = validate::check(code);
+    match format {
+        ResolvedFormat::Json => {
+            println!("{}", serde_json::to_string(&report)?);
+        }
+        ResolvedFormat::Text => {
+            if report.ok {
+                println!("ok");
+            } else {
+                for d in &report.diagnostics {
+                    let stage = match d.stage {
+                        validate::Stage::Lex => "lex",
+                        validate::Stage::Parse => "parse",
+                    };
+                    match d.column {
+                        Some(col) => println!("error[{stage}] {}:{}: {}", d.line, col, d.message),
+                        None => println!("error[{stage}] {}: {}", d.line, d.message),
+                    }
+                }
+            }
+        }
+    }
+    if !report.ok {
+        std::process::exit(1);
     }
     Ok(())
 }
