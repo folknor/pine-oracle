@@ -15,6 +15,7 @@
 use anyhow::Result;
 use comrak::nodes::{AstNode, NodeValue};
 use comrak::{parse_document, Arena, Options};
+use include_dir::{include_dir, Dir};
 use serde::Serialize;
 use std::sync::OnceLock;
 use tantivy::collector::TopDocs;
@@ -25,6 +26,7 @@ use tantivy::{Index, IndexReader, ReloadPolicy, TantivyDocument};
 use crate::{corpus, reference};
 
 const AUDIT_MARKDOWN: &str = include_str!("../vendor/pineforge-docs/pine_v6_audit_master.md");
+static DOCS_PAGES: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/vendor/pineforge-docs/pages");
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SearchHit {
@@ -92,11 +94,24 @@ fn build() -> Result<Engine> {
     // indexed too; those sections tend to score lower because their content
     // is shorter, which matches their intent as navigation rather than
     // forensic substance.
-    for (title, body) in audit_sections() {
+    for (title, body) in parse_md_sections(AUDIT_MARKDOWN) {
         let mut doc = TantivyDocument::default();
         doc.add_text(name_field, &title);
         doc.add_text(category_field, "Audit");
         doc.add_text(kind_field, "audit");
+        doc.add_text(content_field, &body);
+        writer.add_document(doc)?;
+    }
+
+    // Source 4: vendored PineForge narrative pages. 18 markdown files
+    // covering Pine v6 concepts in depth (magnifier, mtf, timeframes,
+    // lifecycle, report schema, examples, tutorials). Each H2 / H3 section
+    // becomes one doc. Category="Docs", kind="docs".
+    for (title, body) in pages_sections() {
+        let mut doc = TantivyDocument::default();
+        doc.add_text(name_field, &title);
+        doc.add_text(category_field, "Docs");
+        doc.add_text(kind_field, "docs");
         doc.add_text(content_field, &body);
         writer.add_document(doc)?;
     }
@@ -160,14 +175,14 @@ fn first_text(doc: &TantivyDocument, field: Field) -> Option<String> {
         .and_then(|v| v.as_str().map(|s| s.to_string()))
 }
 
-/// Split `AUDIT_MARKDOWN` into `(heading_text, body_text)` pairs for each
-/// H2 / H3 section. Body is everything from the heading line to (but not
-/// including) the next heading at any level.
-fn audit_sections() -> Vec<(String, String)> {
+/// Split markdown into `(heading_text, body_text)` pairs for each H2 / H3
+/// section. Body is everything from the heading line to (but not including)
+/// the next heading at any level.
+fn parse_md_sections(markdown: &str) -> Vec<(String, String)> {
     let arena = Arena::new();
     let opts = Options::default();
-    let root = parse_document(&arena, AUDIT_MARKDOWN, &opts);
-    let lines: Vec<&str> = AUDIT_MARKDOWN.lines().collect();
+    let root = parse_document(&arena, markdown, &opts);
+    let lines: Vec<&str> = markdown.lines().collect();
 
     fn collect<'a>(node: &'a AstNode<'a>, out: &mut Vec<(String, u8, usize)>) {
         if let NodeValue::Heading(h) = &node.data.borrow().value {
@@ -206,6 +221,31 @@ fn audit_sections() -> Vec<(String, String)> {
             .trim()
             .to_string();
         out.push((title.trim().to_string(), body));
+    }
+    out
+}
+
+/// Walk every `.md` file in `vendor/pineforge-docs/pages/` and yield section
+/// pairs for each. The walker keeps file ordering deterministic by sorting
+/// by path so the BM25 index is stable across builds.
+fn pages_sections() -> Vec<(String, String)> {
+    let mut files: Vec<_> = DOCS_PAGES.files().collect();
+    files.sort_by_key(|f| f.path());
+    let mut out = Vec::new();
+    for file in files {
+        if file
+            .path()
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|s| s.eq_ignore_ascii_case("md"))
+            != Some(true)
+        {
+            continue;
+        }
+        let Some(content) = file.contents_utf8() else {
+            continue;
+        };
+        out.extend(parse_md_sections(content));
     }
     out
 }
@@ -275,7 +315,7 @@ mod tests {
 
     #[test]
     fn audit_sections_parse() {
-        let s = audit_sections();
+        let s = parse_md_sections(AUDIT_MARKDOWN);
         assert!(
             s.len() >= 5,
             "expected several audit sections, got {}",
@@ -283,6 +323,28 @@ mod tests {
         );
         // Every section should have a non-empty title.
         assert!(s.iter().all(|(t, _)| !t.is_empty()));
+    }
+
+    #[test]
+    fn pages_sections_yield_multiple_files() {
+        let s = pages_sections();
+        assert!(
+            s.len() >= 30,
+            "expected dozens of page sections across 18 files, got {}",
+            s.len()
+        );
+    }
+
+    #[test]
+    fn docs_hit_appears_for_magnifier_query() {
+        let hits = query("magnifier", 25).expect("search must succeed");
+        assert!(
+            hits.iter().any(|h| h.kind == "docs"),
+            "expected a docs-kind hit for `magnifier`, got {:?}",
+            hits.iter()
+                .map(|h| (h.kind.as_str(), h.name.as_str()))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
