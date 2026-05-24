@@ -1,6 +1,6 @@
 use anyhow::{bail, Result};
 use clap::{Parser, Subcommand, ValueEnum};
-use pine_cli::{corpus, reference, search};
+use pine_cli::{corpus, reference, search, syntax};
 use std::io::IsTerminal;
 
 #[derive(Parser)]
@@ -100,8 +100,8 @@ fn main() -> Result<()> {
         Command::Lookup { name } => cmd_lookup(&name, format),
         Command::Search { query, limit } => cmd_search(&query, limit, format),
         Command::Validate { .. } => bail!("validate: not implemented yet"),
-        Command::Parse { .. } => bail!("parse: not implemented yet"),
-        Command::Tokens { .. } => bail!("tokens: not implemented yet"),
+        Command::Parse { code } => cmd_parse(&code, format),
+        Command::Tokens { code } => cmd_tokens(&code, format),
         Command::Behavior { .. } => bail!("behavior: not implemented yet"),
         Command::Probe { slug } => cmd_probe(&slug, format),
         Command::Probes { grep } => cmd_probes(grep.as_deref(), format),
@@ -234,6 +234,47 @@ fn cmd_probes(grep: Option<&str>, format: ResolvedFormat) -> Result<()> {
                     }
                     None => println!("{}", p.slug),
                 }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn cmd_parse(code: &str, format: ResolvedFormat) -> Result<()> {
+    let mut lexer = syntax::Lexer::new(code);
+    let tokens = lexer
+        .tokenize()
+        .map_err(|e| anyhow::anyhow!("lex error: {e}"))?;
+    let mut parser = syntax::Parser::new(tokens);
+    let statements = parser
+        .parse()
+        .map_err(|e| anyhow::anyhow!("parse error: {e}"))?;
+    let program = syntax::Program::new(statements);
+
+    match format {
+        ResolvedFormat::Json => {
+            println!("{}", serde_json::to_string(&program)?);
+        }
+        ResolvedFormat::Text => {
+            println!("{}", serde_json::to_string_pretty(&program)?);
+        }
+    }
+    Ok(())
+}
+
+fn cmd_tokens(code: &str, format: ResolvedFormat) -> Result<()> {
+    let mut lexer = syntax::Lexer::new(code);
+    let tokens = lexer
+        .tokenize()
+        .map_err(|e| anyhow::anyhow!("lex error: {e}"))?;
+
+    match format {
+        ResolvedFormat::Json => {
+            println!("{}", serde_json::to_string(&tokens)?);
+        }
+        ResolvedFormat::Text => {
+            for t in &tokens {
+                println!("{:>4}:{:<3}  {:?}  {:?}", t.line, t.column, t.typ, t.lexeme);
             }
         }
     }

@@ -1,0 +1,34 @@
+[
+  {
+    "VarDecl": {
+      "name": "myValue",
+      "type_annotation": null,
+      "initializer": {
+        "Literal": "Na"
+      },
+      "is_varip": false
+    }
+  },
+  {
+    "VarDecl": {
+      "name": "check",
+      "type_annotation": null,
+      "initializer": {
+        "Ternary": {
+          "condition": {
+            "Variable": "someCondition"
+          },
+          "then_expr": {
+            "Literal": "Na"
+          },
+          "else_expr": {
+            "Literal": {
+              "Number": 100.0
+            }
+          }
+        }
+      },
+      "is_varip": false
+    }
+  }
+]

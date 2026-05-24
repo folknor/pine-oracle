@@ -1,0 +1,44 @@
+[
+  {
+    "VarDecl": {
+      "name": "f",
+      "type_annotation": null,
+      "initializer": {
+        "Function": {
+          "params": [
+            {
+              "type_qualifier": "Const",
+              "type_annotation": "int",
+              "name": "x"
+            },
+            {
+              "type_annotation": "int",
+              "name": "y"
+            },
+            {
+              "type_qualifier": "Const",
+              "type_annotation": "string",
+              "name": "z"
+            }
+          ],
+          "body": [
+            {
+              "Expression": {
+                "Binary": {
+                  "left": {
+                    "Variable": "x"
+                  },
+                  "op": "Add",
+                  "right": {
+                    "Variable": "y"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "is_varip": false
+    }
+  }
+]

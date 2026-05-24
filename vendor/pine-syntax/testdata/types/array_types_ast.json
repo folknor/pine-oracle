@@ -1,0 +1,86 @@
+[
+  {
+    "VarDecl": {
+      "name": "numbers",
+      "type_annotation": "int[]",
+      "initializer": {
+        "Call": {
+          "callee": {
+            "MemberAccess": {
+              "object": {
+                "Variable": "array"
+              },
+              "member": "new_int"
+            }
+          },
+          "args": [
+            {
+              "Positional": {
+                "Literal": {
+                  "Number": 0.0
+                }
+              }
+            }
+          ]
+        }
+      },
+      "is_varip": false
+    }
+  },
+  {
+    "VarDecl": {
+      "name": "prices",
+      "type_annotation": "float[]",
+      "initializer": {
+        "Call": {
+          "callee": {
+            "MemberAccess": {
+              "object": {
+                "Variable": "array"
+              },
+              "member": "new_float"
+            }
+          },
+          "args": [
+            {
+              "Positional": {
+                "Literal": {
+                  "Number": 5.0
+                }
+              }
+            }
+          ]
+        }
+      },
+      "is_varip": false
+    }
+  },
+  {
+    "VarDecl": {
+      "name": "names",
+      "type_annotation": "string[]",
+      "initializer": {
+        "Call": {
+          "callee": {
+            "MemberAccess": {
+              "object": {
+                "Variable": "array"
+              },
+              "member": "new_string"
+            }
+          },
+          "args": [
+            {
+              "Positional": {
+                "Literal": {
+                  "Number": 10.0
+                }
+              }
+            }
+          ]
+        }
+      },
+      "is_varip": false
+    }
+  }
+]

@@ -1,0 +1,48 @@
+[
+  {
+    "VarDecl": {
+      "name": "x",
+      "type_annotation": null,
+      "initializer": {
+        "Literal": {
+          "Number": 0.5
+        }
+      },
+      "is_varip": false
+    }
+  },
+  {
+    "VarDecl": {
+      "name": "y",
+      "type_annotation": null,
+      "initializer": {
+        "Literal": {
+          "Number": 0.088
+        }
+      },
+      "is_varip": false
+    }
+  },
+  {
+    "VarDecl": {
+      "name": "z",
+      "type_annotation": null,
+      "initializer": {
+        "Binary": {
+          "left": {
+            "Literal": {
+              "Number": 1.0
+            }
+          },
+          "op": "Add",
+          "right": {
+            "Literal": {
+              "Number": 0.25
+            }
+          }
+        }
+      },
+      "is_varip": false
+    }
+  }
+]

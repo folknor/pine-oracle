@@ -1,0 +1,58 @@
+[
+  {
+    "VarDecl": {
+      "name": "name",
+      "type_annotation": "string",
+      "initializer": {
+        "Literal": {
+          "String": "test"
+        }
+      },
+      "is_varip": false
+    }
+  },
+  {
+    "VarDecl": {
+      "name": "count",
+      "type_annotation": "int",
+      "initializer": {
+        "Literal": {
+          "Number": 10.0
+        }
+      },
+      "is_varip": false
+    }
+  },
+  {
+    "VarDecl": {
+      "name": "price",
+      "type_annotation": "float",
+      "initializer": {
+        "Literal": {
+          "Number": 99.99
+        }
+      },
+      "is_varip": false
+    }
+  },
+  {
+    "VarDecl": {
+      "name": "label",
+      "type_annotation": "string",
+      "initializer": {
+        "Literal": "Na"
+      },
+      "is_varip": false
+    }
+  },
+  {
+    "VarDecl": {
+      "name": "value",
+      "type_annotation": "int",
+      "initializer": {
+        "Literal": "Na"
+      },
+      "is_varip": false
+    }
+  }
+]

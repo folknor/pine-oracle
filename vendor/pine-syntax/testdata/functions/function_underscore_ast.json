@@ -1,0 +1,35 @@
+[
+  {
+    "VarDecl": {
+      "name": "f_format",
+      "type_annotation": null,
+      "initializer": {
+        "Function": {
+          "params": [
+            {
+              "name": "_val"
+            }
+          ],
+          "body": [
+            {
+              "Expression": {
+                "Binary": {
+                  "left": {
+                    "Variable": "_val"
+                  },
+                  "op": "Mul",
+                  "right": {
+                    "Literal": {
+                      "Number": 2.0
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "is_varip": false
+    }
+  }
+]

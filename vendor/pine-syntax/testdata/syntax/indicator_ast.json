@@ -1,0 +1,184 @@
+[
+  {
+    "VarDecl": {
+      "name": "lengthInput",
+      "type_annotation": "int",
+      "initializer": {
+        "Call": {
+          "callee": {
+            "MemberAccess": {
+              "object": {
+                "Variable": "input"
+              },
+              "member": "int"
+            }
+          },
+          "args": [
+            {
+              "Positional": {
+                "Literal": {
+                  "Number": 10.0
+                }
+              }
+            },
+            {
+              "Positional": {
+                "Literal": {
+                  "String": "Length"
+                }
+              }
+            },
+            {
+              "Positional": {
+                "Literal": {
+                  "Number": 1.0
+                }
+              }
+            }
+          ]
+        }
+      },
+      "is_varip": false
+    }
+  },
+  {
+    "VarDecl": {
+      "name": "stochastic",
+      "type_annotation": "float",
+      "initializer": {
+        "Call": {
+          "callee": {
+            "MemberAccess": {
+              "object": {
+                "Variable": "ta"
+              },
+              "member": "stoch"
+            }
+          },
+          "args": [
+            {
+              "Positional": {
+                "Variable": "close"
+              }
+            },
+            {
+              "Positional": {
+                "Variable": "high"
+              }
+            },
+            {
+              "Positional": {
+                "Variable": "low"
+              }
+            },
+            {
+              "Positional": {
+                "Variable": "lengthInput"
+              }
+            }
+          ]
+        }
+      },
+      "is_varip": false
+    }
+  },
+  {
+    "Expression": {
+      "Call": {
+        "callee": {
+          "Variable": "plot"
+        },
+        "args": [
+          {
+            "Positional": {
+              "Variable": "stochastic"
+            }
+          },
+          {
+            "Positional": {
+              "Literal": {
+                "String": "Stochastic %K"
+              }
+            }
+          },
+          {
+            "Positional": {
+              "MemberAccess": {
+                "object": {
+                  "Variable": "color"
+                },
+                "member": "teal"
+              }
+            }
+          },
+          {
+            "Positional": {
+              "Literal": {
+                "Number": 3.0
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  {
+    "Expression": {
+      "Call": {
+        "callee": {
+          "Variable": "bgcolor"
+        },
+        "args": [
+          {
+            "Positional": {
+              "Ternary": {
+                "condition": {
+                  "MemberAccess": {
+                    "object": {
+                      "Variable": "barstate"
+                    },
+                    "member": "isrealtime"
+                  }
+                },
+                "then_expr": {
+                  "Call": {
+                    "callee": {
+                      "MemberAccess": {
+                        "object": {
+                          "Variable": "color"
+                        },
+                        "member": "new"
+                      }
+                    },
+                    "args": [
+                      {
+                        "Positional": {
+                          "MemberAccess": {
+                            "object": {
+                              "Variable": "color"
+                            },
+                            "member": "purple"
+                          }
+                        }
+                      },
+                      {
+                        "Positional": {
+                          "Literal": {
+                            "Number": 80.0
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                "else_expr": {
+                  "Literal": "Na"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+]

@@ -1,0 +1,127 @@
+[
+  {
+    "TupleAssignment": {
+      "names": [
+        "a",
+        "b"
+      ],
+      "value": {
+        "Call": {
+          "callee": {
+            "Variable": "macd"
+          },
+          "args": [
+            {
+              "Positional": {
+                "Variable": "close"
+              }
+            },
+            {
+              "Positional": {
+                "Literal": {
+                  "Number": 12.0
+                }
+              }
+            },
+            {
+              "Positional": {
+                "Literal": {
+                  "Number": 26.0
+                }
+              }
+            },
+            {
+              "Positional": {
+                "Literal": {
+                  "Number": 9.0
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "TupleAssignment": {
+      "names": [
+        "x",
+        "y",
+        "z"
+      ],
+      "value": {
+        "Call": {
+          "callee": {
+            "Variable": "func"
+          },
+          "args": [
+            {
+              "Positional": {
+                "Literal": {
+                  "Number": 1.0
+                }
+              }
+            },
+            {
+              "Positional": {
+                "Literal": {
+                  "Number": 2.0
+                }
+              }
+            },
+            {
+              "Positional": {
+                "Literal": {
+                  "Number": 3.0
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "VarDecl": {
+      "name": "getValue",
+      "type_annotation": null,
+      "initializer": {
+        "Function": {
+          "params": [],
+          "body": [
+            {
+              "TupleAssignment": {
+                "names": [
+                  "first",
+                  "second"
+                ],
+                "value": {
+                  "Call": {
+                    "callee": {
+                      "Variable": "calculate"
+                    },
+                    "args": []
+                  }
+                }
+              }
+            },
+            {
+              "Expression": {
+                "Binary": {
+                  "left": {
+                    "Variable": "first"
+                  },
+                  "op": "Add",
+                  "right": {
+                    "Variable": "second"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "is_varip": false
+    }
+  }
+]

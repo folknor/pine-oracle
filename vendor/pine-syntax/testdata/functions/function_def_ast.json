@@ -1,0 +1,122 @@
+[
+  {
+    "VarDecl": {
+      "name": "double",
+      "type_annotation": null,
+      "initializer": {
+        "Function": {
+          "params": [
+            {
+              "name": "x"
+            }
+          ],
+          "body": [
+            {
+              "Expression": {
+                "Binary": {
+                  "left": {
+                    "Variable": "x"
+                  },
+                  "op": "Mul",
+                  "right": {
+                    "Literal": {
+                      "Number": 2.0
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "is_varip": false
+    }
+  },
+  {
+    "VarDecl": {
+      "name": "add",
+      "type_annotation": null,
+      "initializer": {
+        "Function": {
+          "params": [
+            {
+              "name": "a"
+            },
+            {
+              "name": "b"
+            }
+          ],
+          "body": [
+            {
+              "Expression": {
+                "Binary": {
+                  "left": {
+                    "Variable": "a"
+                  },
+                  "op": "Add",
+                  "right": {
+                    "Variable": "b"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "is_varip": false
+    }
+  },
+  {
+    "VarDecl": {
+      "name": "result",
+      "type_annotation": null,
+      "initializer": {
+        "Call": {
+          "callee": {
+            "Variable": "double"
+          },
+          "args": [
+            {
+              "Positional": {
+                "Literal": {
+                  "Number": 5.0
+                }
+              }
+            }
+          ]
+        }
+      },
+      "is_varip": false
+    }
+  },
+  {
+    "VarDecl": {
+      "name": "sum",
+      "type_annotation": null,
+      "initializer": {
+        "Call": {
+          "callee": {
+            "Variable": "add"
+          },
+          "args": [
+            {
+              "Positional": {
+                "Literal": {
+                  "Number": 3.0
+                }
+              }
+            },
+            {
+              "Positional": {
+                "Literal": {
+                  "Number": 4.0
+                }
+              }
+            }
+          ]
+        }
+      },
+      "is_varip": false
+    }
+  }
+]

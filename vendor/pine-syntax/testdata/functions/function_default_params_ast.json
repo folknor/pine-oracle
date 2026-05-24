@@ -1,0 +1,152 @@
+[
+  {
+    "VarDecl": {
+      "name": "add",
+      "type_annotation": null,
+      "initializer": {
+        "Function": {
+          "params": [
+            {
+              "name": "a"
+            },
+            {
+              "name": "b",
+              "default_value": {
+                "Literal": {
+                  "Number": 10.0
+                }
+              }
+            }
+          ],
+          "body": [
+            {
+              "Expression": {
+                "Binary": {
+                  "left": {
+                    "Variable": "a"
+                  },
+                  "op": "Add",
+                  "right": {
+                    "Variable": "b"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "is_varip": false
+    }
+  },
+  {
+    "VarDecl": {
+      "name": "greet",
+      "type_annotation": null,
+      "initializer": {
+        "Function": {
+          "params": [
+            {
+              "name": "name"
+            },
+            {
+              "name": "greeting",
+              "default_value": {
+                "Literal": {
+                  "String": "Hello"
+                }
+              }
+            },
+            {
+              "name": "punctuation",
+              "default_value": {
+                "Literal": {
+                  "String": "!"
+                }
+              }
+            }
+          ],
+          "body": [
+            {
+              "Expression": {
+                "Binary": {
+                  "left": {
+                    "Binary": {
+                      "left": {
+                        "Binary": {
+                          "left": {
+                            "Variable": "greeting"
+                          },
+                          "op": "Add",
+                          "right": {
+                            "Literal": {
+                              "String": " "
+                            }
+                          }
+                        }
+                      },
+                      "op": "Add",
+                      "right": {
+                        "Variable": "name"
+                      }
+                    }
+                  },
+                  "op": "Add",
+                  "right": {
+                    "Variable": "punctuation"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "is_varip": false
+    }
+  },
+  {
+    "VarDecl": {
+      "name": "result",
+      "type_annotation": null,
+      "initializer": {
+        "Call": {
+          "callee": {
+            "Variable": "add"
+          },
+          "args": [
+            {
+              "Positional": {
+                "Literal": {
+                  "Number": 5.0
+                }
+              }
+            }
+          ]
+        }
+      },
+      "is_varip": false
+    }
+  },
+  {
+    "VarDecl": {
+      "name": "msg",
+      "type_annotation": null,
+      "initializer": {
+        "Call": {
+          "callee": {
+            "Variable": "greet"
+          },
+          "args": [
+            {
+              "Positional": {
+                "Literal": {
+                  "String": "World"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "is_varip": false
+    }
+  }
+]

@@ -1,0 +1,82 @@
+[
+  {
+    "If": {
+      "condition": {
+        "Binary": {
+          "left": {
+            "Variable": "x"
+          },
+          "op": "Greater",
+          "right": {
+            "Literal": {
+              "Number": 0.0
+            }
+          }
+        }
+      },
+      "then_branch": [
+        {
+          "VarDecl": {
+            "name": "a",
+            "type_annotation": null,
+            "initializer": {
+              "Literal": {
+                "Number": 1.0
+              }
+            },
+            "is_varip": false
+          }
+        },
+        {
+          "VarDecl": {
+            "name": "b",
+            "type_annotation": null,
+            "initializer": {
+              "Literal": {
+                "Number": 2.0
+              }
+            },
+            "is_varip": false
+          }
+        }
+      ],
+      "else_if_branches": [],
+      "else_branch": [
+        {
+          "VarDecl": {
+            "name": "a",
+            "type_annotation": null,
+            "initializer": {
+              "Unary": {
+                "op": "Neg",
+                "expr": {
+                  "Literal": {
+                    "Number": 1.0
+                  }
+                }
+              }
+            },
+            "is_varip": false
+          }
+        },
+        {
+          "VarDecl": {
+            "name": "b",
+            "type_annotation": null,
+            "initializer": {
+              "Unary": {
+                "op": "Neg",
+                "expr": {
+                  "Literal": {
+                    "Number": 2.0
+                  }
+                }
+              }
+            },
+            "is_varip": false
+          }
+        }
+      ]
+    }
+  }
+]

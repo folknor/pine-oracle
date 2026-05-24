@@ -1,0 +1,23 @@
+Pine v6 lexer, AST, and parser lifted from Pinecone
+=====================================================
+
+Source:  https://github.com/<pinecone-upstream>/pinecone
+Paths:   crates/pine-lexer/src/lib.rs
+         crates/pine-ast/src/lib.rs
+         crates/pine-parser/src/lib.rs
+License: Mozilla Public License 2.0 (see LICENSE in this directory)
+
+The lifted files live under `src/syntax/{ast,lexer,parser}.rs` with a
+per-file `SPDX-License-Identifier: MPL-2.0` header pointing back to
+the upstream.
+
+Changes from upstream:
+  - Crate imports rewritten to in-tree module paths
+    (`use super::ast::*` / `use super::lexer::*`).
+  - The standalone `bin/pine-parser.rs` is not lifted; pine-oracle
+    surfaces this functionality via `pine parse` / `pine tokens` in
+    `src/main.rs`.
+  - Error types use the original `thiserror`-derived enums; callers
+    on the pine-oracle boundary convert to `anyhow::Result`.
+
+Snapshot date: see git log for the introducing commit.

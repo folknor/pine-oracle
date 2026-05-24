@@ -1,0 +1,39 @@
+[
+  {
+    "VarDecl": {
+      "name": "l",
+      "type_annotation": "label",
+      "initializer": {
+        "Call": {
+          "callee": {
+            "MemberAccess": {
+              "object": {
+                "Variable": "label"
+              },
+              "member": "new"
+            }
+          },
+          "args": [
+            {
+              "Named": {
+                "name": "x",
+                "value": {
+                  "Variable": "bar_index"
+                }
+              }
+            },
+            {
+              "Named": {
+                "name": "y",
+                "value": {
+                  "Literal": "Na"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "is_varip": false
+    }
+  }
+]

@@ -901,6 +901,8 @@ dependencies = [
  "serde",
  "serde_json",
  "tantivy",
+ "thiserror 1.0.69",
+ "walkdir",
 ]
 
 [[package]]

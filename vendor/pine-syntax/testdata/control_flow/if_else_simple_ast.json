@@ -1,0 +1,52 @@
+[
+  {
+    "If": {
+      "condition": {
+        "Literal": {
+          "Bool": true
+        }
+      },
+      "then_branch": [
+        {
+          "VarDecl": {
+            "name": "x",
+            "type_annotation": null,
+            "initializer": {
+              "Literal": {
+                "Number": 1.0
+              }
+            },
+            "is_varip": false
+          }
+        }
+      ],
+      "else_if_branches": [],
+      "else_branch": [
+        {
+          "VarDecl": {
+            "name": "y",
+            "type_annotation": null,
+            "initializer": {
+              "Literal": {
+                "Number": 2.0
+              }
+            },
+            "is_varip": false
+          }
+        }
+      ]
+    }
+  },
+  {
+    "VarDecl": {
+      "name": "z",
+      "type_annotation": null,
+      "initializer": {
+        "Literal": {
+          "Number": 3.0
+        }
+      },
+      "is_varip": false
+    }
+  }
+]
