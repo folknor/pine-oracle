@@ -47,7 +47,7 @@ Current vendors:
 - `vendor/pine-reference/`: pinecone's `crates/pine-reference/spec/v6.md` (MPL-2.0). Local mod: U+00A0 NO-BREAK SPACE rewritten to U+0020 SPACE for the gremlin scan. See `vendor/pine-reference/NOTICE`.
 - `vendor/pineforge-corpus/`: <https://github.com/fullpass-4pass/pineforge-corpus> (Apache-2.0), pruned to the subset baked into the binary. See `vendor/pineforge-corpus/VENDORING_NOTES.md` for kept / dropped manifest and refresh procedure. Refresh via `scripts/prune-vendored-corpus.sh`.
 - `vendor/pine-data/v6/`: structured JSON snapshots from `../pine-tools/pine-data/v6/` (MIT, folknor owns pine-tools). Five files: `functions.json`, `variables.json`, `constants.json`, `keywords.json`, `function-behavior.json`. Refresh by re-running pine-tools' `pnpm run scrape` + `pnpm run discover:behavior`, then copying the JSON files in.
-- `vendor/pineforge-docs/`: PineForge's `docs/pine_v6_audit_master.md` (Apache-2.0). 38 critical + ~62 minor known divergences between TV's published reference and the actual codegen/runtime behaviour. Local mod: em/en-dashes rewritten to ASCII hyphens for the gremlin scan; see `vendor/pineforge-docs/NOTICE`.
+- `vendor/pineforge-docs/`: PineForge's `docs/pine_v6_audit_master.md` (38 critical + ~62 minor known divergences) + `docs/pages/*` (18 narrative explainers covering magnifier, mtf, timeframes, lifecycle, report-schema, abi-stability, etc.). All Apache-2.0. Local mod: em/en-dashes / NBSPs rewritten to ASCII for the gremlin scan; see `vendor/pineforge-docs/NOTICE`.
 
 ## Rules
 
@@ -115,5 +115,5 @@ Single-crate workspace, so `-p` is unnecessary.
 | `pine validate --strict` | done as a TV-broker yes/no oracle. POSTs as multipart/form-data; `success` is trustworthy, the diagnostic prose is non-actionable (first error only, breaks on trailing whitespace, wrong line/column). Use after the local tier reports clean - not for iterative debugging. |
 | `pine behavior <name>` | done (functions / variables / constants / keywords from baked pine-tools JSON) |
 | `pine diff <probe> <trades.csv>` | done v1 (verify_corpus port: align + p90 + tier; no interior trim until OHLCV bake) |
-| `pine version` | done (binary version + reference entry/category counts + corpus probe/summary counts) |
+| `pine version` | done (binary version + reference / corpus / pineforge-docs bake counts) |
 | `pine indicator --strict` | TODO (per-bar parity; needs piners' engine + OHLCV bake) |

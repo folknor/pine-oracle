@@ -534,6 +534,8 @@ fn cmd_version(format: ResolvedFormat) -> Result<()> {
     let probe_summary_count = corpus::list_probes(None)
         .map(|v| v.iter().filter(|p| p.summary.is_some()).count())
         .unwrap_or(0);
+    let audit_sections = search::audit_section_count();
+    let docs_sections = search::docs_section_count();
     match format {
         ResolvedFormat::Json => {
             print_json(&serde_json::json!({
@@ -546,17 +548,24 @@ fn cmd_version(format: ResolvedFormat) -> Result<()> {
                     "probe_count": probe_count,
                     "probe_summary_count": probe_summary_count,
                 },
+                "pineforge_docs": {
+                    "audit_sections": audit_sections,
+                    "narrative_sections": docs_sections,
+                },
             }))?;
         }
         ResolvedFormat::Text => {
             println!("pine-cli {binary}");
             println!(
-                "v6 reference: {reference_entry_count} entries across {} categories ({})",
+                "v6 reference:   {reference_entry_count} entries across {} categories ({})",
                 categories.len(),
                 categories.join(", ")
             );
             println!(
-                "corpus:       {probe_count} baked probes ({probe_summary_count} with author summaries)"
+                "corpus:         {probe_count} baked probes ({probe_summary_count} with author summaries)"
+            );
+            println!(
+                "pineforge docs: {audit_sections} audit sections + {docs_sections} narrative sections"
             );
         }
     }

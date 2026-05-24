@@ -175,6 +175,17 @@ fn first_text(doc: &TantivyDocument, field: Field) -> Option<String> {
         .and_then(|v| v.as_str().map(|s| s.to_string()))
 }
 
+/// Count of indexed sections in the vendored audit doc. Cheap accessor for
+/// `pine version`; re-parses the markdown each call (~sub-millisecond).
+pub fn audit_section_count() -> usize {
+    parse_md_sections(AUDIT_MARKDOWN).len()
+}
+
+/// Count of indexed sections across the vendored narrative pages.
+pub fn docs_section_count() -> usize {
+    pages_sections().len()
+}
+
 /// Split markdown into `(heading_text, body_text)` pairs for each H2 / H3
 /// section. Body is everything from the heading line to (but not including)
 /// the next heading at any level.
