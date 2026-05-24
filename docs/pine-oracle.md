@@ -1,0 +1,331 @@
+# The pine oracle
+
+A systemwide CLI tool that answers every Pine v6 question we currently answer from memory. Lives in its own Rust repo `pine-oracle/` -- not in piners, not in pine-tools. Installed once per machine. Queried by any agent in any session in any Pine-adjacent project.
+
+## Problem
+
+Across review sessions, claims about Pine v6 semantics drift. A reviewer in session N says "TV's `array.mode` returns the smallest value on ties"; a reviewer three sessions later says "TV returns the first-encountered value." Neither is wrong from memory; both are wrong from evidence. There is no single command an agent can run to ask the canonical source.
+
+Two canonical sources exist:
+
+- **pine-tools** (`../pine-tools/`) -- scraped TV docs: function signatures, types, polymorphism, behavior flags, type-coercion rules, the parser/validator itself.
+- **The corpus** (`corpus/validation/`) -- 228 Pine strategies cross-validated trade-for-trade against TradingView's broker emulator. The executable parity oracle. See `docs/corpus.md`.
+
+Together they cover almost every Pine claim a reviewer can make. But pine-tools is a pnpm/node project (slow startup, brittle dependency graph), the corpus is a directory of .pine + .csv files with no query layer, and neither is reachable from a piners shell without remembering the right incantation.
+
+The fix: a single pre-compiled binary that bundles both, queryable in one bash call, zero setup per session.
+
+## Why its own repo (not piners, not pine-tools)
+
+- **Reused across projects.** piners is one consumer. pine-tools dogfooding, third-party Pine work, future pine-* tools all want the same lookups. Putting it inside piners would signal "piners helper" even though it isn't; putting it inside pine-tools (TypeScript LSP) would force a Rust crate into a TS monorepo's toolchain.
+- **No piners build dependency.** Agents on a fresh piners checkout should not pay a 3-minute compile to ask "is `math.max` documented as na-propagating".
+- **No language-mix friction.** pine-tools is TS; the oracle is Rust. Each repo stays language-coherent. Cross-repo coupling is one `pnpm run export:json` step in pine-tools producing JSON the oracle vendors at build time.
+- **Versioned independently.** When TV publishes a v6.2, the oracle bumps; every consumer picks it up via one binary upgrade. piners' CLAUDE.md does not change.
+- **Same answer in every context.** A piners agent and a pine-tools agent asking the same question get the same answer, byte for byte. Reproducibility is the whole point.
+- **Extraction-cost avoided.** Starting in piners and extracting later would mean git history rewrite, import-path churn, and dual maintenance during cutover. Repo setup is one afternoon; extraction is a week.
+
+## Naming
+
+Working name: `pine`. The only meaningful conflict is the legacy Pine email client (mostly extinct; survives as `alpine` in some distros). Fallbacks if conflict matters: `pinec`, `pine-oracle`, `pq` (pine query). Pick at install time; the doc uses `pine`.
+
+## Architecture
+
+Single binary, four layers.
+
+### 1. Vendored pine-data (compiled into the binary)
+
+Two sources, merged at build time:
+
+- **Primary: Pinecone's `crates/pine-reference/spec/v6.md`** -- 918 KB / 24,847 lines / **941 entries**, one per `### name`, uniform sub-sections (`Syntax`, `Arguments`, `Example`, `Type`, `Remarks`, `See also`). MPL-2.0 vendored copy of TradingView's published v6 reference. The single highest-ROI artifact in the research corpus. Embed via `include_str!`, parse once with `comrak` at startup (cached), produce the lookup table and BM25 documents.
+- **Secondary: pine-tools' `pine-data/v6/*.ts`** -- consumed as JSON. The normalization belongs upstream in pine-tools (a new `pnpm run export:json` step emitting `pine-data/v6/*.json` alongside the `.ts`), not in the oracle's build -- vendoring `.ts` would force a node toolchain into the oracle's pipeline and defeat the "pure Rust binary" goal. Adds polymorphism markers (`function-behavior.json`), TextMate grammar, structured signature metadata that complements v6.md's prose.
+
+About 1-2 MB combined; trivial to compile in.
+
+### 2. BM25 index (compiled into the binary)
+
+Built at `pine` build time over:
+
+- pine-data function descriptions (per `### name` block in v6.md)
+- PineForge's `docs/pine_v6_audit_master.md` -- 38 critical + ~62 minor known TV-vs-PineForge divergences. Exactly what `pine behavior <name>` should return for "documented divergence" queries.
+- PineForge's `docs/pages/*.md` -- 16 narrative docs (magnifier, mtf, timeframes, report-schema, lifecycle, abi-stability). High-ROI for "explain X" queries.
+- PineForge's `pineforge.h` doxygen blocks -- broker/strategy/magnifier semantic enumerations.
+- Pinecone's `tests/testdata/` -- 120 atomic `.pine` files with embedded `// Expected output:` comments. Per-feature behavior substrate.
+- per-probe `strategy.pine` source from the corpus
+- per-probe summaries from `docs/probe-summaries.md` (currently 21/228; see "Per-probe descriptions" below)
+- PineTS-derived Pine quirk patterns, paraphrased clean-room from `research/PineTS/src/namespaces/README.md` (the seven enumerated patterns: auto-gen indices, OO collections, `param()` shim, `__value` rewrite, epsilon equality, dual-getter properties, per-call-site state IDs).
+
+Stored as a `tantivy` index serialized into the binary or sidecar files. Queryable in <10 ms.
+
+### 3. Corpus loader (filesystem)
+
+The corpus is too large to compile in (~5 MB of CSVs + .pine). Located via env var `PINE_CORPUS` or auto-discovered at `$XDG_DATA_HOME/pine/corpus/` (default `~/.local/share/pine/corpus/`). One-time `pine corpus install` fetches the PineForge submodule.
+
+### 4. Validator backend
+
+Two tiers:
+
+- **Local tier.** Uses a Rust port of pine-tools' analyzer, OR transpiles pine-tools' TS to WASM at build time, OR ships a bundled Node runtime. Pick before starting (see Open Questions). Returns TV-shaped typed diagnostics in <50 ms.
+- **Strict tier.** Two strict modes:
+  - `pine validate --strict` shells to TradingView's real pine-lint API for parser/type diagnostics. Slow (network), authoritative, used only for disputed cases. Caches by `sha256(code)`. **Lift opportunity:** pine-tools' `debug:diff` command already has a working pine-lint client (auth handling, request shape, response parsing). Port that client to Rust, or have the oracle shell to `pnpm run debug:diff` for this one subcommand, rather than reinventing the API integration.
+  - `pine indicator --strict <probe>` runs an indicator against fixture bars and diffs per-bar values against a vendored baseline using the PineTS-derived `.expect.json` schema (see "Strict-mode indicator test format" below). Different oracle tier from the corpus -- corpus is trade-list parity, this is per-bar indicator parity.
+
+## Vendoring inventory
+
+What to pull from where, in priority order. The oracle's license is chosen to be compatible with whatever we vendor (MPL-2.0 or Apache-2.0 are the natural umbrella choices; AGPL is unnecessary because we paraphrase the AGPL sources rather than copy them).
+
+| # | Artifact | Source | License | Use | Effort |
+|---|---|---|---|---|---|
+| 1 | `spec/v6.md` (941 reference entries) | `research/pinecone/crates/pine-reference/` | MPL-2.0 | Primary BM25 substrate + lookup table | S |
+| 2 | Markdown query layer (~250 LOC) | `research/pinecone/crates/pine-reference/src/lib.rs:60-203` + `bin/main.rs` | MPL-2.0 | MVP `pine lookup` backend before BM25 lands | S |
+| 3 | 21 probe summaries harvested from engine comments | `research/pineforge-engine/src/engine_*.cpp` + tests | Apache-2.0 | Per-probe BM25 substrate; see `docs/probe-summaries.md` | Done (raw); polish + upstream pending |
+| 4 | `docs/pine_v6_audit_master.md` (38 critical + ~62 minor divergences) | `research/pineforge-engine/` | Apache-2.0 | `pine behavior <name>` "known divergence" payload | S |
+| 5 | `docs/pages/*.md` (16 narrative docs) | `research/pineforge-engine/` | Apache-2.0 | BM25 substrate for "explain X" queries | S |
+| 6 | `pineforge.h` (393 lines, doxygen-rich) | `research/pineforge-engine/include/pineforge/` | Apache-2.0 | Broker / strategy / magnifier semantic enumerations | S |
+| 7 | 120 runtime golden fixtures | `research/pinecone/tests/testdata/` | MPL-2.0 | `pine behavior <feature>` per-feature substrate | S |
+| 8 | 46 parser golden fixtures | `research/pinecone/crates/pine-parser/testdata/` | MPL-2.0 | `pine parse` validator corpus | S |
+| 9 | Vendored TV docs scraper (50 LOC) | `research/pinecone/crates/pine-reference/src/lib.rs:9-58` | MPL-2.0 | Refresh v6.md snapshot when TV publishes updates | S |
+| 10 | `scripts/verify_corpus.py` (26.1 KB Python) | `research/pineforge-engine/` | Apache-2.0 | Port to Rust for `pine diff <probe> <trades.csv>` tier classification | M |
+| 11 | Seven Pine quirk patterns (paraphrased) | `research/PineTS/src/namespaces/README.md` | AGPL paraphrase (clean-room) | BM25 substrate for "how does Pine handle X" | S |
+| 12 | Namespace enumeration (KNOWN_NAMESPACES, FACTORY_METHODS, etc.) | `research/PineTS/src/transpiler/settings.ts` | Not copyrightable (facts) | Structured data for `pine namespaces` / `pine factories` | S |
+| 13 | `.pine.ts` + `.expect.json` compat-test format | `research/PineTS/tests/compatibility/` | Format only (data not copyrightable) | Schema for `pine indicator --strict` | M |
+
+PineForge's Python verifier (`scripts/verify_corpus.py`) is the canonical implementation of trade-list alignment + tiering. Re-implement in Rust for native integration; the algorithm is documented in `docs/corpus.md` and the Python source.
+
+### What we don't pull from pine-tools
+
+Explicit exclusions so a future reader doesn't assume these are in scope:
+
+- **The TypeScript parser / lexer / type-checker.** piners-syntax is our own Rust parser; the oracle uses it for `pine parse`, `pine tokens`, and local-tier `pine validate`. Lifting pine-tools' parser would force a node runtime into the oracle and diverge our validator behavior from piners' own runtime behavior. Dogfood instead.
+- **The LSP server (`packages/lsp/bin/pine-lsp.js`).** The oracle is a CLI for one-shot queries, not a long-lived editor backend.
+- **The MCP server (`packages/mcp/bin/pine-mcp.js`).** The oracle CLI is itself the integration surface; we don't want a server-of-servers.
+- **The VS Code extension (`packages/vscode/`).** Out of scope entirely.
+- **`pnpm run discover:behavior` runtime invocation.** The output (`function-behavior.json`) is vendored; we don't re-derive it from the oracle.
+
+The data pipeline (`crawl`, `scrape`, `generate`, `discover:behavior`) stays in pine-tools as the upstream source of truth for refreshing pine-data. The oracle consumes the generated artifacts but does not run the pipeline.
+
+## MVP path: ship `pine lookup` before BM25
+
+Pinecone has a working ~250-LOC markdown query layer at `crates/pine-reference/src/lib.rs:60-203` plus `bin/main.rs`. It parses `spec/v6.md` with `comrak`, splits on level-2 / level-3 boundaries, supports exact-match and prefix search, and runs as a CLI today.
+
+MVP for `pine`: lift this verbatim (MPL-2.0, file-level copyleft, add SPDX header), wrap in our subcommand surface, add JSON output. That gives us `pine lookup <name>` and `pine search <prefix>` for the entire 941-entry v6 reference on day one. BM25 with `tantivy` plus the supplementary indexed material (PineForge divergences, PineTS patterns, probe summaries) is the v2.
+
+Skipping BM25 for v1 also defers the question of how to ship the index (in-binary blob vs sidecar file vs build-on-first-use).
+
+## Subcommands
+
+```
+pine lookup <name>              function/constant/var details
+pine validate <code>            type errors, syntax errors, behavior warnings
+pine validate --strict <code>   diff our validator against TV's pine-lint
+pine parse <code>               AST as JSON
+pine tokens <code>              lexer tokens with line/indent
+pine search <query>             BM25 across all sources, ranked
+pine behavior <name>            polymorphism, side-effects, series-vs-simple, na-propagation
+pine probe <slug>               probe contents: strategy.pine + tv_trades.csv + summary
+pine probes                     list all probes
+pine probes --feature <flag>    list probes that exercise a feature (pyramiding, magnifier, etc.)
+pine probes --grep <text>       list probes whose summary matches text
+pine diff <probe> <trades.csv>  tier-classify a piners trade list against the probe's tv_trades
+pine corpus install             fetch PineForge corpus into XDG data dir
+pine corpus update              git pull the corpus
+pine version                    pine-data snapshot date + corpus revision + binary version
+```
+
+Global flags:
+
+- `--format json|text` (default: `text` for tty, `json` for pipes)
+- `--no-color`
+- `--quiet` (suppress headers, just return the data)
+
+## Output format
+
+Every subcommand emits stable JSON under `--format json`. Agents parse in one read. Example for `lookup`:
+
+```json
+{
+  "name": "math.max",
+  "kind": "function",
+  "overloads": [
+    {
+      "parameters": [
+        {"name": "number0", "type": "series<int|float>"},
+        {"name": "number1", "type": "series<int|float>"}
+      ],
+      "return_type": "series<int|float>"
+    }
+  ],
+  "behavior": {
+    "na_propagation": "yes",
+    "polymorphic": false,
+    "series_or_simple": "both",
+    "variadic": true
+  },
+  "source": "tradingview-docs",
+  "snapshot_date": "2026-04-12"
+}
+```
+
+Schema versioning: every JSON payload carries `"schema_version": N`. Bumps when output shape changes. Agents pin a minimum version.
+
+## Per-probe descriptions: the BM25 unlock
+
+The corpus has no human-readable per-probe descriptions today. `strategy.pine` is the only text per probe, and raw Pine is poor BM25 substrate (keywords overlap, function names dominate, intent is opaque).
+
+Adding `corpus/validation/<NN-slug>/probe.md` (1-3 sentences, "what Pine semantic does this probe exercise") is the single biggest oracle win. Shifts the corpus from "228 .pine files BM25 can barely use" to "228 searchable forensic cases".
+
+### Current status: 21/228
+
+`docs/probe-summaries.md` contains harvested summaries for 21 probes, derived from PineForge's engine source comments (Apache-2.0 attributed). These concentrate on bug-bearing edges -- exactly the probes a reviewer is most likely to need explained. Probes covered: 52, 54, 62, 63, 72, 80, 80-87 group, 83, 92, 93, 95, 96, 97/97a/97b, plus magnifier-dist-probe-01..08b, ies-probe-08, parity-probe-03..06, oca-three-way-probe-02, typed-matrix-probe-01-bool-regime-mask, anomaly-equity-mirror.
+
+### Remaining ~207
+
+Two paths, not mutually exclusive:
+
+- **LLM pass.** Feed each `strategy.pine` to a model with prompt "in 2 sentences, what Pine v6 semantic does this probe exercise". Commit output to `docs/probe-summaries.md`. Human-review suspect ones.
+- **Pattern-match against `docs/pine_v6_audit_master.md`** -- some probes exercise the divergences PineForge already documented. Link probe -> divergence-class in the summary.
+
+Land descriptions upstream in PineForge if possible (every consumer benefits). Fork piners-side if not.
+
+### Renumbering disambiguation
+
+Engine source comments reference probes by old numbers (52, 62, 80, 83, 92, 93, 95-97). The published corpus uses topical slugs (`validation/97-tp-sl-gap-reversal-oca`). Same number, different meanings. The oracle should resolve both: `pine probe 97` returns the published slug; `pine probe 97 --engine-history` returns the engine-source-cited probe with its bug context.
+
+## Strict-mode indicator test format
+
+Adopted from PineTS's `.pine.ts` + `.expect.json` compatibility-test architecture (data format only; AGPL implementation is paraphrased clean-room).
+
+Per-indicator fixture layout:
+
+```
+indicators/<slug>/
+  source.pine        # Pine v6 indicator source
+  bars.json          # OHLCV fixture; typically BTCUSDC daily 2025-01-01..2025-11-20 cited window
+  expect.json        # per-bar expected outputs, with custom NaN/Infinity tokens
+  metadata.json      # which TV chart version was used to generate the baseline, snapshot date
+```
+
+`expect.json` schema:
+
+```json
+{
+  "schema_version": 1,
+  "indicator_slug": "ema-cross",
+  "outputs": {
+    "ema_fast": [12.3, 12.4, "__NaN__", 12.6],
+    "ema_slow": ["__undefined__", 11.9, 12.0, 12.1],
+    "signal":   [false, false, true, false]
+  },
+  "test_range": {
+    "start": "2025-10-01T00:00:00Z",
+    "end":   "2025-11-20T00:00:00Z"
+  }
+}
+```
+
+Custom value tokens:
+
+| Token | Pine value |
+|---|---|
+| `"__NaN__"` | `na` (NaN float) |
+| `"__Infinity__"` | `+inf` |
+| `"__-Infinity__"` | `-inf` |
+| `"__undefined__"` | unset / before warmup |
+
+`pine indicator --strict <slug>` runs `source.pine` through piners' engine against `bars.json`, serializes outputs with the same token convention, diffs against `expect.json`. Discrepancy report cites bar index + output name + expected vs actual.
+
+Baselines are regenerated by running the indicator on TV (manual paste + log capture, similar to the PRNG fixture workflow in `docs/prng-parity.md`). `metadata.json` pins the TV version + date so regenerated baselines are reproducible.
+
+## Installation
+
+Three paths, all systemwide:
+
+- `cargo install pine-cli` (binary name `pine`)
+- `brew install <tap>/pine/pine` (Homebrew tap, tap name TBD)
+- Manual `git clone && cargo install --path .`
+
+First run prompts:
+
+```
+$ pine lookup math.max
+Corpus not found at $XDG_DATA_HOME/pine/corpus/. Install now? [Y/n]
+```
+
+`pine corpus install` clones PineForge corpus, caches the path, subsequent runs are silent.
+
+## Agent integration
+
+Once `pine` is installed, piners' AGENTS.md gets one rule:
+
+> Before making a Pine-semantics or trade-list-parity claim, query `pine`. Cite the query in the finding. If `pine` disagrees with your initial read, use `pine`'s answer.
+
+The same rule lands in pine-tools' AGENTS.md, in any future Pine-related project, and in `~/.claude/CLAUDE.md` for global default behavior. Reviewers get oracle access by default rather than via per-prompt reminders.
+
+`.claude/settings.json` in piners pre-approves `pine` invocations so no permission prompts fire:
+
+```json
+{
+  "permissions": {
+    "allow": ["Bash(pine *)"]
+  }
+}
+```
+
+Concrete reviewer flow, today vs after:
+
+- **Today.** Reviewer claims "`array.mode` returns smallest on ties". Orchestrator reads claim, has no way to check, files it as MAJOR. Three sessions later, a different reviewer claims the opposite. Both findings exist; nobody knows which is right.
+- **After.** Reviewer claims "`array.mode` returns smallest on ties". Orchestrator (or the reviewer itself) runs `pine lookup array.mode`. JSON answer cites TV docs. Claim is corrected or confirmed before being filed. Contradictions across sessions are impossible because every claim cites the same oracle.
+
+## Build pipeline
+
+In pine-tools (or sister repo):
+
+1. `pnpm run generate` produces `pine-data/v6/*.ts` (already exists today).
+2. `pnpm run export:json` (new) emits `pine-data/v6/*.json` -- vendor-friendly snapshot, committed.
+3. `cargo build --release` in `pine-cli/` reads JSON via `include_str!` at compile time, builds the BM25 index with `tantivy`, links into the binary.
+4. CI publishes a release per pine-data update (semver: patch for data refresh, minor for new subcommands, major for output-schema breakage).
+
+Release cadence: pin to pine-data scrape cadence. When TV's docs change, regenerate, rebuild, release.
+
+## Open questions
+
+1. **Validator backend.** Three options ranked by effort and quality:
+   - Rust port of pine-tools' analyzer: highest quality, weeks of work, dogfooding aligned.
+   - TS-to-WASM transpile: medium quality, medium effort, brings the existing analyzer along intact.
+   - Bundled Node runtime + pine-tools' JS: lowest effort, slow startup, brittle.
+   Pick before starting.
+
+2. **Repo layout.** **Resolved:** new sibling Rust repo `pine-oracle/`. Not inside piners (would signal "piners helper", slow piners' build), not inside pine-tools (would force a Rust crate into a TS monorepo). pine-tools stays the upstream data source via `pnpm run export:json`.
+
+3. **Corpus distribution.** Bundle into the binary (~5 MB, doable), download on first run, require manual `pine corpus install`? Default offline-capable, or default "fetches on first use"?
+
+4. **Output schema stability.** Agents will parse this. Schema breakage breaks every downstream prompt and every cited finding. Lock in `schema_version` early; document the deprecation policy.
+
+5. **`validate --strict` auth.** TradingView's pine-lint API requires session cookies. Where does `pine` store them? Keychain? Plain config file in `$XDG_CONFIG_HOME/pine/`? Opt-in only?
+
+6. **Per-probe summary ownership.** Are summaries piners-side (we generate, we maintain), or upstream in PineForge (everyone benefits, requires their cooperation)? Upstream is better but slower. **Partially resolved:** 21 probes harvested from PineForge engine comments live in `docs/probe-summaries.md`; remaining ~207 still pending.
+
+7. **Search corpus coverage.** Does BM25 also index the pine-tools issue tracker, the TV release notes, the Pine v6 migration guide? Each broadens recall but dilutes precision. Start narrow (pine-data + per-probe summaries), grow with demand.
+
+8. **Caching `validate --strict` responses.** TV pine-lint output for a given source hash is stable. Cache in `$XDG_CACHE_HOME/pine/strict/`. TTL? Never expire and offer `pine cache clear`?
+
+9. **TV v6.md redistribution.** Pinecone's vendored copy (`spec/v6.md`, 918 KB) is TradingView copyright. Pinecone's redistribution under MPL-2.0 is precedent but not blanket legal cover. Two paths:
+   - Vendor with prominent "snapshot of TV docs as of <date>, all content (c) TradingView" disclaimer; rely on Pinecone's precedent.
+   - Don't redistribute; ship only the *index* (function names, BM25 tokens, no prose) and link out to live TV docs for full content.
+   Resolution likely depends on whether the oracle is published publicly or internal-only.
+
+10. **License umbrella for the oracle binary.** Vendoring decisions span MPL-2.0 (Pinecone), Apache-2.0 (PineForge), and clean-room paraphrases of AGPL (PineTS, Pinescription). Cleanest umbrella: MPL-2.0 for files derived from Pinecone (file-level copyleft only), Apache-2.0 for everything else. Need to confirm before shipping.
+
+11. **PineTS compat-test schema versioning.** Adopting the `.expect.json` format means committing to a token convention (`__NaN__`, `__Infinity__`, etc.). If TV changes a value's behavior across Pine versions, do baselines age out or migrate? Cleaner if `expect.json` carries the Pine version that generated it.
+
+## Out of scope
+
+- **A piners runtime substitute.** `pine` does not run Pine; it answers questions about Pine. Running Pine to produce trades is piners' job.
+- **Pine code generation.** `pine` does not write Pine; it explains and validates Pine.
+- **A general TV API client.** No charts, no symbols, no quotes. Strictly Pine semantics + the cross-validated corpus.
+- **PRNG fingerprinting automation.** `pine` does not run scripts on TV's broker. The TV-pasteable fixture in `docs/prng-parity.md` is a manual workflow; the oracle just consumes the resulting baseline once we have it.
+
+## What this unlocks
+
+Once `pine` is in place and AGENTS.md cites it, the failure mode that prompted this doc (reviewers contradicting each other across sessions on what TV "actually does") becomes structurally hard. Every parity claim has a CLI receipt. Every disagreement points at the oracle, not at a human. Reviews stop relitigating semantics and focus on whether piners matches the cited semantics.
+
+Secondary win: the same tool serves pine-tools' own dogfooding, future Pine projects, and anyone outside our orbit who wants a fast Pine reference CLI. The investment compounds across every Pine workflow we touch.

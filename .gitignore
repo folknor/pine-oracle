@@ -1,0 +1,9 @@
+target
+*.swp
+*.swo
+.DS_Store
+research
+.agents
+.plans
+.codex
+.claude

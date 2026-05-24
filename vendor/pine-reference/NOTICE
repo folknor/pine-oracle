@@ -1,0 +1,12 @@
+Pine v6 reference markdown vendored from Pinecone
+==================================================
+
+Source:  https://github.com/<pinecone-upstream>/pinecone
+Path:    crates/pine-reference/spec/v6.md
+License: Mozilla Public License 2.0 (see LICENSE in this directory)
+
+The markdown body itself is a snapshot of TradingView's published Pine v6
+reference (https://www.tradingview.com/pine-script-reference/v6/), all
+content (c) TradingView. Redistribution here follows Pinecone's precedent.
+
+Snapshot date: see git log for vendor/pine-reference/spec/v6.md.
