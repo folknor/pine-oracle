@@ -1,6 +1,6 @@
 use anyhow::{bail, Result};
 use clap::{Parser, Subcommand, ValueEnum};
-use pine_cli::{corpus, reference, search, syntax, validate};
+use pine_cli::{behavior, corpus, reference, search, syntax, validate};
 use std::io::IsTerminal;
 
 #[derive(Parser)]
@@ -102,7 +102,7 @@ fn main() -> Result<()> {
         Command::Validate { code, strict } => cmd_validate(&code, strict, format),
         Command::Parse { code } => cmd_parse(&code, format),
         Command::Tokens { code } => cmd_tokens(&code, format),
-        Command::Behavior { .. } => bail!("behavior: not implemented yet"),
+        Command::Behavior { name } => cmd_behavior(&name, format),
         Command::Probe { slug } => cmd_probe(&slug, format),
         Command::Probes { grep } => cmd_probes(grep.as_deref(), format),
         Command::Diff { .. } => bail!("diff: not implemented yet"),
@@ -238,6 +238,93 @@ fn cmd_probes(grep: Option<&str>, format: ResolvedFormat) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn cmd_behavior(name: &str, format: ResolvedFormat) -> Result<()> {
+    let Some(b) = behavior::lookup(name) else {
+        bail!("no behavior data for `{name}`");
+    };
+    match format {
+        ResolvedFormat::Json => {
+            println!("{}", serde_json::to_string(&b)?);
+        }
+        ResolvedFormat::Text => print_behavior_text(&b),
+    }
+    Ok(())
+}
+
+fn print_behavior_text(b: &behavior::Behavior) {
+    match b {
+        behavior::Behavior::Function(f) => {
+            println!("function {}", f.name);
+            if let Some(ns) = &f.namespace {
+                println!("  namespace: {ns}");
+            }
+            println!("  syntax: {}", f.syntax);
+            if !f.returns.is_empty() {
+                println!("  returns: {}", f.returns);
+            }
+            if !f.parameters.is_empty() {
+                println!("  parameters:");
+                for p in &f.parameters {
+                    let req = if p.required { "required" } else { "optional" };
+                    println!("    - {} : {} ({req})", p.name, p.ty);
+                }
+            }
+            if f.flags.top_level_only {
+                println!("  flags: top-level only");
+            }
+            if let Some(beh) = &f.behavior {
+                let poly = if beh.polymorphic.is_polymorphic() {
+                    "yes"
+                } else {
+                    "no"
+                };
+                println!("  polymorphic: {poly}");
+                if let Some(detail) = beh.polymorphic.detail() {
+                    if let Some(rtp) = &detail.return_type_param {
+                        println!("    return-type-param: {rtp}");
+                    }
+                    if let Some(strat) = &detail.strategy {
+                        println!("    strategy: {strat}");
+                    }
+                    if !detail.allowed_types.is_empty() {
+                        println!("    allowed-types: {}", detail.allowed_types.join(", "));
+                    }
+                }
+                if let Some(ord) = &beh.argument_ordering {
+                    println!("  argument-ordering: {ord}");
+                }
+                if !beh.observed_return_types.is_empty() {
+                    println!(
+                        "  observed-return-types: {}",
+                        beh.observed_return_types.join(", ")
+                    );
+                }
+                if let Some(reason) = &beh.reason {
+                    println!("  reason: {reason}");
+                }
+            }
+        }
+        behavior::Behavior::Variable(v) => {
+            println!("variable {}", v.name);
+            println!("  type: {}", v.ty);
+            println!("  qualifier: {}", v.qualifier);
+        }
+        behavior::Behavior::Constant(c) => {
+            println!("constant {}", c.name);
+            if let Some(ns) = &c.namespace {
+                println!("  namespace: {ns}");
+            }
+            if let Some(short) = &c.short_name {
+                println!("  short-name: {short}");
+            }
+            println!("  type: {}", c.ty);
+        }
+        behavior::Behavior::Keyword(k) => {
+            println!("keyword {}", k.name);
+        }
+    }
 }
 
 fn cmd_validate(code: &str, strict: bool, format: ResolvedFormat) -> Result<()> {

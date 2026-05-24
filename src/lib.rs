@@ -1,3 +1,4 @@
+pub mod behavior;
 pub mod corpus;
 pub mod reference;
 pub mod search;

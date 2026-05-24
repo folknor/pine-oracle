@@ -22,6 +22,7 @@ Modules currently in `src/`:
 - `search`: BM25 via tantivy over the v6 reference. RAM-backed Index built on first invocation (single-digit ms), OnceLock-cached. `name` field gets a 5x boost over `content`. Eventually grows to index `corpus` probe summaries + PineForge audit docs once those land.
 - `syntax`: Pine v6 lexer + AST + parser lifted from pinecone (MPL-2.0). Three sub-modules (`ast`, `lexer`, `parser`) re-exported through `syntax::*`. Drives `pine parse` and `pine tokens`. Parser regression tests run across 72 vendored `.pine` fixtures with `_ast.json` goldens.
 - `validate`: local-tier validator on top of `syntax`. Surfaces the first lex / parse failure as a structured `Diagnostic { severity, stage, message, line, column }`. Single-error today because the lifted parser bails on the first failure; multi-error recovery is future work that would touch `src/syntax/parser.rs`. The `--strict` tier (TV pine-lint HTTP call) belongs here later.
+- `behavior`: structured signature + polymorphism lookup over pine-tools' JSON exports (`vendor/pine-data/v6/{functions,variables,constants,keywords,function-behavior}.json`). Public API: `lookup(name) -> Option<Behavior>`, where `Behavior` is one of `Function` / `Variable` / `Constant` / `Keyword`. Function entries optionally carry a `RawBehaviorEntry` with polymorphism markers + argument-ordering. Lenient deserialization (serde defaults on optional fields) so pine-tools schema tweaks don't break the binary.
 
 Planned modules per design:
 
@@ -47,6 +48,7 @@ Current vendors:
 
 - `vendor/pine-reference/`: pinecone's `crates/pine-reference/spec/v6.md` (MPL-2.0). Local mod: U+00A0 NO-BREAK SPACE rewritten to U+0020 SPACE for the gremlin scan. See `vendor/pine-reference/NOTICE`.
 - `vendor/pineforge-corpus/`: <https://github.com/fullpass-4pass/pineforge-corpus> (Apache-2.0), pruned to the subset baked into the binary. See `vendor/pineforge-corpus/VENDORING_NOTES.md` for kept / dropped manifest and refresh procedure. Refresh via `scripts/prune-vendored-corpus.sh`.
+- `vendor/pine-data/v6/`: structured JSON snapshots from `../pine-tools/pine-data/v6/` (MIT, folknor owns pine-tools). Five files: `functions.json`, `variables.json`, `constants.json`, `keywords.json`, `function-behavior.json`. Refresh by re-running pine-tools' `pnpm run scrape` + `pnpm run discover:behavior`, then copying the JSON files in.
 
 ## Rules
 
@@ -112,7 +114,7 @@ Single-crate workspace, so `-p` is unnecessary.
 | `pine tokens` | done (lifted pinecone lexer; JSON / one-per-line text) |
 | `pine validate` | done v1 (first lex/parse error as structured Diagnostic; exit 1 on error) |
 | `pine version` | done |
+| `pine behavior <name>` | done (functions / variables / constants / keywords from baked pine-tools JSON) |
 | `pine validate --strict` | TODO (network call to TV's pine-lint, no auth, no cache) |
-| `pine behavior` | TODO (needs pine-tools `export:json`) |
 | `pine diff` | TODO (needs verify_corpus.py port; will require OHLCV bake) |
 | `pine indicator --strict` | TODO (per-bar parity; will require OHLCV bake) |
