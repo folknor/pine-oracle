@@ -1,6 +1,6 @@
 use anyhow::{bail, Result};
 use clap::{Parser, Subcommand, ValueEnum};
-use pine_cli::reference;
+use pine_cli::{corpus, reference, search};
 use std::io::IsTerminal;
 
 #[derive(Parser)]
@@ -123,10 +123,18 @@ fn main() -> Result<()> {
         Command::Parse { .. } => bail!("parse: not implemented yet"),
         Command::Tokens { .. } => bail!("tokens: not implemented yet"),
         Command::Behavior { .. } => bail!("behavior: not implemented yet"),
-        Command::Probe { .. } => bail!("probe: not implemented yet"),
-        Command::Probes { .. } => bail!("probes: not implemented yet"),
+        Command::Probe {
+            slug,
+            engine_history,
+        } => cmd_probe(&slug, engine_history, format),
+        Command::Probes { feature, grep } => {
+            cmd_probes(feature.as_deref(), grep.as_deref(), format)
+        }
         Command::Diff { .. } => bail!("diff: not implemented yet"),
-        Command::Corpus { .. } => bail!("corpus: not implemented yet"),
+        Command::Corpus { action } => match action {
+            CorpusAction::Install => cmd_corpus_install(format),
+            CorpusAction::Update => cmd_corpus_update(format),
+        },
         Command::Version => cmd_version(format),
     }
 }
@@ -173,15 +181,16 @@ fn cmd_lookup(name: &str, format: ResolvedFormat) -> Result<()> {
 }
 
 fn cmd_search(query: &str, limit: usize, format: ResolvedFormat) -> Result<()> {
-    let hits = reference::search(query, limit);
+    let hits = search::query(query, limit)?;
     match format {
         ResolvedFormat::Json => {
-            let summarised: Vec<_> = hits
+            let matches: Vec<_> = hits
                 .iter()
-                .map(|e| {
+                .map(|h| {
                     serde_json::json!({
-                        "name": e.name,
-                        "category": e.category,
+                        "name": h.name,
+                        "category": h.category,
+                        "score": h.score,
                     })
                 })
                 .collect();
@@ -189,7 +198,7 @@ fn cmd_search(query: &str, limit: usize, format: ResolvedFormat) -> Result<()> {
                 "{}",
                 serde_json::to_string(&serde_json::json!({
                     "query": query,
-                    "matches": summarised,
+                    "matches": matches,
                 }))?
             );
         }
@@ -198,10 +207,88 @@ fn cmd_search(query: &str, limit: usize, format: ResolvedFormat) -> Result<()> {
                 eprintln!("no matches");
                 return Ok(());
             }
-            for e in &hits {
-                println!("{}  ({})", e.name, e.category);
+            for h in &hits {
+                println!("{:>6.2}  {}  ({})", h.score, h.name, h.category);
             }
         }
+    }
+    Ok(())
+}
+
+fn cmd_probe(slug: &str, engine_history: bool, format: ResolvedFormat) -> Result<()> {
+    let probe = corpus::load_probe(slug, engine_history)?;
+    match format {
+        ResolvedFormat::Json => {
+            println!("{}", serde_json::to_string(&probe)?);
+        }
+        ResolvedFormat::Text => {
+            println!("slug: {}", probe.slug);
+            if let Some(summary) = &probe.summary {
+                println!("summary: {summary}");
+            } else {
+                println!("summary: (none)");
+            }
+            println!("tv_trades.csv: {}", probe.tv_trades_csv.display());
+            if probe.inputs_json.is_some() {
+                println!("inputs.json: present");
+            } else {
+                println!("inputs.json: (none)");
+            }
+            println!("\nstrategy.pine:\n{}", probe.strategy_pine);
+        }
+    }
+    Ok(())
+}
+
+fn cmd_probes(feature: Option<&str>, grep: Option<&str>, format: ResolvedFormat) -> Result<()> {
+    let probes = corpus::list_probes(feature, grep)?;
+    match format {
+        ResolvedFormat::Json => {
+            println!("{}", serde_json::to_string(&probes)?);
+        }
+        ResolvedFormat::Text => {
+            if probes.is_empty() {
+                eprintln!("no probes matched");
+                return Ok(());
+            }
+            for p in &probes {
+                match &p.summary {
+                    Some(s) => {
+                        let snippet: String = s.chars().take(80).collect();
+                        println!("{}  -  {snippet}", p.slug);
+                    }
+                    None => println!("{}", p.slug),
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn cmd_corpus_install(format: ResolvedFormat) -> Result<()> {
+    corpus::install()?;
+    match format {
+        ResolvedFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string(&serde_json::json!({"status": "ok"}))?
+            );
+        }
+        ResolvedFormat::Text => println!("corpus install: ok"),
+    }
+    Ok(())
+}
+
+fn cmd_corpus_update(format: ResolvedFormat) -> Result<()> {
+    corpus::update()?;
+    match format {
+        ResolvedFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string(&serde_json::json!({"status": "ok"}))?
+            );
+        }
+        ResolvedFormat::Text => println!("corpus update: ok"),
     }
     Ok(())
 }

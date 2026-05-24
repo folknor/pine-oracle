@@ -50,7 +50,7 @@ fn parse_sections(markdown_content: &str) -> Result<Vec<Section>> {
                     }
                 }
                 let line_num = node.data.borrow().sourcepos.start.line;
-                headings.push((heading_text, level, line_num));
+                headings.push((canonicalize_title(&heading_text), level, line_num));
             }
         }
         for child in node.children() {
@@ -100,6 +100,25 @@ pub fn categories() -> Vec<&'static str> {
         .collect()
 }
 
+/// Every level-3 entry with its parent category. Used by `search` to build
+/// the BM25 index.
+pub fn all_entries() -> Vec<Entry> {
+    let mut out = Vec::with_capacity(1024);
+    let mut current_cat: &str = "";
+    for s in sections() {
+        if s.level == 2 {
+            current_cat = &s.title;
+        } else if s.level == 3 {
+            out.push(Entry {
+                category: current_cat.to_string(),
+                name: s.title.clone(),
+                content: s.content.clone(),
+            });
+        }
+    }
+    out
+}
+
 /// Exact-match lookup across every category. First hit wins.
 pub fn lookup(name: &str) -> Option<Entry> {
     let mut current_cat: &str = "";
@@ -135,50 +154,20 @@ pub fn prefix_search(prefix: &str) -> Vec<Entry> {
     out
 }
 
-/// Cheap substring ranker, pending a real BM25 index in v2.
-/// Score buckets (per matched section): 100 exact title, 80 title prefix,
-/// 60 title substring, 20 content substring.
-pub fn search(query: &str, limit: usize) -> Vec<Entry> {
-    let q = query.to_lowercase();
-    let mut hits: Vec<(i32, Entry)> = Vec::new();
-    let mut current_cat: &str = "";
-    for s in sections() {
-        if s.level == 2 {
-            current_cat = &s.title;
-            continue;
-        }
-        if s.level != 3 {
-            continue;
-        }
-        let title_lower = s.title.to_lowercase();
-        let score = if title_lower == q {
-            100
-        } else if title_lower.starts_with(&q) {
-            80
-        } else if title_lower.contains(&q) {
-            60
-        } else if s.content.to_lowercase().contains(&q) {
-            20
-        } else {
-            0
-        };
-        if score > 0 {
-            hits.push((
-                score,
-                Entry {
-                    category: current_cat.to_string(),
-                    name: s.title.clone(),
-                    content: s.content.clone(),
-                },
-            ));
-        }
-    }
-    hits.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.name.cmp(&b.1.name)));
-    hits.into_iter().take(limit).map(|(_, e)| e).collect()
-}
-
 fn starts_with_ci(haystack: &str, needle: &str) -> bool {
     haystack.len() >= needle.len() && haystack[..needle.len()].eq_ignore_ascii_case(needle)
+}
+
+/// Canonicalise a heading text into the name users actually type.
+/// Function entries in v6.md ship as `math.max()`, `ta.rsi()` etc.; users
+/// type `math.max`. Strip the trailing `()` and surrounding whitespace.
+fn canonicalize_title(raw: &str) -> String {
+    let trimmed = raw.trim();
+    trimmed
+        .strip_suffix("()")
+        .unwrap_or(trimmed)
+        .trim()
+        .to_string()
 }
 
 #[cfg(test)]

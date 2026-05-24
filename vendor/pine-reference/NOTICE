@@ -10,3 +10,9 @@ reference (https://www.tradingview.com/pine-script-reference/v6/), all
 content (c) TradingView. Redistribution here follows Pinecone's precedent.
 
 Snapshot date: see git log for vendor/pine-reference/spec/v6.md.
+
+Local modifications:
+  - U+00A0 NO-BREAK SPACE characters (27,310 occurrences) were rewritten
+    to U+0020 SPACE so the file passes pine-oracle's gremlin scan. The
+    rewrite is whitespace-only and does not change rendered output or
+    semantic content; see commit history for the exact change.
