@@ -509,16 +509,35 @@ fn cmd_tokens(code: &str, format: ResolvedFormat) -> Result<()> {
 fn cmd_version(format: ResolvedFormat) -> Result<()> {
     let binary = env!("CARGO_PKG_VERSION");
     let categories = reference::categories();
+    let reference_entry_count = reference::all_entries().len();
+    let probe_count = corpus::list_probes(None).map(|v| v.len()).unwrap_or(0);
+    let probe_summary_count = corpus::list_probes(None)
+        .map(|v| v.iter().filter(|p| p.summary.is_some()).count())
+        .unwrap_or(0);
     match format {
         ResolvedFormat::Json => {
             print_json(&serde_json::json!({
                 "binary": binary,
-                "reference_categories": categories,
+                "reference": {
+                    "categories": categories,
+                    "entry_count": reference_entry_count,
+                },
+                "corpus": {
+                    "probe_count": probe_count,
+                    "probe_summary_count": probe_summary_count,
+                },
             }))?;
         }
         ResolvedFormat::Text => {
             println!("pine-cli {binary}");
-            println!("v6 reference categories: {}", categories.join(", "));
+            println!(
+                "v6 reference: {reference_entry_count} entries across {} categories ({})",
+                categories.len(),
+                categories.join(", ")
+            );
+            println!(
+                "corpus:       {probe_count} baked probes ({probe_summary_count} with author summaries)"
+            );
         }
     }
     Ok(())

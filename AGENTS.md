@@ -114,5 +114,5 @@ Single-crate workspace, so `-p` is unnecessary.
 | `pine validate --strict` | done as a TV-broker yes/no oracle. POSTs as multipart/form-data; `success` is trustworthy, the diagnostic prose is non-actionable (first error only, breaks on trailing whitespace, wrong line/column). Use after the local tier reports clean - not for iterative debugging. |
 | `pine behavior <name>` | done (functions / variables / constants / keywords from baked pine-tools JSON) |
 | `pine diff <probe> <trades.csv>` | done v1 (verify_corpus port: align + p90 + tier; no interior trim until OHLCV bake) |
-| `pine version` | done |
+| `pine version` | done (binary version + reference entry/category counts + corpus probe/summary counts) |
 | `pine indicator --strict` | TODO (per-bar parity; needs piners' engine + OHLCV bake) |
