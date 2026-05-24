@@ -101,6 +101,9 @@ enum Command {
         query: String,
         #[arg(long, default_value_t = 25)]
         limit: usize,
+        /// Restrict hits to one source: `reference` or `probe`.
+        #[arg(long)]
+        kind: Option<String>,
     },
 
     /// Type errors, syntax errors, behavior warnings
@@ -141,7 +144,9 @@ fn main() -> Result<()> {
 
     match cli.command {
         Command::Lookup { name } => cmd_lookup(&name, format),
-        Command::Search { query, limit } => cmd_search(&query, limit, format),
+        Command::Search { query, limit, kind } => {
+            cmd_search(&query, limit, kind.as_deref(), format)
+        }
         Command::Validate { code, strict } => cmd_validate(&code, strict, format),
         Command::Parse { code } => cmd_parse(&code, format),
         Command::Tokens { code } => cmd_tokens(&code, format),
@@ -191,8 +196,23 @@ fn cmd_lookup(name: &str, format: ResolvedFormat) -> Result<()> {
     Ok(())
 }
 
-fn cmd_search(query: &str, limit: usize, format: ResolvedFormat) -> Result<()> {
-    let hits = search::query(query, limit)?;
+fn cmd_search(
+    query: &str,
+    limit: usize,
+    kind_filter: Option<&str>,
+    format: ResolvedFormat,
+) -> Result<()> {
+    // Over-fetch when filtering so the post-filter list still fills the limit.
+    let raw_limit = if kind_filter.is_some() {
+        limit * 4
+    } else {
+        limit
+    };
+    let mut hits = search::query(query, raw_limit)?;
+    if let Some(k) = kind_filter {
+        hits.retain(|h| h.kind == k);
+        hits.truncate(limit);
+    }
     match format {
         ResolvedFormat::Json => {
             let matches: Vec<_> = hits

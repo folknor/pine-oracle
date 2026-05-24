@@ -294,14 +294,19 @@ Concrete reviewer flow, today vs after:
 
 ## Build pipeline
 
-In pine-tools (or sister repo):
+In pine-tools:
 
-1. `pnpm run generate` produces `pine-data/v6/*.ts` (already exists today).
-2. `pnpm run export:json` (new) emits `pine-data/v6/*.json` -- vendor-friendly snapshot, committed.
-3. `cargo build --release` in `pine-cli/` reads JSON via `include_str!` at compile time, builds the BM25 index with `tantivy`, links into the binary.
-4. CI publishes a release per pine-data update (semver: patch for data refresh, minor for new subcommands, major for output-schema breakage).
+1. `pnpm run crawl` + `pnpm run scrape` + `pnpm run generate` produce `pine-data/v6/*.ts`.
+2. `pnpm run discover:behavior` produces `pine-data/v6/function-behavior.json`.
+3. JSON snapshots (functions / variables / constants / keywords) ship alongside the `.ts` in pine-tools' git tree, so pine-oracle vendors them by copy.
 
-Release cadence: pin to pine-data scrape cadence. When TV's docs change, regenerate, rebuild, release.
+In pine-oracle:
+
+4. Refresh: copy `pine-tools/pine-data/v6/*.json` into `vendor/pine-data/v6/`, commit.
+5. `brokkr check` to rebuild + revalidate; `include_str!` picks up the new JSON at compile time.
+6. CI publishes a release per pine-data refresh (semver: patch for data refresh, minor for new subcommands, major for output-schema breakage).
+
+Release cadence: pin to pine-tools' scrape cadence. When TV's docs change, refresh, rebuild, release.
 
 ## Open questions
 
@@ -319,9 +324,9 @@ Release cadence: pin to pine-data scrape cadence. When TV's docs change, regener
 
 5. **`validate --strict` auth.** **Resolved:** no auth required. The TradingView pine-lint endpoint is open; pine-oracle stores no credentials anywhere because it stores nothing anywhere.
 
-6. **Per-probe summary ownership.** Re-derivation pending (see "Per-probe descriptions" above): the 21 harvested summaries in `docs/probe-summaries.md` reference engine-internal slugs that don't match the published corpus, so the alignment work is reset.
+6. **Per-probe summary ownership.** **Resolved (via live extraction).** `corpus::summary_for(slug)` extracts the strategy author's own one-paragraph description from each baked `strategy.pine`'s header comment block - no LLM curation pass required, no external dependency. >=80% of the 235 probes get a real summary out of the box. The 21 engine-internals summaries in `docs/probe-summaries.md` remain unused (their slug keys don't match the published corpus); they're forensic reference for PineForge engine internals.
 
-7. **Search corpus coverage.** Does BM25 also index the pine-tools issue tracker, the TV release notes, the Pine v6 migration guide? Each broadens recall but dilutes precision. Start narrow (pine-data + per-probe summaries), grow with demand.
+7. **Search corpus coverage.** Today BM25 indexes the v6 reference (941 entries) + the baked corpus probes (235, with author-extracted summaries). Hits carry a `kind` discriminator ("reference" / "probe") so consumers can route. Broader sources (pine-tools issue tracker, TV release notes, Pine v6 migration guide) are off the table for now: each broadens recall but dilutes precision; grow with demand.
 
 8. **Caching `validate --strict` responses.** **Resolved:** no cache. pine-oracle has zero on-disk state; a CLI invocation hits the API once and exits, so cross-invocation caching has nowhere to live.
 

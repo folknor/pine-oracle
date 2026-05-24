@@ -105,7 +105,7 @@ Single-crate workspace, so `-p` is unnecessary.
 | Subcommand | Status |
 |---|---|
 | `pine lookup <name>` | done (cross-category exact, prefix fallback) |
-| `pine search <query>` | done (tantivy BM25, 5x name boost; indexes v6 reference + baked corpus probes; hits carry `kind` = "reference" or "probe") |
+| `pine search <query>` | done (tantivy BM25, 5x name boost; indexes v6 reference + baked corpus probes; hits carry `kind` = "reference" or "probe"; `--kind <reference\|probe>` narrows the result set) |
 | `pine probe <slug>` | done (baked corpus, flat + nested slugs) |
 | `pine probes [--grep TEXT]` | done (matches against slug or extracted-from-source summary text) |
 | `pine parse` | done via the pinecone lift; will deepen when piners-syntax replaces it |
