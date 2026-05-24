@@ -1,23 +1,32 @@
-PineForge Pine v6 audit documentation
-======================================
+PineForge Pine v6 documentation
+================================
 
-Source:  https://github.com/fullpass-4pass/pineforge-engine,
-         path docs/pine_v6_audit_master.md
+Source:  https://github.com/fullpass-4pass/pineforge-engine, paths
+         docs/pine_v6_audit_master.md
+         docs/pages/*.md
 License: Apache-2.0 (see LICENSE in this directory)
 
 `pine_v6_audit_master.md` is PineForge contributors' standalone audit of
 Pine v6: 38 critical + ~62 minor known divergences between TradingView's
 published reference and the actual codegen/runtime behaviour.
 
+`pages/*.md` (18 files) are PineForge's narrative explainers covering
+Pine v6 concepts in depth: magnifier, mtf, timeframes, lifecycle,
+report-schema, abi-stability, configuration, integration / ffi / examples,
+tutorials. Together they're the "how does X work" prose reference for
+Pine v6 + the PineForge runtime.
+
 Local modifications:
-  - U+2014 EM DASH and U+2013 EN DASH characters (26 occurrences) were
-    rewritten to U+002D HYPHEN-MINUS so the file passes pine-oracle's
-    gremlin scan. The rewrite is punctuation-only and does not change
-    rendered semantics; see commit history for the exact change.
+  - Em-dash (U+2014), en-dash (U+2013), and NBSP (U+00A0) characters
+    (26 in the audit, 149 across the 18 pages) were rewritten to their
+    ASCII equivalents so the files pass pine-oracle's gremlin scan. The
+    rewrite is punctuation/whitespace-only and does not change rendered
+    semantics; see commit history for the exact changes.
 
-pine-oracle indexes the audit at build time via `src/search.rs`, exposing
-its sections as `kind: "audit"` results. The doc itself remains the
-canonical source; consumers seeing an audit hit should expand the section
-title through the section structure documented in the upstream file.
+pine-oracle indexes the audit at build time via `src/search.rs` exposing
+its sections as `kind: "audit"` results, and indexes the narrative pages
+as `kind: "docs"` results. The upstream files remain the canonical source;
+consumers seeing a hit should expand the section title through the section
+structure documented in the upstream file.
 
-Snapshot date: see git log for vendor/pineforge-docs/pine_v6_audit_master.md.
+Snapshot date: see git log for the introducing commits.

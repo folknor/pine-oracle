@@ -36,25 +36,23 @@ Single binary, four layers.
 
 Two sources, merged at build time:
 
-- **Primary: Pinecone's `crates/pine-reference/spec/v6.md`** -- 918 KB / 24,847 lines / **941 entries**, one per `### name`, uniform sub-sections (`Syntax`, `Arguments`, `Example`, `Type`, `Remarks`, `See also`). MPL-2.0 vendored copy of TradingView's published v6 reference. The single highest-ROI artifact in the research corpus. Embed via `include_str!`, parse once with `comrak` at startup (cached), produce the lookup table and BM25 documents.
-- **Secondary: pine-tools' `pine-data/v6/*.ts`** -- consumed as JSON. The normalization belongs upstream in pine-tools (a new `pnpm run export:json` step emitting `pine-data/v6/*.json` alongside the `.ts`), not in the oracle's build -- vendoring `.ts` would force a node toolchain into the oracle's pipeline and defeat the "pure Rust binary" goal. Adds polymorphism markers (`function-behavior.json`), TextMate grammar, structured signature metadata that complements v6.md's prose.
+- **Primary: Pinecone's `crates/pine-reference/spec/v6.md`** -- 918 KB / ~25k lines / **941 entries**, one per `### name`, uniform sub-sections (`Syntax`, `Arguments`, `Example`, `Type`, `Remarks`, `See also`). MPL-2.0 vendored copy of TradingView's published v6 reference. Embedded via `include_str!`, parsed once with `comrak` and cached behind a `OnceLock`. Drives `pine lookup` + the BM25 reference docs.
+- **Secondary: pine-tools' `pine-data/v6/*.json`** -- shipped in pine-tools' git tree today (`functions.json`, `variables.json`, `constants.json`, `keywords.json`, `function-behavior.json`). Copied into `vendor/pine-data/v6/` and `include_str!`'d. Adds polymorphism markers + structured signatures + argument-ordering metadata that complement v6.md's prose. Drives `pine behavior`.
 
-About 1-2 MB combined; trivial to compile in.
+Combined size: ~1.5 MB. Trivial.
 
-### 2. BM25 index (compiled into the binary)
+### 2. BM25 index (built lazily at startup)
 
-Built at `pine` build time over:
+Four sources, all baked into the binary as source markdown / extracted-at-runtime content:
 
-- pine-data function descriptions (per `### name` block in v6.md)
-- PineForge's `docs/pine_v6_audit_master.md` -- 38 critical + ~62 minor known TV-vs-PineForge divergences. Exactly what `pine behavior <name>` should return for "documented divergence" queries.
-- PineForge's `docs/pages/*.md` -- 16 narrative docs (magnifier, mtf, timeframes, report-schema, lifecycle, abi-stability). High-ROI for "explain X" queries.
-- PineForge's `pineforge.h` doxygen blocks -- broker/strategy/magnifier semantic enumerations.
-- Pinecone's `tests/testdata/` -- 120 atomic `.pine` files with embedded `// Expected output:` comments. Per-feature behavior substrate.
-- per-probe `strategy.pine` source from the corpus
-- per-probe summaries from `docs/probe-summaries.md` (currently 0/235 aligned to published slugs; re-derivation pending -- see "Per-probe descriptions" below)
-- PineTS-derived Pine quirk patterns, paraphrased clean-room from `research/PineTS/src/namespaces/README.md` (the seven enumerated patterns: auto-gen indices, OO collections, `param()` shim, `__value` rewrite, epsilon equality, dual-getter properties, per-call-site state IDs).
+- **v6 reference**: 941 entries from `vendor/pine-reference/spec/v6.md`, indexed as `kind: "reference"`.
+- **Corpus probes**: 235 baked probes, indexed by their published slug as `kind: "probe"` with their author-extracted summary as content (or slug-as-fallback for the ~20% of probes without a summary).
+- **PineForge audit doc**: `vendor/pineforge-docs/pine_v6_audit_master.md`, 38 critical + ~62 minor documented TV-vs-engine divergences, sliced on H2 / H3 boundaries, indexed as `kind: "audit"`.
+- **PineForge narrative pages**: `vendor/pineforge-docs/pages/*.md`, 18 explainer docs (magnifier, mtf, timeframes, lifecycle, report-schema, abi-stability, examples, tutorials), section-sliced on H2 / H3, indexed as `kind: "docs"`.
 
-Stored as a `tantivy` index serialized into the binary or sidecar files. Queryable in <10 ms.
+Total: ~1.2k documents. Index is a `tantivy` RAM directory rebuilt on first query (~10-15 ms one-shot cost, then sub-millisecond per query), cached behind a `OnceLock`. Schema: `name` (TEXT|STORED, 5x boost), `category` (STRING|STORED), `kind` (STRING|STORED), `content` (STORED for retrieval) + `content_search` (TEXT, drives ranking). Hits carry the full content body in `SearchHit.content` so consumers don't need a follow-up lookup. `pine search --kind <kind>` narrows by source.
+
+Per-probe summaries are extracted live at runtime from each `strategy.pine`'s header comment block (skipping license / SPDX / copyright / version-directive lines); see `docs/probe-summaries.md`. The 21 engine-internals summaries that were originally targeted are keyed to internal slugs that don't match the published corpus and are not loaded.
 
 ### 3. Vendored corpus (baked)
 
@@ -79,25 +77,26 @@ Two tiers, in inverted authority order vs. an earlier draft of this doc:
 
 ## Vendoring inventory
 
-What to pull from where, in priority order. The oracle's license is chosen to be compatible with whatever we vendor (MPL-2.0 or Apache-2.0 are the natural umbrella choices; AGPL is unnecessary because we paraphrase the AGPL sources rather than copy them).
+What to pull from where, in priority order. The oracle's license is the natural umbrella over whatever we vendor (MPL-2.0 for files derived from Pinecone, Apache-2.0 for everything else); AGPL sources are paraphrased clean-room and not vendored as-is.
 
-| # | Artifact | Source | License | Use | Effort |
+| # | Artifact | Source | License | Use | Status |
 |---|---|---|---|---|---|
-| 1 | `spec/v6.md` (941 reference entries) | `research/pinecone/crates/pine-reference/` | MPL-2.0 | Primary BM25 substrate + lookup table | S |
-| 2 | Markdown query layer (~250 LOC) | `research/pinecone/crates/pine-reference/src/lib.rs:60-203` + `bin/main.rs` | MPL-2.0 | MVP `pine lookup` backend before BM25 lands | S |
-| 3 | 21 probe summaries harvested from engine comments | `research/pineforge-engine/src/engine_*.cpp` + tests | Apache-2.0 | Per-probe BM25 substrate; see `docs/probe-summaries.md` | Done (raw); polish + upstream pending |
-| 4 | `docs/pine_v6_audit_master.md` (38 critical + ~62 minor divergences) | `research/pineforge-engine/` | Apache-2.0 | `pine behavior <name>` "known divergence" payload | S |
-| 5 | `docs/pages/*.md` (16 narrative docs) | `research/pineforge-engine/` | Apache-2.0 | BM25 substrate for "explain X" queries | S |
-| 6 | `pineforge.h` (393 lines, doxygen-rich) | `research/pineforge-engine/include/pineforge/` | Apache-2.0 | Broker / strategy / magnifier semantic enumerations | S |
-| 7 | 120 runtime golden fixtures | `research/pinecone/tests/testdata/` | MPL-2.0 | `pine behavior <feature>` per-feature substrate | S |
-| 8 | 46 parser golden fixtures | `research/pinecone/crates/pine-parser/testdata/` | MPL-2.0 | `pine parse` validator corpus | S |
-| 9 | Vendored TV docs scraper (50 LOC) | `research/pinecone/crates/pine-reference/src/lib.rs:9-58` | MPL-2.0 | Refresh v6.md snapshot when TV publishes updates | S |
-| 10 | `scripts/verify_corpus.py` (26.1 KB Python) | `research/pineforge-engine/` | Apache-2.0 | Port to Rust for `pine diff <probe> <trades.csv>` tier classification | M |
-| 11 | Seven Pine quirk patterns (paraphrased) | `research/PineTS/src/namespaces/README.md` | AGPL paraphrase (clean-room) | BM25 substrate for "how does Pine handle X" | S |
-| 12 | Namespace enumeration (KNOWN_NAMESPACES, FACTORY_METHODS, etc.) | `research/PineTS/src/transpiler/settings.ts` | Not copyrightable (facts) | Structured data for `pine namespaces` / `pine factories` | S |
-| 13 | `.pine.ts` + `.expect.json` compat-test format | `research/PineTS/tests/compatibility/` | Format only (data not copyrightable) | Schema for `pine indicator --strict` | M |
-
-PineForge's Python verifier (`scripts/verify_corpus.py`) is the canonical implementation of trade-list alignment + tiering. Re-implement in Rust for native integration; the algorithm is documented in `docs/corpus.md` and the Python source.
+| 1 | `spec/v6.md` (941 reference entries) | `research/pinecone/crates/pine-reference/` | MPL-2.0 | Primary BM25 substrate + lookup table | **Done** (`vendor/pine-reference/spec/v6.md`) |
+| 2 | Markdown query layer (~250 LOC) | `research/pinecone/crates/pine-reference/src/lib.rs:60-203` | MPL-2.0 | Backs `pine lookup` | **Done** (lifted into `src/reference.rs`) |
+| 3 | Pine v6 lexer + AST + parser (~3.3k LOC) | `research/pinecone/crates/pine-{lexer,ast,parser}/src/lib.rs` | MPL-2.0 | Backs `pine parse` / `pine tokens` / `pine validate` (v0) | **Done** (lifted into `src/syntax/`). Temporary - replaced when piners-syntax stabilises. |
+| 4 | 72 parser golden fixtures | `research/pinecone/crates/pine-parser/testdata/` | MPL-2.0 | Regression tests for the lifted parser | **Done** (`vendor/pine-syntax/testdata/`) |
+| 5 | `pine-data/v6/*.json` (functions / variables / constants / keywords / function-behavior) | `pine-tools/pine-data/v6/*.json` | MIT (folknor) | Backs `pine behavior` | **Done** (`vendor/pine-data/v6/`) |
+| 6 | PineForge validation corpus (235 probes) | `https://github.com/fullpass-4pass/pineforge-corpus` | Apache-2.0 | Backs `pine probe` / `pine probes` / `pine diff`; corpus-kind BM25 docs | **Done** (`vendor/pineforge-corpus/`) |
+| 7 | `docs/pine_v6_audit_master.md` (38 critical + ~62 minor divergences) | `research/pineforge-engine/docs/` | Apache-2.0 | Audit-kind BM25 docs | **Done** (`vendor/pineforge-docs/pine_v6_audit_master.md`) |
+| 8 | `docs/pages/*.md` (18 narrative docs) | `research/pineforge-engine/docs/pages/` | Apache-2.0 | Docs-kind BM25 substrate | **Done** (`vendor/pineforge-docs/pages/`) |
+| 9 | 21 engine-internals probe summaries | `research/pineforge-engine/src/engine_*.cpp` + tests | Apache-2.0 | Per-probe BM25 substrate | **Superseded.** The harvested summaries are keyed to engine-internal probe identifiers that do not match the published-corpus slugs. Live extraction from each `strategy.pine`'s header comment now covers >=80% of the 235 baked probes. See `docs/probe-summaries.md`. |
+| 10 | `scripts/verify_corpus.py` (622 lines Python) | `research/pineforge-engine/` | Apache-2.0 | Trade-list alignment + tier classification | **Done** (ported to `src/diff.rs`); interior-trim path pending OHLCV bake |
+| 11 | `pineforge.h` doxygen blocks (~390 LOC) | `research/pineforge-engine/include/pineforge/` | Apache-2.0 | C ABI documentation | **Deferred.** Niche substrate (describes the C ABI consumers integrate against, not Pine semantics). Re-evaluate if `pine indicator --strict` needs it. |
+| 12 | 120 runtime golden fixtures | `research/pinecone/tests/testdata/` | MPL-2.0 | `pine behavior <feature>` per-feature substrate | **Deferred.** Lower yield once pine-tools JSON ships the structured signatures (item 5). |
+| 13 | Vendored TV docs scraper (50 LOC) | `research/pinecone/crates/pine-reference/src/lib.rs:9-58` | MPL-2.0 | Refresh v6.md snapshot when TV publishes updates | **Deferred.** pine-tools' scraper is the upstream of record now; pine-oracle re-vendors from pine-tools, not from TV directly. |
+| 14 | Seven Pine quirk patterns | `research/PineTS/src/namespaces/README.md` | AGPL paraphrase (clean-room) | BM25 substrate for "how does Pine handle X" | **Deferred.** PineForge narrative pages (item 8) cover most of the same ground without the AGPL paraphrase cost. |
+| 15 | Namespace enumeration (`KNOWN_NAMESPACES`, `FACTORY_METHODS`) | `research/PineTS/src/transpiler/settings.ts` | Not copyrightable (facts) | Structured data for `pine namespaces` / `pine factories` | **Deferred.** Subsumed by pine-tools' constants.json + keywords.json. |
+| 16 | `.pine.ts` + `.expect.json` compat-test format | `research/PineTS/tests/compatibility/` | Format only | Schema for `pine indicator --strict` | **Pending.** Adopted when `pine indicator --strict` lands. |
 
 ### What we don't pull from pine-tools
 
@@ -335,9 +334,11 @@ Release cadence: pin to pine-tools' scrape cadence. When TV's docs change, refre
    - Don't redistribute; ship only the *index* (function names, BM25 tokens, no prose) and link out to live TV docs for full content.
    Resolution likely depends on whether the oracle is published publicly or internal-only.
 
-10. **License umbrella for the oracle binary.** Vendoring decisions span MPL-2.0 (Pinecone), Apache-2.0 (PineForge), and clean-room paraphrases of AGPL (PineTS, Pinescription). Cleanest umbrella: MPL-2.0 for files derived from Pinecone (file-level copyleft only), Apache-2.0 for everything else. Need to confirm before shipping.
+9. **TV v6.md redistribution.** **Outstanding.** Pinecone's vendored copy of `spec/v6.md` (918 KB) is TradingView copyright. Pinecone's redistribution under MPL-2.0 is precedent but not blanket legal cover. Two paths: vendor with a prominent "snapshot of TV docs as of <date>, all content (c) TradingView" disclaimer (relying on Pinecone's precedent), or don't redistribute and ship only the index (function names + BM25 tokens, no prose) with link-out for full content. Resolution likely depends on whether the oracle is published publicly or remains internal.
 
-11. **PineTS compat-test schema versioning.** Adopting the `.expect.json` format means committing to a token convention (`__NaN__`, `__Infinity__`, etc.). If TV changes a value's behavior across Pine versions, do baselines age out or migrate? Cleaner if `expect.json` carries the Pine version that generated it.
+10. **License umbrella for the oracle binary.** Vendoring decisions span MPL-2.0 (Pinecone), Apache-2.0 (PineForge), MIT (pine-tools, folknor-owned), and clean-room paraphrases of AGPL (PineTS, deferred). Cleanest umbrella: MPL-2.0 for files derived from Pinecone (file-level copyleft only), Apache-2.0 for everything else. Confirm before shipping publicly.
+
+11. **PineTS compat-test schema versioning.** **Deferred** until `pine indicator --strict` lands. Adopting the `.expect.json` format means committing to a token convention (`__NaN__`, `__Infinity__`, etc.). If TV changes a value's behavior across Pine versions, baselines need either migration or a Pine-version pin inside `expect.json`. Decide alongside the indicator subcommand work.
 
 ## Out of scope
 
@@ -348,6 +349,27 @@ Release cadence: pin to pine-tools' scrape cadence. When TV's docs change, refre
 
 ## What this unlocks
 
-Once `pine` is in place and AGENTS.md cites it, the failure mode that prompted this doc (reviewers contradicting each other across sessions on what TV "actually does") becomes structurally hard. Every parity claim has a CLI receipt. Every disagreement points at the oracle, not at a human. Reviews stop relitigating semantics and focus on whether piners matches the cited semantics.
+With `pine` in place and AGENTS.md citing it, the failure mode that prompted this doc (reviewers contradicting each other across sessions on what TV "actually does") becomes structurally hard. Every parity claim has a CLI receipt. Every disagreement points at the oracle, not at a human. Reviews stop relitigating semantics and focus on whether piners matches the cited semantics.
 
 Secondary win: the same tool serves pine-tools' own dogfooding, future Pine projects, and anyone outside our orbit who wants a fast Pine reference CLI. The investment compounds across every Pine workflow we touch.
+
+## Status (current)
+
+11 of 12 design-doc subcommands shipped:
+
+| Subcommand | Status |
+|---|---|
+| `pine lookup` | Done |
+| `pine search` (+ `--kind` filter) | Done across 4 sources |
+| `pine behavior` | Done |
+| `pine parse` | Done (v0 - lifted pinecone) |
+| `pine tokens` | Done (v0 - lifted pinecone) |
+| `pine validate` | Done (v0 - first error only; deepens with piners-syntax) |
+| `pine validate --strict` | Done (yes/no oracle; diagnostics non-actionable) |
+| `pine probe` | Done |
+| `pine probes` (+ `--grep`) | Done with summary-text match |
+| `pine diff` | Done v1 (interior trim deferred until OHLCV bake) |
+| `pine version` | Done (self-describes bake counts) |
+| `pine indicator --strict` | **Pending** - needs piners' engine + OHLCV bake |
+
+Open Questions: 1 (validator backend, partially - piners-syntax pending), 9 (TV v6.md redistribution), 10 (license umbrella confirmation), 11 (PineTS expect.json schema) remain. 2 / 3 / 4 / 5 / 6 / 7 / 8 resolved.
