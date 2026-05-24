@@ -57,8 +57,12 @@ pub struct RawFunction {
     pub parameters: Vec<FunctionParameter>,
     #[serde(default)]
     pub returns: String,
+    /// Code examples preserving original newlines + indentation. Upstream
+    /// recently switched from a single `example: string` to a multi-element
+    /// `examples: string[]` after confirming TV's docs ship multiple sibling
+    /// `<pre>` blocks per function.
     #[serde(default)]
-    pub example: Option<String>,
+    pub examples: Vec<String>,
     #[serde(default)]
     pub flags: Option<FunctionFlags>,
 }
@@ -158,6 +162,7 @@ pub struct FunctionBehavior {
     pub syntax: String,
     pub returns: String,
     pub parameters: Vec<FunctionParameter>,
+    pub examples: Vec<String>,
     pub flags: FunctionFlags,
     /// Present only when behavior data covers this function.
     pub behavior: Option<RawBehaviorEntry>,
@@ -228,6 +233,7 @@ pub fn lookup(name: &str) -> Option<Behavior> {
             syntax: f.syntax.clone(),
             returns: f.returns.clone(),
             parameters: f.parameters.clone(),
+            examples: f.examples.clone(),
             flags: f.flags.clone().unwrap_or(FunctionFlags {
                 top_level_only: false,
             }),

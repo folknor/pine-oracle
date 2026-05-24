@@ -397,6 +397,19 @@ fn print_behavior_text(b: &behavior::Behavior) {
             if f.flags.top_level_only {
                 println!("  flags: top-level only");
             }
+            if !f.examples.is_empty() {
+                let n = f.examples.len();
+                let label = if n == 1 { "example" } else { "examples" };
+                println!("  {label}: {n}");
+                for (i, ex) in f.examples.iter().enumerate() {
+                    if n > 1 {
+                        println!("    --- example {} ---", i + 1);
+                    }
+                    for line in ex.lines() {
+                        println!("    {line}");
+                    }
+                }
+            }
             if let Some(beh) = &f.behavior {
                 let poly = if beh.polymorphic.is_polymorphic() {
                     "yes"
