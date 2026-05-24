@@ -9,7 +9,7 @@ Across review sessions, claims about Pine v6 semantics drift. A reviewer in sess
 Two canonical sources exist:
 
 - **pine-tools** (`../pine-tools/`) -- scraped TV docs: function signatures, types, polymorphism, behavior flags, type-coercion rules, the parser/validator itself.
-- **The corpus** (`corpus/validation/`) -- 228 Pine strategies cross-validated trade-for-trade against TradingView's broker emulator. The executable parity oracle. See `docs/corpus.md`.
+- **The corpus** (`vendor/pineforge-corpus/validation/`) -- 235 Pine strategies cross-validated trade-for-trade against TradingView's broker emulator, baked into the binary. The executable parity oracle. See `docs/corpus.md`.
 
 Together they cover almost every Pine claim a reviewer can make. But pine-tools is a pnpm/node project (slow startup, brittle dependency graph), the corpus is a directory of .pine + .csv files with no query layer, and neither is reachable from a piners shell without remembering the right incantation.
 
@@ -51,14 +51,20 @@ Built at `pine` build time over:
 - PineForge's `pineforge.h` doxygen blocks -- broker/strategy/magnifier semantic enumerations.
 - Pinecone's `tests/testdata/` -- 120 atomic `.pine` files with embedded `// Expected output:` comments. Per-feature behavior substrate.
 - per-probe `strategy.pine` source from the corpus
-- per-probe summaries from `docs/probe-summaries.md` (currently 21/228; see "Per-probe descriptions" below)
+- per-probe summaries from `docs/probe-summaries.md` (currently 0/235 aligned to published slugs; re-derivation pending -- see "Per-probe descriptions" below)
 - PineTS-derived Pine quirk patterns, paraphrased clean-room from `research/PineTS/src/namespaces/README.md` (the seven enumerated patterns: auto-gen indices, OO collections, `param()` shim, `__value` rewrite, epsilon equality, dual-getter properties, per-call-site state IDs).
 
 Stored as a `tantivy` index serialized into the binary or sidecar files. Queryable in <10 ms.
 
-### 3. Corpus loader (filesystem)
+### 3. Vendored corpus (baked)
 
-The corpus is too large to compile in (~5 MB of CSVs + .pine). Located via env var `PINE_CORPUS` or auto-discovered at `$XDG_DATA_HOME/pine/corpus/` (default `~/.local/share/pine/corpus/`). One-time `pine corpus install` fetches the PineForge submodule.
+The corpus ships **inside the binary**. Reality after vendoring: the published PineForge corpus is ~245 MB cloned (38 MB git history, 75 MB OHLCV across four feeds, 235 probes' worth of strategy.pine + tv_trades.csv + engine_trades.csv + generated.cpp + reports). The vendored subset pine-oracle bakes is the strict minimum the public subcommands need: per-probe `strategy.pine`, `tv_trades.csv`, and optional `inputs.json`. Everything else (OHLCV feeds, PineForge's own `engine_trades.csv`, the transpiler's `generated.cpp`, validation reports, upstream tooling) is pruned out of `vendor/pineforge-corpus/` and not in the binary.
+
+Baked subset size: ~72 MB. Final binary size lands around 75-80 MB. Embedded via `include_dir!()` at compile time, queried as `&'static str` slices at runtime. Zero on-disk scratch, zero env vars, zero settings files.
+
+Pruning is reproducible: `scripts/prune-vendored-corpus.sh` operates on a fresh clone of <https://github.com/fullpass-4pass/pineforge-corpus>; see `vendor/pineforge-corpus/VENDORING_NOTES.md` for the kept / dropped manifest and the refresh procedure.
+
+When `pine indicator --strict` and `pine diff` v1 land, OHLCV gets added to the bake (the prune script grows a `--keep-data` flag or similar). Binary grows ~75 MB at that point.
 
 ### 4. Validator backend
 
@@ -66,7 +72,7 @@ Two tiers:
 
 - **Local tier.** Uses a Rust port of pine-tools' analyzer, OR transpiles pine-tools' TS to WASM at build time, OR ships a bundled Node runtime. Pick before starting (see Open Questions). Returns TV-shaped typed diagnostics in <50 ms.
 - **Strict tier.** Two strict modes:
-  - `pine validate --strict` shells to TradingView's real pine-lint API for parser/type diagnostics. Slow (network), authoritative, used only for disputed cases. Caches by `sha256(code)`. **Lift opportunity:** pine-tools' `debug:diff` command already has a working pine-lint client (auth handling, request shape, response parsing). Port that client to Rust, or have the oracle shell to `pnpm run debug:diff` for this one subcommand, rather than reinventing the API integration.
+  - `pine validate --strict` shells to TradingView's real pine-lint API for parser/type diagnostics. Slow (network), authoritative, used only for disputed cases. No auth required: the pine-lint endpoint is open. No on-disk response cache: pine-oracle has zero on-disk state by design, and across CLI invocations the only place a cache could live is disk, so cross-invocation caching is just not in scope. **Lift opportunity:** pine-tools' `debug:diff` command already has a working pine-lint client (request shape, response parsing). Port that client to Rust, or have the oracle shell to `pnpm run debug:diff` for this one subcommand, rather than reinventing the API integration.
   - `pine indicator --strict <probe>` runs an indicator against fixture bars and diffs per-bar values against a vendored baseline using the PineTS-derived `.expect.json` schema (see "Strict-mode indicator test format" below). Different oracle tier from the corpus -- corpus is trade-list parity, this is per-bar indicator parity.
 
 ## Vendoring inventory
@@ -122,12 +128,9 @@ pine tokens <code>              lexer tokens with line/indent
 pine search <query>             BM25 across all sources, ranked
 pine behavior <name>            polymorphism, side-effects, series-vs-simple, na-propagation
 pine probe <slug>               probe contents: strategy.pine + tv_trades.csv + summary
-pine probes                     list all probes
-pine probes --feature <flag>    list probes that exercise a feature (pyramiding, magnifier, etc.)
-pine probes --grep <text>       list probes whose summary matches text
+pine probes                     list all baked probes
+pine probes --grep <text>       list probes whose slug matches text (summary text once re-curated)
 pine diff <probe> <trades.csv>  tier-classify a piners trade list against the probe's tv_trades
-pine corpus install             fetch PineForge corpus into XDG data dir
-pine corpus update              git pull the corpus
 pine version                    pine-data snapshot date + corpus revision + binary version
 ```
 
@@ -171,24 +174,24 @@ Schema versioning: every JSON payload carries `"schema_version": N`. Bumps when 
 
 The corpus has no human-readable per-probe descriptions today. `strategy.pine` is the only text per probe, and raw Pine is poor BM25 substrate (keywords overlap, function names dominate, intent is opaque).
 
-Adding `corpus/validation/<NN-slug>/probe.md` (1-3 sentences, "what Pine semantic does this probe exercise") is the single biggest oracle win. Shifts the corpus from "228 .pine files BM25 can barely use" to "228 searchable forensic cases".
+Adding a 1-3 sentence "what Pine semantic does this probe exercise" per slug is the single biggest oracle win. Shifts the corpus from "235 .pine files BM25 can barely use" to "235 searchable forensic cases".
 
-### Current status: 21/228
+### Current status: 0/235 aligned to published slugs
 
-`docs/probe-summaries.md` contains harvested summaries for 21 probes, derived from PineForge's engine source comments (Apache-2.0 attributed). These concentrate on bug-bearing edges -- exactly the probes a reviewer is most likely to need explained. Probes covered: 52, 54, 62, 63, 72, 80, 80-87 group, 83, 92, 93, 95, 96, 97/97a/97b, plus magnifier-dist-probe-01..08b, ies-probe-08, parity-probe-03..06, oca-three-way-probe-02, typed-matrix-probe-01-bool-regime-mask, anomaly-equity-mirror.
+`docs/probe-summaries.md` contains 21 harvested summaries, but those summaries reference engine-internal probe identifiers (`magnifier-dist-probe-01..08b`, `ies-probe-08`, `parity-probe-03..06`, `oca-three-way-probe-02`, `typed-matrix-probe-01-bool-regime-mask`, `anomaly-equity-mirror`, and engine-history numbers 52..97) that **do not appear in the published corpus**. The prose is solid; only the slug keys are wrong. Re-mapping is open work. Until that lands, `corpus::summary_for(slug)` returns `None` for every slug and `pine probes --grep` filters on slug substring only.
 
-### Remaining ~207
+### Re-derivation paths
 
 Two paths, not mutually exclusive:
 
-- **LLM pass.** Feed each `strategy.pine` to a model with prompt "in 2 sentences, what Pine v6 semantic does this probe exercise". Commit output to `docs/probe-summaries.md`. Human-review suspect ones.
+- **LLM pass against real slugs.** Feed each of the 235 baked `strategy.pine` files to a model with prompt "in 2 sentences, what Pine v6 semantic does this probe exercise". Commit output to `docs/probe-summaries.md` keyed by the published slug. Human-review suspect ones.
 - **Pattern-match against `docs/pine_v6_audit_master.md`** -- some probes exercise the divergences PineForge already documented. Link probe -> divergence-class in the summary.
 
-Land descriptions upstream in PineForge if possible (every consumer benefits). Fork piners-side if not.
+Land descriptions upstream in PineForge if possible (every consumer benefits). Fork pine-oracle-side if not.
 
-### Renumbering disambiguation
+### Engine-history vs published slugs
 
-Engine source comments reference probes by old numbers (52, 62, 80, 83, 92, 93, 95-97). The published corpus uses topical slugs (`validation/97-tp-sl-gap-reversal-oca`). Same number, different meanings. The oracle should resolve both: `pine probe 97` returns the published slug; `pine probe 97 --engine-history` returns the engine-source-cited probe with its bug context.
+PineForge engine source comments reference probes by old numbers and engine-internal slugs (52, 62, 80, 83, 92, 93, 95-97; `magnifier-dist-probe-08b`; etc.). The published corpus uses entirely different topical slugs (`oca-multi-bracket-isolation-01`, `magnifier-tick-dist-endpoints-01`, etc.). The renaming was not bijective and no mapping table ships with the corpus. Recovering that mapping is a separate forensic exercise; for now, treat engine-history slugs as prose annotations and the published slugs as the canonical lookup key.
 
 ## Strict-mode indicator test format
 
@@ -243,14 +246,7 @@ Three paths, all systemwide:
 - `brew install <tap>/pine/pine` (Homebrew tap, tap name TBD)
 - Manual `git clone && cargo install --path .`
 
-First run prompts:
-
-```
-$ pine lookup math.max
-Corpus not found at $XDG_DATA_HOME/pine/corpus/. Install now? [Y/n]
-```
-
-`pine corpus install` clones PineForge corpus, caches the path, subsequent runs are silent.
+No first-run setup, no `corpus install` flow, no on-disk state. The corpus is baked in; the binary is self-contained. Final binary is ~75-80 MB today and grows to ~150 MB when OHLCV joins the bake for `pine diff` and `pine indicator --strict` v1.
 
 ## Agent integration
 
@@ -296,17 +292,17 @@ Release cadence: pin to pine-data scrape cadence. When TV's docs change, regener
 
 2. **Repo layout.** **Resolved:** new sibling Rust repo `pine-oracle/`. Not inside piners (would signal "piners helper", slow piners' build), not inside pine-tools (would force a Rust crate into a TS monorepo). pine-tools stays the upstream data source via `pnpm run export:json`.
 
-3. **Corpus distribution.** Bundle into the binary (~5 MB, doable), download on first run, require manual `pine corpus install`? Default offline-capable, or default "fetches on first use"?
+3. **Corpus distribution.** **Resolved:** baked into the binary. Vendored under `vendor/pineforge-corpus/`, embedded via `include_dir!()`, ~72 MB baked subset, no on-disk state at runtime.
 
 4. **Output schema stability.** Agents will parse this. Schema breakage breaks every downstream prompt and every cited finding. Lock in `schema_version` early; document the deprecation policy.
 
-5. **`validate --strict` auth.** TradingView's pine-lint API requires session cookies. Where does `pine` store them? Keychain? Plain config file in `$XDG_CONFIG_HOME/pine/`? Opt-in only?
+5. **`validate --strict` auth.** **Resolved:** no auth required. The TradingView pine-lint endpoint is open; pine-oracle stores no credentials anywhere because it stores nothing anywhere.
 
-6. **Per-probe summary ownership.** Are summaries piners-side (we generate, we maintain), or upstream in PineForge (everyone benefits, requires their cooperation)? Upstream is better but slower. **Partially resolved:** 21 probes harvested from PineForge engine comments live in `docs/probe-summaries.md`; remaining ~207 still pending.
+6. **Per-probe summary ownership.** Re-derivation pending (see "Per-probe descriptions" above): the 21 harvested summaries in `docs/probe-summaries.md` reference engine-internal slugs that don't match the published corpus, so the alignment work is reset.
 
 7. **Search corpus coverage.** Does BM25 also index the pine-tools issue tracker, the TV release notes, the Pine v6 migration guide? Each broadens recall but dilutes precision. Start narrow (pine-data + per-probe summaries), grow with demand.
 
-8. **Caching `validate --strict` responses.** TV pine-lint output for a given source hash is stable. Cache in `$XDG_CACHE_HOME/pine/strict/`. TTL? Never expire and offer `pine cache clear`?
+8. **Caching `validate --strict` responses.** **Resolved:** no cache. pine-oracle has zero on-disk state; a CLI invocation hits the API once and exits, so cross-invocation caching has nowhere to live.
 
 9. **TV v6.md redistribution.** Pinecone's vendored copy (`spec/v6.md`, 918 KB) is TradingView copyright. Pinecone's redistribution under MPL-2.0 is precedent but not blanket legal cover. Two paths:
    - Vendor with prominent "snapshot of TV docs as of <date>, all content (c) TradingView" disclaimer; rely on Pinecone's precedent.

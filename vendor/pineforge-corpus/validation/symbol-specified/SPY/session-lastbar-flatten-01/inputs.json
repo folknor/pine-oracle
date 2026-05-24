@@ -1,0 +1,12 @@
+{
+  "syminfo_overrides": {
+    "ticker":   "SPY",
+    "tickerid": "AMEX:SPY",
+    "timezone": "America/New_York",
+    "session":  "0930-1600"
+  },
+  "validation_overrides": {
+    "expect_tv_match": true,
+    "expect_tv_match_reason": "session.islastbar end-of-day flatten — closes all positions on last bar of session"
+  }
+}

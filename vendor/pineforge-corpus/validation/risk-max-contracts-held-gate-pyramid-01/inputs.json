@@ -1,0 +1,7 @@
+{
+  "tv_trades_csv": "tv_trades.csv",
+  "validation_overrides": {
+    "expect_tv_match": true,
+    "expect_tv_match_reason": "strategy.max_contracts_held_all gates pyramid entries; once lifetime peak >= 5 no more entries are placed"
+  }
+}

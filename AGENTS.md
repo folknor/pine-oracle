@@ -16,14 +16,17 @@ Modules currently in `src/`:
 
 - `reference`: in-process lookup + substring search over the vendored TradingView v6 reference (`vendor/pine-reference/spec/v6.md`, 941 entries). Cached behind `OnceLock`. MPL-2.0, lifted from pinecone.
 
+Modules currently in `src/`:
+
+- `corpus`: in-binary PineForge validation corpus, embedded via `include_dir`. Exposes `load_probe(slug)` and `list_probes(grep)` over 235 probes (flat + nested under `symbol-specified/<SYMBOL>/`). Slug-aligned per-probe summaries are pending re-curation; `summary_for` returns `None` until that lands. Apache-2.0 + MPL-2.0 dual-licensed, attributing PineForge.
+- `search`: BM25 via tantivy over the v6 reference. RAM-backed Index built on first invocation (single-digit ms), OnceLock-cached. `name` field gets a 5x boost over `content`. Eventually grows to index `corpus` probe summaries + PineForge audit docs once those land.
+
 Planned modules per design:
 
 - `parse` / `tokens`: ports of piners-syntax for `pine parse` and `pine tokens`.
-- `validate`: local-tier diagnostics; `--strict` shells to TradingView's pine-lint API.
+- `validate`: local-tier diagnostics; `--strict` shells to TradingView's pine-lint API (no auth required, no on-disk response cache).
 - `behavior`: polymorphism / na-propagation / series-vs-simple lookup over pine-tools' `pine-data/v6/*.json` (once the upstream export step lands).
-- `probe` / `probes`: corpus loader (filesystem under `$XDG_DATA_HOME/pine/corpus/`).
 - `diff`: Rust port of PineForge's `verify_corpus.py` alignment + tier logic.
-- `search`: BM25 over reference + corpus summaries + PineForge audit docs; tantivy is v2 (the current `search` is a substring ranker placeholder).
 
 Canonical homes (so cross-module duplicates collapse to one):
 
@@ -40,7 +43,8 @@ Canonical homes (so cross-module duplicates collapse to one):
 
 Current vendors:
 
-- `vendor/pine-reference/`: pinecone's `crates/pine-reference/spec/v6.md` (MPL-2.0).
+- `vendor/pine-reference/`: pinecone's `crates/pine-reference/spec/v6.md` (MPL-2.0). Local mod: U+00A0 NO-BREAK SPACE rewritten to U+0020 SPACE for the gremlin scan. See `vendor/pine-reference/NOTICE`.
+- `vendor/pineforge-corpus/`: <https://github.com/fullpass-4pass/pineforge-corpus> (Apache-2.0), pruned to the subset baked into the binary. See `vendor/pineforge-corpus/VENDORING_NOTES.md` for kept / dropped manifest and refresh procedure. Refresh via `scripts/prune-vendored-corpus.sh`.
 
 ## Rules
 
@@ -99,13 +103,14 @@ Single-crate workspace, so `-p` is unnecessary.
 | Subcommand | Status |
 |---|---|
 | `pine lookup <name>` | done (cross-category exact, prefix fallback) |
-| `pine search <query>` | placeholder substring ranker; BM25 in v2 |
+| `pine search <query>` | done (tantivy BM25, 5x name boost) |
+| `pine probe <slug>` | done (baked corpus, flat + nested slugs) |
+| `pine probes [--grep TEXT]` | done (slug substring match; summary-text grep returns when summaries re-curate) |
 | `pine version` | done |
 | `pine validate` | TODO |
+| `pine validate --strict` | TODO (network call to TV's pine-lint, no auth, no cache) |
 | `pine parse` | TODO |
 | `pine tokens` | TODO |
 | `pine behavior` | TODO (needs pine-tools `export:json`) |
-| `pine probe` | TODO (needs corpus install) |
-| `pine probes` | TODO |
-| `pine diff` | TODO (needs verify_corpus.py port) |
-| `pine corpus install/update` | TODO |
+| `pine diff` | TODO (needs verify_corpus.py port; will require OHLCV bake) |
+| `pine indicator --strict` | TODO (per-bar parity; will require OHLCV bake) |

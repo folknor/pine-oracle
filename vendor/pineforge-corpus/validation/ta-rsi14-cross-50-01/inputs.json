@@ -1,0 +1,3 @@
+{
+  "_comment": "Probe defaults to corpus data/ohlcv_ETH-USDT-USDT_15m_warmup6m.csv. tv_trades.csv lives next to this file. tv_trades_csv_tz omitted (TV exports in chart timezone — typically UTC for ETH-USDT-USDT)."
+}

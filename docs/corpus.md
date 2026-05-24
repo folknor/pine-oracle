@@ -2,7 +2,7 @@
 
 ## What it is
 
-PineForge ships a public git submodule at `corpus/validation/` containing 228 Pine v6 reference strategies, each cross-validated trade-for-trade against TradingView's broker emulator. Total: ~313,000 trades verified. The submodule lives at <https://github.com/fullpass-4pass/pineforge-engine> under the path `corpus/`, Apache-2.0 licensed.
+PineForge ships a public corpus repository at <https://github.com/fullpass-4pass/pineforge-corpus> containing 235 Pine v6 reference strategies, each cross-validated trade-for-trade against TradingView's broker emulator. Total: ~313,000 trades verified. Apache-2.0 licensed. (PineForge's engine repository at <https://github.com/fullpass-4pass/pineforge-engine> consumes the corpus as a git submodule.)
 
 It is the only published large-scale TradingView parity test suite. For piners, where matching TV trade lists is the killer differentiator, the corpus is the executable specification.
 
@@ -70,7 +70,7 @@ This bootstrap also forces the engine to be designed for hand-authored Rust stra
 
 ## The 1 documented outlier
 
-`validation/anomaly-equity-mirror` (originally `anomaly-equity-mirror-strategy-equity-01` in earlier corpus revisions, renamed in the public corpus). PineForge's engine produces a different trade list than TV at the 1x equity boundary because TV's broker emulator is non-deterministic on that probe (rounding behavior on a margin edge case differs between TV runs of the same source on the same OHLCV). PineForge calls itself correct; TV is the noise. The probe is tagged `expected_tier = "anomaly"` in `inputs.json` so the verifier does not count it as a regression.
+`anomaly-equity-mirror-strategy-equity-01`. PineForge's engine produces a different trade list than TV at the 1x equity boundary because TV's broker emulator is non-deterministic on that probe (rounding behavior on a margin edge case differs between TV runs of the same source on the same OHLCV). PineForge calls itself correct; TV is the noise. The probe is tagged `expected_tier = "anomaly"` in `inputs.json` so the verifier does not count it as a regression.
 
 piners should inherit the same treatment: anomaly tier, not a parity failure.
 

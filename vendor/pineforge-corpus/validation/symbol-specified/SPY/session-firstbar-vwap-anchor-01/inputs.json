@@ -1,0 +1,12 @@
+{
+  "syminfo_overrides": {
+    "ticker":   "SPY",
+    "tickerid": "AMEX:SPY",
+    "timezone": "America/New_York",
+    "session":  "0930-1600"
+  },
+  "validation_overrides": {
+    "expect_tv_match": true,
+    "expect_tv_match_reason": "session.isfirstbar anchors daily VWAP reset — session.isfirstbar_regular == session.isfirstbar in engine"
+  }
+}

@@ -77,16 +77,10 @@ enum Command {
     Behavior { name: String },
 
     /// Probe contents: strategy.pine + tv_trades.csv + summary
-    Probe {
-        slug: String,
-        #[arg(long)]
-        engine_history: bool,
-    },
+    Probe { slug: String },
 
-    /// List corpus probes
+    /// List baked corpus probes
     Probes {
-        #[arg(long)]
-        feature: Option<String>,
         #[arg(long)]
         grep: Option<String>,
     },
@@ -94,22 +88,8 @@ enum Command {
     /// Tier-classify a piners trade list against the probe's tv_trades
     Diff { probe: String, trades_csv: String },
 
-    /// Manage the local corpus
-    Corpus {
-        #[command(subcommand)]
-        action: CorpusAction,
-    },
-
     /// pine-data snapshot date + corpus revision + binary version
     Version,
-}
-
-#[derive(Subcommand)]
-enum CorpusAction {
-    /// Fetch PineForge corpus into XDG data dir
-    Install,
-    /// git pull the corpus
-    Update,
 }
 
 fn main() -> Result<()> {
@@ -123,18 +103,9 @@ fn main() -> Result<()> {
         Command::Parse { .. } => bail!("parse: not implemented yet"),
         Command::Tokens { .. } => bail!("tokens: not implemented yet"),
         Command::Behavior { .. } => bail!("behavior: not implemented yet"),
-        Command::Probe {
-            slug,
-            engine_history,
-        } => cmd_probe(&slug, engine_history, format),
-        Command::Probes { feature, grep } => {
-            cmd_probes(feature.as_deref(), grep.as_deref(), format)
-        }
+        Command::Probe { slug } => cmd_probe(&slug, format),
+        Command::Probes { grep } => cmd_probes(grep.as_deref(), format),
         Command::Diff { .. } => bail!("diff: not implemented yet"),
-        Command::Corpus { action } => match action {
-            CorpusAction::Install => cmd_corpus_install(format),
-            CorpusAction::Update => cmd_corpus_update(format),
-        },
         Command::Version => cmd_version(format),
     }
 }
@@ -215,33 +186,37 @@ fn cmd_search(query: &str, limit: usize, format: ResolvedFormat) -> Result<()> {
     Ok(())
 }
 
-fn cmd_probe(slug: &str, engine_history: bool, format: ResolvedFormat) -> Result<()> {
-    let probe = corpus::load_probe(slug, engine_history)?;
+fn cmd_probe(slug: &str, format: ResolvedFormat) -> Result<()> {
+    let probe = corpus::load_probe(slug)?;
     match format {
         ResolvedFormat::Json => {
             println!("{}", serde_json::to_string(&probe)?);
         }
         ResolvedFormat::Text => {
             println!("slug: {}", probe.slug);
-            if let Some(summary) = &probe.summary {
-                println!("summary: {summary}");
-            } else {
-                println!("summary: (none)");
+            match probe.summary {
+                Some(summary) => println!("summary: {summary}"),
+                None => println!("summary: (none)"),
             }
-            println!("tv_trades.csv: {}", probe.tv_trades_csv.display());
-            if probe.inputs_json.is_some() {
-                println!("inputs.json: present");
-            } else {
-                println!("inputs.json: (none)");
-            }
+            let trade_lines = probe.tv_trades_csv.lines().count();
+            let trade_bytes = probe.tv_trades_csv.len();
+            println!("tv_trades.csv: {trade_lines} lines, {trade_bytes} bytes (use --format json for full content)");
+            println!(
+                "inputs.json: {}",
+                if probe.inputs_json.is_some() {
+                    "present"
+                } else {
+                    "(none)"
+                }
+            );
             println!("\nstrategy.pine:\n{}", probe.strategy_pine);
         }
     }
     Ok(())
 }
 
-fn cmd_probes(feature: Option<&str>, grep: Option<&str>, format: ResolvedFormat) -> Result<()> {
-    let probes = corpus::list_probes(feature, grep)?;
+fn cmd_probes(grep: Option<&str>, format: ResolvedFormat) -> Result<()> {
+    let probes = corpus::list_probes(grep)?;
     match format {
         ResolvedFormat::Json => {
             println!("{}", serde_json::to_string(&probes)?);
@@ -261,34 +236,6 @@ fn cmd_probes(feature: Option<&str>, grep: Option<&str>, format: ResolvedFormat)
                 }
             }
         }
-    }
-    Ok(())
-}
-
-fn cmd_corpus_install(format: ResolvedFormat) -> Result<()> {
-    corpus::install()?;
-    match format {
-        ResolvedFormat::Json => {
-            println!(
-                "{}",
-                serde_json::to_string(&serde_json::json!({"status": "ok"}))?
-            );
-        }
-        ResolvedFormat::Text => println!("corpus install: ok"),
-    }
-    Ok(())
-}
-
-fn cmd_corpus_update(format: ResolvedFormat) -> Result<()> {
-    corpus::update()?;
-    match format {
-        ResolvedFormat::Json => {
-            println!(
-                "{}",
-                serde_json::to_string(&serde_json::json!({"status": "ok"}))?
-            );
-        }
-        ResolvedFormat::Text => println!("corpus update: ok"),
     }
     Ok(())
 }

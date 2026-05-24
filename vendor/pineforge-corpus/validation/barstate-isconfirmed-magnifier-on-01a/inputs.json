@@ -1,0 +1,6 @@
+{
+  "runtime_overrides": {
+    "bar_magnifier": true,
+    "magnifier_distribution": "ENDPOINTS"
+  }
+}

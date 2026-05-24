@@ -4,7 +4,9 @@ Per-probe explanations for the PineForge validation corpus (`corpus/validation/<
 
 ## Status
 
-**21 of 228 probes** have rich PineForge-authored prose available to harvest from their engine source comments (Apache-2.0, attributed). The remaining ~207 need fresh authorship from a later LLM-assisted pass over each `.pine`, followed by human review. The 21 covered here concentrate on bug-bearing edge cases, which by construction are the probes a reviewer is most likely to need the oracle to explain.
+> **Stale slug keys.** The summaries below are keyed by engine-internal probe identifiers (`magnifier-dist-probe-01..08b`, `ies-probe-08`, `parity-probe-03..06`, `oca-three-way-probe-02`, `typed-matrix-probe-01-bool-regime-mask`, `anomaly-equity-mirror`, and engine-history numbers 52..97) that **do not appear in the published corpus** under `vendor/pineforge-corpus/validation/`. The published corpus uses different topical slugs (e.g. `oca-multi-bracket-isolation-01`, `magnifier-tick-dist-endpoints-01`, `anomaly-equity-mirror-strategy-equity-01`). Re-derivation against the real 235 slugs is open work; until that lands, `corpus::summary_for` returns `None` for every probe. The prose below is still useful as forensic reference for PineForge engine internals, just not wired into the binary.
+
+**21 summaries** were harvested from PineForge engine source comments (Apache-2.0, attributed), concentrating on bug-bearing edge cases. **0 / 235** are currently aligned to the published corpus slugs.
 
 ## Attribution
 

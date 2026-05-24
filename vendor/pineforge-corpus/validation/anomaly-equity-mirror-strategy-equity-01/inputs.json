@@ -1,0 +1,4 @@
+{
+  "expected_tier": "anomaly",
+  "notes": "TV broker margin-boundary non-determinism at the exact 1x equity boundary (>=95% confidence, deep-analyzed). Engine is deterministic and CORRECT per Pine semantics; TV admits some over-equity entries and rejects some under-equity ones non-monotonically. Cannot be made to match TV without replicating TV's broker bug. See pineforge-utils/parity-anomalies/tv-margin-boundary.md and corpus/validation_report.md headline. Sibling probes (parity-probe-04/05/06) that leave any meaningful headroom below 100% equity match perfectly; only this 1.0x-pinned probe surfaces the boundary divergence."
+}

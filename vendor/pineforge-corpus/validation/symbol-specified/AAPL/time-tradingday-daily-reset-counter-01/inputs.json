@@ -1,0 +1,14 @@
+{
+    "tv_trades_csv": "tv_trades.csv",
+    "tv_trades_csv_tz": "America/New_York",
+    "validation_overrides": {
+        "expect_tv_match": false,
+        "expect_tv_match_reason": "TV_RUN_NEEDED: tv_trades.csv not yet captured"
+    },
+    "runtime_overrides": {
+        "symbol": "AAPL",
+        "timeframe": "30",
+        "session": "0930-1600:23456",
+        "timezone": "America/New_York"
+    }
+}

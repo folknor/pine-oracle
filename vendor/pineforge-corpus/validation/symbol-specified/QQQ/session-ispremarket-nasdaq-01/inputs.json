@@ -1,0 +1,12 @@
+{
+  "syminfo_overrides": {
+    "ticker":   "QQQ",
+    "tickerid": "NASDAQ:QQQ",
+    "timezone": "America/New_York",
+    "session":  "0930-1600"
+  },
+  "validation_overrides": {
+    "expect_tv_match": true,
+    "expect_tv_match_reason": "session.ispremarket gate — enter during 04:00-09:30 window on NASDAQ ETF"
+  }
+}

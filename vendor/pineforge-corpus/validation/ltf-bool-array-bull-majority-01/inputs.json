@@ -1,0 +1,5 @@
+{
+  "ohlcv_csv": "../../data/ohlcv_ETH-USDT-USDT_1m_warmup6m.csv",
+  "input_tf": "1",
+  "script_tf": "15"
+}

@@ -1,0 +1,7 @@
+{
+  "tv_trades_csv": "tv_trades.csv",
+  "validation_overrides": {
+    "expect_tv_match": true,
+    "expect_tv_match_reason": "strategy.eventrades counts trades with net P&L == 0; engineered by setting commission=0 and exiting via limit at exact entry price"
+  }
+}
