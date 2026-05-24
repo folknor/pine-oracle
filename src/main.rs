@@ -199,6 +199,7 @@ fn cmd_search(query: &str, limit: usize, format: ResolvedFormat) -> Result<()> {
                 .iter()
                 .map(|h| {
                     serde_json::json!({
+                        "kind": h.kind,
                         "name": h.name,
                         "category": h.category,
                         "score": h.score,
@@ -216,7 +217,10 @@ fn cmd_search(query: &str, limit: usize, format: ResolvedFormat) -> Result<()> {
                 return Ok(());
             }
             for h in &hits {
-                println!("{:>6.2}  {}  ({})", h.score, h.name, h.category);
+                println!(
+                    "{:>6.2}  [{:<9}] {}  ({})",
+                    h.score, h.kind, h.name, h.category
+                );
             }
         }
     }

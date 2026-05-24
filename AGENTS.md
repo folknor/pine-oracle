@@ -16,7 +16,7 @@ Modules currently in `src/`:
 
 - `reference`: in-process lookup + substring search over the vendored TradingView v6 reference (`vendor/pine-reference/spec/v6.md`, 941 entries). Cached behind `OnceLock`. MPL-2.0, lifted from pinecone.
 - `corpus`: in-binary PineForge validation corpus, embedded via `include_dir`. Exposes `load_probe(slug)` and `list_probes(grep)` over 235 probes (flat + nested under `symbol-specified/<SYMBOL>/`). `summary_for(slug)` extracts the author-written prose comment block from each `strategy.pine` header (skipping license / SPDX / copyright / version-directive lines), cached behind a OnceLock; >=80% of probes get a real summary out of the box. `list_probes(grep)` matches against slug OR summary text. The richer engine-internals prose in `docs/probe-summaries.md` is keyed to engine-internal slugs that do not match the published corpus and is not loaded here. Apache-2.0 + MPL-2.0 dual-licensed, attributing PineForge.
-- `search`: BM25 via tantivy over the v6 reference. RAM-backed Index built on first invocation (single-digit ms), OnceLock-cached. `name` field gets a 5x boost over `content`. Eventually grows to index `corpus` probe summaries + PineForge audit docs once those land.
+- `search`: BM25 via tantivy over the v6 reference + the baked PineForge corpus. RAM-backed Index built on first invocation (~10 ms), OnceLock-cached, ~1.18k docs total (941 reference + 235 probes). Schema fields: `name`, `category`, `kind` ("reference" or "probe"), `content`. `name` field gets a 5x boost over `content`. Probes are indexed with slug as `name`, author-extracted summary as `content` (slug-as-fallback when no summary).
 - `syntax`: Pine v6 lexer + AST + parser lifted from pinecone (MPL-2.0). Three sub-modules (`ast`, `lexer`, `parser`) re-exported through `syntax::*`. Drives `pine parse` and `pine tokens`. Parser regression tests run across 72 vendored `.pine` fixtures with `_ast.json` goldens. **Temporary**: this lift is the v0 backing for `pine validate`. Long-term it gets replaced by piners-syntax (the analyzer piners builds for its runtime) or, as a bridge, a WASM transpile of pine-tools' TS analyzer. The lifted pinecone parser stops at the first lex / parse error and has no type checker.
 - `validate`: two tiers, with inverted authority vs. an earlier draft of the design doc.
   - **Local (`validate::check`)**: lex + parse via `syntax`, returns first failure as `Diagnostic { severity, stage, message, line, column }`. Today catches one error only; will become an IDE-quality multi-error multi-stage validator once piners-syntax (or a WASM pine-tools transpile) lands.
@@ -105,7 +105,7 @@ Single-crate workspace, so `-p` is unnecessary.
 | Subcommand | Status |
 |---|---|
 | `pine lookup <name>` | done (cross-category exact, prefix fallback) |
-| `pine search <query>` | done (tantivy BM25, 5x name boost) |
+| `pine search <query>` | done (tantivy BM25, 5x name boost; indexes v6 reference + baked corpus probes; hits carry `kind` = "reference" or "probe") |
 | `pine probe <slug>` | done (baked corpus, flat + nested slugs) |
 | `pine probes [--grep TEXT]` | done (matches against slug or extracted-from-source summary text) |
 | `pine parse` | done via the pinecone lift; will deepen when piners-syntax replaces it |
