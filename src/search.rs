@@ -388,4 +388,16 @@ mod tests {
                 .collect::<Vec<_>>()
         );
     }
+
+    #[test]
+    fn hits_carry_non_empty_content() {
+        let hits = query("rsi", 3).expect("search must succeed");
+        assert!(!hits.is_empty());
+        let ta_rsi = hits.iter().find(|h| h.name == "ta.rsi").expect("ta.rsi");
+        assert!(
+            !ta_rsi.content.is_empty(),
+            "ta.rsi hit must carry stored content"
+        );
+        assert!(ta_rsi.content.len() > 30);
+    }
 }
