@@ -68,12 +68,14 @@ When `pine indicator --strict` and `pine diff` v1 land, OHLCV gets added to the 
 
 ### 4. Validator backend
 
-Two tiers:
+Two tiers, in inverted authority order vs. an earlier draft of this doc:
 
-- **Local tier.** Uses a Rust port of pine-tools' analyzer, OR transpiles pine-tools' TS to WASM at build time, OR ships a bundled Node runtime. Pick before starting (see Open Questions). Returns TV-shaped typed diagnostics in <50 ms.
-- **Strict tier.** Two strict modes:
-  - `pine validate --strict` shells to TradingView's real pine-lint API for parser/type diagnostics. Slow (network), authoritative, used only for disputed cases. No auth required: the pine-lint endpoint is open. No on-disk response cache: pine-oracle has zero on-disk state by design, and across CLI invocations the only place a cache could live is disk, so cross-invocation caching is just not in scope. **Lift opportunity:** pine-tools' `debug:diff` command already has a working pine-lint client (request shape, response parsing). Port that client to Rust, or have the oracle shell to `pnpm run debug:diff` for this one subcommand, rather than reinventing the API integration.
-  - `pine indicator --strict <probe>` runs an indicator against fixture bars and diffs per-bar values against a vendored baseline using the PineTS-derived `.expect.json` schema (see "Strict-mode indicator test format" below). Different oracle tier from the corpus -- corpus is trade-list parity, this is per-bar indicator parity.
+- **Local tier (`pine validate`)**. The workhorse. IDE-quality diagnostics: every lex / parse error, every type error, every semantic warning, with correct line + column positions, multi-error. This is what serious work uses. Three feasible implementations:
+  - **Use piners-syntax** once it stabilises. piners has to lex + parse + type-check Pine to execute it for backtesting; that analyzer is the natural Rust home and pine-oracle should depend on it.
+  - **Transpile pine-tools' TS analyzer to WASM** at build time. Brings the mature IDE validator along intact; preserves single-binary purity. Bridge option if piners-syntax isn't ready in time.
+  - **Today: the pinecone-lifted lexer + parser in `src/syntax/`**. v0 stand-in: catches the first lex / parse error and stops. No type checking. Replaced by one of the two options above when ready.
+- **Strict tier (`pine validate --strict`)**. **Yes / no oracle only. Do not try to fix your script from its diagnostics.** TradingView's `pine-facade/translate_light` endpoint is profoundly bad as a validator: it stops at the first error, breaks on trailing whitespace (e.g. an extra space at end of line is "invalid"), and reports the wrong line / column for essentially every diagnostic. The diagnostic prose is non-actionable: it tells you *something* is wrong but not where or what in any reliable way. The only trustworthy output is the `success` bit (true / false). Use this exactly once, after you believe `pine validate` (local tier) reports clean: a final yes / no from TV's broker before you publish. Do not iterate against it; iterate against the local tier. No auth required, no on-disk cache.
+- **Indicator strict tier (`pine indicator --strict <probe>`)**. Different oracle: runs an indicator against fixture bars and diffs per-bar values against a vendored baseline using the PineTS-derived `.expect.json` schema (see "Strict-mode indicator test format" below). Corpus is trade-list parity; this is per-bar indicator parity.
 
 ## Vendoring inventory
 
@@ -121,8 +123,8 @@ Skipping BM25 for v1 also defers the question of how to ship the index (in-binar
 
 ```
 pine lookup <name>              function/constant/var details
-pine validate <code>            type errors, syntax errors, behavior warnings
-pine validate --strict <code>   diff our validator against TV's pine-lint
+pine validate <code>            local validator: every lex / parse / type / semantic diagnostic
+pine validate --strict <code>   TV-broker yes/no oracle; error messages are not actionable
 pine parse <code>               AST as JSON
 pine tokens <code>              lexer tokens with line/indent
 pine search <query>             BM25 across all sources, ranked
@@ -284,11 +286,11 @@ Release cadence: pin to pine-data scrape cadence. When TV's docs change, regener
 
 ## Open questions
 
-1. **Validator backend.** Three options ranked by effort and quality:
-   - Rust port of pine-tools' analyzer: highest quality, weeks of work, dogfooding aligned.
-   - TS-to-WASM transpile: medium quality, medium effort, brings the existing analyzer along intact.
-   - Bundled Node runtime + pine-tools' JS: lowest effort, slow startup, brittle.
-   Pick before starting.
+1. **Validator backend.** **Partially resolved.** The local tier (`pine validate`) wants IDE-quality output: every lex / parse / type / semantic diagnostic with correct positions, not the shallow first-error stop the pinecone-lifted code does today. Three paths, in preference order:
+   - **Wait for piners-syntax.** piners has to lex + parse + type-check Pine to execute it for backtesting; that analyzer is the natural Rust home and the only path that keeps the binary pure-Rust without duplicating work. pine-oracle should depend on it once it stabilises.
+   - **WASM-bundle pine-tools' TS analyzer.** Bridge option: preserves single-binary purity, brings the mature IDE validator along intact. Use this if piners-syntax slips.
+   - **Today: pinecone lift in `src/syntax/`.** v0 stand-in. First-error-only, no type checks. Replaced by one of the two above when ready.
+   The "bundled Node runtime + pine-tools JS" option from an earlier draft is dropped: forces a 50 MB+ node payload into the binary, violates the zero-on-disk-scratch contract via npm cache assumptions.
 
 2. **Repo layout.** **Resolved:** new sibling Rust repo `pine-oracle/`. Not inside piners (would signal "piners helper", slow piners' build), not inside pine-tools (would force a Rust crate into a TS monorepo). pine-tools stays the upstream data source via `pnpm run export:json`.
 

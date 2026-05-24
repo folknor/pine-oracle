@@ -15,22 +15,19 @@ Single crate at the repo root.
 Modules currently in `src/`:
 
 - `reference`: in-process lookup + substring search over the vendored TradingView v6 reference (`vendor/pine-reference/spec/v6.md`, 941 entries). Cached behind `OnceLock`. MPL-2.0, lifted from pinecone.
-
-Modules currently in `src/`:
-
 - `corpus`: in-binary PineForge validation corpus, embedded via `include_dir`. Exposes `load_probe(slug)` and `list_probes(grep)` over 235 probes (flat + nested under `symbol-specified/<SYMBOL>/`). Slug-aligned per-probe summaries are pending re-curation; `summary_for` returns `None` until that lands. Apache-2.0 + MPL-2.0 dual-licensed, attributing PineForge.
 - `search`: BM25 via tantivy over the v6 reference. RAM-backed Index built on first invocation (single-digit ms), OnceLock-cached. `name` field gets a 5x boost over `content`. Eventually grows to index `corpus` probe summaries + PineForge audit docs once those land.
-- `syntax`: Pine v6 lexer + AST + parser lifted from pinecone (MPL-2.0). Three sub-modules (`ast`, `lexer`, `parser`) re-exported through `syntax::*`. Drives `pine parse` and `pine tokens`. Parser regression tests run across 72 vendored `.pine` fixtures with `_ast.json` goldens.
-- `validate`: two tiers. Local: lex + parse via `syntax`, returns first failure as a structured `Diagnostic { severity, stage, message, line, column }` (single-error today; the lifted parser bails on the first failure). Strict: POSTs the source to `pine-facade.tradingview.com/pine-facade/translate_light` via `ureq`, maps every error + warning the API returns into Diagnostics with `Stage::Strict`. No auth (endpoint is open), no on-disk cache, 10-second timeout. Response decoding pinned by inline fixture tests; never hits the network in CI.
+- `syntax`: Pine v6 lexer + AST + parser lifted from pinecone (MPL-2.0). Three sub-modules (`ast`, `lexer`, `parser`) re-exported through `syntax::*`. Drives `pine parse` and `pine tokens`. Parser regression tests run across 72 vendored `.pine` fixtures with `_ast.json` goldens. **Temporary**: this lift is the v0 backing for `pine validate`. Long-term it gets replaced by piners-syntax (the analyzer piners builds for its runtime) or, as a bridge, a WASM transpile of pine-tools' TS analyzer. The lifted pinecone parser stops at the first lex / parse error and has no type checker.
+- `validate`: two tiers, with inverted authority vs. an earlier draft of the design doc.
+  - **Local (`validate::check`)**: lex + parse via `syntax`, returns first failure as `Diagnostic { severity, stage, message, line, column }`. Today catches one error only; will become an IDE-quality multi-error multi-stage validator once piners-syntax (or a WASM pine-tools transpile) lands.
+  - **Strict (`validate::strict`)**: POSTs the source as `multipart/form-data` to `pine-facade.tradingview.com/pine-facade/translate_light` via `ureq`, maps every error + warning the API returns into Diagnostics with `Stage::Strict`. **Yes / no oracle only - the diagnostic prose is non-actionable**. TV's pine-lint stops at the first error, breaks on trailing whitespace, and reports wrong line / column numbers; the `success` bit is the only trustworthy output. Use after the local tier reports clean, not for iterative debugging. No auth (endpoint is open), no on-disk cache, 10s timeout. Response decoding pinned by inline fixture tests; never hits the network in CI.
 - `behavior`: structured signature + polymorphism lookup over pine-tools' JSON exports (`vendor/pine-data/v6/{functions,variables,constants,keywords,function-behavior}.json`). Public API: `lookup(name) -> Option<Behavior>`, where `Behavior` is one of `Function` / `Variable` / `Constant` / `Keyword`. Function entries optionally carry a `RawBehaviorEntry` with polymorphism markers + argument-ordering. Lenient deserialization (serde defaults on optional fields) so pine-tools schema tweaks don't break the binary.
 - `diff`: trade-list parity scorer, port of PineForge's `scripts/verify_corpus.py`. Public API: `diff(probe_slug, user_csv) -> DiffReport`. Parses both CSVs into entry / exit pairs (Trade # joined, TV's "Date and time" interpreted in the chart timezone with default Asia/Taipei +8), aligns by direction + 1h window + $3 entry-price gate, trims to common window, computes 4-dim p90 deltas, classifies as excellent / strong / moderate / weak / minimal. Honours `inputs.json::expected_tier` ("anomaly", "engine_only") and `validation_overrides.expect_tv_match`. Strict vs production profile is auto-detected from `trail_*` parameters in `strategy.pine` (or forced via `inputs.json::parity_profile`). Threshold values mirror `verify_corpus.py` exactly. V1 does not implement interior trim (`trim_bars` / `warmup_bars`) since the OHLCV feed isn't baked.
 
-Planned modules per design:
+Planned changes:
 
-- `parse` / `tokens`: ports of piners-syntax for `pine parse` and `pine tokens`.
-- `validate`: local-tier diagnostics; `--strict` shells to TradingView's pine-lint API (no auth required, no on-disk response cache).
-- `behavior`: polymorphism / na-propagation / series-vs-simple lookup over pine-tools' `pine-data/v6/*.json` (once the upstream export step lands).
-- `diff`: Rust port of PineForge's `verify_corpus.py` alignment + tier logic.
+- Swap the pinecone-lifted lexer / parser for piners-syntax once it lands (or a WASM-bundled pine-tools analyzer as a bridge). Same public subcommand surface for `pine parse` / `pine tokens` / `pine validate`, deeper diagnostics behind it. The current pinecone lift catches only the first lex / parse error and has no type checks.
+- `pine indicator --strict`: per-bar parity oracle. Requires piners' engine + OHLCV bake; not yet started.
 
 Canonical homes (so cross-module duplicates collapse to one):
 
@@ -111,12 +108,11 @@ Single-crate workspace, so `-p` is unnecessary.
 | `pine search <query>` | done (tantivy BM25, 5x name boost) |
 | `pine probe <slug>` | done (baked corpus, flat + nested slugs) |
 | `pine probes [--grep TEXT]` | done (slug substring match; summary-text grep returns when summaries re-curate) |
-| `pine parse` | done (lifted pinecone parser; JSON / pretty-JSON output) |
-| `pine tokens` | done (lifted pinecone lexer; JSON / one-per-line text) |
-| `pine validate` | done v1 (first lex/parse error as structured Diagnostic; exit 1 on error) |
-| `pine version` | done |
+| `pine parse` | done via the pinecone lift; will deepen when piners-syntax replaces it |
+| `pine tokens` | done via the pinecone lift; will deepen when piners-syntax replaces it |
+| `pine validate` | v0 only: first lex/parse error from the pinecone lift, no type checks. v1 = IDE-quality multi-error output backed by piners-syntax (or a WASM pine-tools transpile as a bridge). |
+| `pine validate --strict` | done as a TV-broker yes/no oracle. POSTs as multipart/form-data; `success` is trustworthy, the diagnostic prose is non-actionable (first error only, breaks on trailing whitespace, wrong line/column). Use after the local tier reports clean - not for iterative debugging. |
 | `pine behavior <name>` | done (functions / variables / constants / keywords from baked pine-tools JSON) |
-| `pine validate --strict` | done (POSTs to TV's pine-lint, maps errors + warnings to Diagnostics; no auth, no cache, 10s timeout) |
 | `pine diff <probe> <trades.csv>` | done v1 (verify_corpus port: align + p90 + tier; no interior trim until OHLCV bake) |
-| `pine diff` | TODO (needs verify_corpus.py port; will require OHLCV bake) |
-| `pine indicator --strict` | TODO (per-bar parity; will require OHLCV bake) |
+| `pine version` | done |
+| `pine indicator --strict` | TODO (per-bar parity; needs piners' engine + OHLCV bake) |

@@ -384,6 +384,18 @@ fn cmd_validate(code: &str, strict: bool, format: ResolvedFormat) -> Result<()> 
             if report.diagnostics.is_empty() {
                 println!("ok");
             } else {
+                if strict {
+                    eprintln!(
+                        "note: TV's pine-lint diagnostics are non-actionable - first error only,"
+                    );
+                    eprintln!(
+                        "      wrong line/column numbers, breaks on trailing whitespace. The"
+                    );
+                    eprintln!(
+                        "      success bit is the only trustworthy signal. Use `pine validate`"
+                    );
+                    eprintln!("      (no --strict) for IDE-quality errors when iterating.");
+                }
                 for d in &report.diagnostics {
                     let sev = match d.severity {
                         validate::Severity::Error => "error",

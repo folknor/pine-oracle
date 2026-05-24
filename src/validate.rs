@@ -26,6 +26,13 @@ const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) \
 
 const STRICT_TIMEOUT_SECS: u64 = 10;
 
+// Fixed boundary for multipart/form-data. The Pine-lint endpoint expects
+// multipart (httpx `files=` in the original Python, FormData in the TS port);
+// urlencoded silently fails on some payloads. Boundary value is arbitrary as
+// long as it does not appear in the body; an 8-byte random hex suffix keeps
+// collision risk astronomical without dragging in a UUID crate.
+const MULTIPART_BOUNDARY: &str = "----pine_oracle_boundary_8eb4f1c6a39d2710";
+
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
@@ -164,17 +171,33 @@ pub fn strict(code: &str) -> anyhow::Result<Report> {
     let agent = ureq::AgentBuilder::new()
         .timeout(Duration::from_secs(STRICT_TIMEOUT_SECS))
         .build();
+    let body = build_multipart_body(code);
+    let content_type = format!("multipart/form-data; boundary={MULTIPART_BOUNDARY}");
     let resp = agent
         .post(PINE_LINT_URL)
         .set("Referer", "https://www.tradingview.com/")
         .set("User-Agent", USER_AGENT)
         .set("DNT", "1")
-        .send_form(&[("source", code)])
+        .set("Content-Type", &content_type)
+        .send_bytes(body.as_bytes())
         .map_err(|e| anyhow!("pine-lint request failed: {e}"))?;
-    let body = resp
+    let response_body = resp
         .into_string()
         .map_err(|e| anyhow!("reading pine-lint body: {e}"))?;
-    parse_strict_response(&body)
+    parse_strict_response(&response_body)
+}
+
+fn build_multipart_body(code: &str) -> String {
+    // Standard RFC 7578 form-data part: CRLF separators, a Content-Disposition
+    // header naming the field, a blank line, the value, then the closing
+    // boundary marker (`--BOUNDARY--`).
+    format!(
+        "--{MULTIPART_BOUNDARY}\r\n\
+         Content-Disposition: form-data; name=\"source\"\r\n\
+         \r\n\
+         {code}\r\n\
+         --{MULTIPART_BOUNDARY}--\r\n"
+    )
 }
 
 fn parse_strict_response(body: &str) -> anyhow::Result<Report> {
@@ -304,6 +327,17 @@ mod tests {
         assert!(report.ok, "warnings without errors => ok=true");
         assert_eq!(report.diagnostics.len(), 1);
         assert!(matches!(report.diagnostics[0].severity, Severity::Warning));
+    }
+
+    #[test]
+    fn multipart_body_shape() {
+        let body = build_multipart_body("indicator(\"x\")\n");
+        assert!(body.starts_with("--"));
+        assert!(body.contains("Content-Disposition: form-data; name=\"source\""));
+        assert!(body.contains("indicator(\"x\")\n"));
+        assert!(body.ends_with("--\r\n"));
+        // CRLF, not LF.
+        assert!(body.contains("\r\n\r\n"));
     }
 
     #[test]
