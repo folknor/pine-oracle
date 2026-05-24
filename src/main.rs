@@ -223,6 +223,7 @@ fn cmd_search(
                         "name": h.name,
                         "category": h.category,
                         "score": h.score,
+                        "content": h.content,
                     })
                 })
                 .collect();
@@ -241,10 +242,28 @@ fn cmd_search(
                     "{:>6.2}  [{:<9}] {}  ({})",
                     h.score, h.kind, h.name, h.category
                 );
+                let snippet = snippet_first_line(&h.content, 120);
+                if !snippet.is_empty() {
+                    println!("        {snippet}");
+                }
             }
         }
     }
     Ok(())
+}
+
+fn snippet_first_line(content: &str, max_chars: usize) -> String {
+    let first = content
+        .lines()
+        .map(|l| l.trim())
+        .find(|l| !l.is_empty())
+        .unwrap_or("");
+    let collected: String = first.chars().take(max_chars).collect();
+    if first.chars().count() > max_chars {
+        format!("{collected}...")
+    } else {
+        collected
+    }
 }
 
 fn cmd_probe(slug: &str, format: ResolvedFormat) -> Result<()> {

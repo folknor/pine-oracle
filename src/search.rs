@@ -34,6 +34,10 @@ pub struct SearchHit {
     pub category: String,
     pub name: String,
     pub score: f32,
+    /// Full indexed body (reference prose, probe summary, audit section
+    /// body, narrative-page section body). Tantivy stores it alongside the
+    /// tokenised form so consumers don't need a follow-up lookup.
+    pub content: String,
 }
 
 struct Engine {
@@ -43,6 +47,7 @@ struct Engine {
     category_field: Field,
     kind_field: Field,
     content_field: Field,
+    content_query_field: Field,
 }
 
 fn engine() -> &'static Engine {
@@ -55,7 +60,12 @@ fn build() -> Result<Engine> {
     let name_field = schema_builder.add_text_field("name", TEXT | STORED);
     let category_field = schema_builder.add_text_field("category", STRING | STORED);
     let kind_field = schema_builder.add_text_field("kind", STRING | STORED);
-    let content_field = schema_builder.add_text_field("content", TEXT);
+    // `content` is stored (for SearchHit display) plus a separate tokenised
+    // copy `content_search` that drives BM25 ranking. Splitting lets us
+    // keep the stored content in its full prose form without bloating the
+    // term dictionary.
+    let content_field = schema_builder.add_text_field("content", STORED);
+    let content_query_field = schema_builder.add_text_field("content_search", TEXT);
     let schema = schema_builder.build();
 
     let index = Index::create_in_ram(schema);
@@ -68,6 +78,7 @@ fn build() -> Result<Engine> {
         doc.add_text(category_field, &entry.category);
         doc.add_text(kind_field, "reference");
         doc.add_text(content_field, &entry.content);
+        doc.add_text(content_query_field, &entry.content);
         writer.add_document(doc)?;
     }
 
@@ -83,6 +94,7 @@ fn build() -> Result<Engine> {
             doc.add_text(kind_field, "probe");
             let content = p.summary.unwrap_or(&p.slug);
             doc.add_text(content_field, content);
+            doc.add_text(content_query_field, content);
             writer.add_document(doc)?;
         }
     }
@@ -100,6 +112,7 @@ fn build() -> Result<Engine> {
         doc.add_text(category_field, "Audit");
         doc.add_text(kind_field, "audit");
         doc.add_text(content_field, &body);
+        doc.add_text(content_query_field, &body);
         writer.add_document(doc)?;
     }
 
@@ -113,6 +126,7 @@ fn build() -> Result<Engine> {
         doc.add_text(category_field, "Docs");
         doc.add_text(kind_field, "docs");
         doc.add_text(content_field, &body);
+        doc.add_text(content_query_field, &body);
         writer.add_document(doc)?;
     }
 
@@ -130,6 +144,7 @@ fn build() -> Result<Engine> {
         category_field,
         kind_field,
         content_field,
+        content_query_field,
     })
 }
 
@@ -141,7 +156,7 @@ pub fn query(q: &str, limit: usize) -> Result<Vec<SearchHit>> {
     let searcher = e.reader.searcher();
 
     let name_parser = QueryParser::for_index(&e.index, vec![e.name_field]);
-    let content_parser = QueryParser::for_index(&e.index, vec![e.content_field]);
+    let content_parser = QueryParser::for_index(&e.index, vec![e.content_query_field]);
 
     let name_q = name_parser.parse_query(q)?;
     let content_q = content_parser.parse_query(q)?;
@@ -159,11 +174,13 @@ pub fn query(q: &str, limit: usize) -> Result<Vec<SearchHit>> {
         let name = first_text(&doc, e.name_field).unwrap_or_default();
         let category = first_text(&doc, e.category_field).unwrap_or_default();
         let kind = first_text(&doc, e.kind_field).unwrap_or_default();
+        let content = first_text(&doc, e.content_field).unwrap_or_default();
         hits.push(SearchHit {
             kind,
             category,
             name,
             score,
+            content,
         });
     }
     Ok(hits)
