@@ -4,9 +4,12 @@ Per-probe explanations for the PineForge validation corpus (`corpus/validation/<
 
 ## Status
 
-> **Stale slug keys.** The summaries below are keyed by engine-internal probe identifiers (`magnifier-dist-probe-01..08b`, `ies-probe-08`, `parity-probe-03..06`, `oca-three-way-probe-02`, `typed-matrix-probe-01-bool-regime-mask`, `anomaly-equity-mirror`, and engine-history numbers 52..97) that **do not appear in the published corpus** under `vendor/pineforge-corpus/validation/`. The published corpus uses different topical slugs (e.g. `oca-multi-bracket-isolation-01`, `magnifier-tick-dist-endpoints-01`, `anomaly-equity-mirror-strategy-equity-01`). Re-derivation against the real 235 slugs is open work; until that lands, `corpus::summary_for` returns `None` for every probe. The prose below is still useful as forensic reference for PineForge engine internals, just not wired into the binary.
+> **Two summary tracks, only the first is wired in.**
+>
+> 1. **Live-extracted from each `strategy.pine` header.** `corpus::summary_for(slug)` walks the leading comment block of every baked strategy.pine, skips license / SPDX / copyright / version-directive boilerplate, and returns the strategy author's own one-paragraph description. >=80% of the 235 baked probes get a real summary this way without any LLM curation. This is what `pine probes` / `pine probes --grep` use today.
+> 2. **The engine-internals prose below** is keyed to engine-internal probe identifiers (`magnifier-dist-probe-01..08b`, `ies-probe-08`, `parity-probe-03..06`, `oca-three-way-probe-02`, `typed-matrix-probe-01-bool-regime-mask`, `anomaly-equity-mirror`, plus engine-history numbers 52..97) that **do not appear in the published corpus** under `vendor/pineforge-corpus/validation/`. The published corpus uses different topical slugs (e.g. `oca-multi-bracket-isolation-01`, `magnifier-tick-dist-endpoints-01`, `anomaly-equity-mirror-strategy-equity-01`). The prose is preserved as forensic reference for PineForge engine internals but is not loaded by the binary.
 
-**21 summaries** were harvested from PineForge engine source comments (Apache-2.0, attributed), concentrating on bug-bearing edge cases. **0 / 235** are currently aligned to the published corpus slugs.
+**21 forensic summaries** were harvested from PineForge engine source comments (Apache-2.0, attributed), concentrating on bug-bearing edge cases. **0 / 235** of those align to published corpus slugs; the live-extraction path covers the gap for everyday use.
 
 ## Attribution
 

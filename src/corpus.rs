@@ -9,15 +9,20 @@
 // (e.g. `oca-multi-bracket-isolation-01`); some live under nested roots
 // (e.g. `symbol-specified/AAPL/session-ismarket-nyse-rth-01`).
 //
-// Per-probe summaries are currently absent: docs/probe-summaries.md was
-// authored against engine-internal probe identifiers that do not match the
-// published corpus slugs, so re-curation is open work. `Probe::summary` and
-// `ProbeListing::summary` remain in the API as `Option<&'static str>` so
-// callers stay stable when the re-curated map lands.
+// Per-probe summaries are extracted live from each strategy.pine's header
+// comment block - the strategy author's own one-paragraph description. The
+// extractor skips license / SPDX / copyright lines and the `//@version`
+// directive, takes the first prose comment block, and stops at the first
+// blank `//` or non-comment line after prose begins. Cached behind a
+// OnceLock so repeat lookups are cheap. >=80% of the 235 baked probes
+// have author-written summaries that this picks up. docs/probe-summaries.md
+// still ships richer engine-internals prose for ~21 probes; that file is
+// not currently keyed to published slugs and so is not loaded here.
 
 use anyhow::{anyhow, bail, Result};
 use include_dir::{include_dir, Dir};
 use serde::Serialize;
+use std::sync::OnceLock;
 
 static CORPUS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/vendor/pineforge-corpus/validation");
 
@@ -55,8 +60,7 @@ pub fn load_probe(slug: &str) -> Result<Probe> {
 }
 
 /// List every baked probe. `grep`, when present, filters by case-insensitive
-/// substring against the slug. Summary-text filtering will return once the
-/// re-curated summaries land.
+/// substring against the slug OR the extracted summary text.
 pub fn list_probes(grep: Option<&str>) -> Result<Vec<ProbeListing>> {
     let needle = grep.map(|s| s.to_ascii_lowercase());
     let entries = CORPUS
@@ -68,12 +72,16 @@ pub fn list_probes(grep: Option<&str>) -> Result<Vec<ProbeListing>> {
             let file = entry.as_file()?;
             let parent = file.path().parent()?;
             let slug = parent.to_str()?.to_string();
+            let summary = summary_for(&slug);
             if let Some(n) = &needle {
-                if !slug.to_ascii_lowercase().contains(n) {
+                let slug_hit = slug.to_ascii_lowercase().contains(n);
+                let summary_hit = summary
+                    .map(|s| s.to_ascii_lowercase().contains(n))
+                    .unwrap_or(false);
+                if !slug_hit && !summary_hit {
                     return None;
                 }
             }
-            let summary = summary_for(&slug);
             Some(ProbeListing { slug, summary })
         })
         .collect();
@@ -81,10 +89,101 @@ pub fn list_probes(grep: Option<&str>) -> Result<Vec<ProbeListing>> {
     Ok(out)
 }
 
-/// Always returns None until the slug-aligned summary map is re-curated. See
-/// the module-level doc comment.
-fn summary_for(_slug: &str) -> Option<&'static str> {
-    None
+/// Pull the first prose comment block out of a `strategy.pine` source.
+///
+/// Each baked strategy.pine carries an author-written header comment block
+/// (Apache-2.0 boilerplate first, then a blank `//` separator, then a
+/// title + purpose paragraph). The extractor:
+///   - Skips license / SPDX / copyright lines.
+///   - Skips `//@version=` directives.
+///   - Skips empty `//` separators until the first prose line.
+///   - Collects contiguous prose comment lines into one space-joined string.
+///   - Stops at the first blank `//`, blank line, or non-comment line after
+///     prose begins.
+///
+/// The output is the strategy author's own one-paragraph description, which
+/// gives 235 probes real summaries without an LLM curation pass and unblocks
+/// `pine probes --grep <text>` matching against summary content.
+fn extract_summary(strategy_pine: &str) -> Option<String> {
+    let mut lines = Vec::new();
+    let mut in_prose = false;
+    for line in strategy_pine.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("//") {
+            let content = rest.trim_start_matches('/').trim();
+            if content.is_empty() {
+                if in_prose {
+                    break;
+                }
+                continue;
+            }
+            if is_header_noise(content) {
+                continue;
+            }
+            in_prose = true;
+            lines.push(content.to_string());
+        } else if trimmed.is_empty() {
+            if in_prose {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+    if lines.is_empty() {
+        None
+    } else {
+        Some(lines.join(" "))
+    }
+}
+
+fn is_header_noise(content: &str) -> bool {
+    let lower = content.to_ascii_lowercase();
+    lower.contains("spdx-license-identifier")
+        || lower.contains("licensed under")
+        || lower.starts_with("(c)")
+        || content.starts_with('\u{00A9}') // (c) symbol
+        || content.starts_with("@version")
+        || lower.contains("pine script\u{00ae} code is licensed")
+}
+
+/// Summary for the given baked probe, derived live from the strategy.pine
+/// header comments. Cached behind a OnceLock so repeat lookups are cheap.
+fn summary_for(slug: &str) -> Option<&'static str> {
+    use std::collections::HashMap;
+    static SUMMARIES: OnceLock<HashMap<String, &'static str>> = OnceLock::new();
+    let map = SUMMARIES.get_or_init(build_summary_index);
+    map.get(slug).copied()
+}
+
+fn build_summary_index() -> std::collections::HashMap<String, &'static str> {
+    use std::collections::HashMap;
+    let mut out: HashMap<String, &'static str> = HashMap::new();
+    let Ok(entries) = CORPUS.find("**/strategy.pine") else {
+        return out;
+    };
+    for entry in entries {
+        let Some(file) = entry.as_file() else {
+            continue;
+        };
+        let Some(parent) = file.path().parent() else {
+            continue;
+        };
+        let Some(slug) = parent.to_str() else {
+            continue;
+        };
+        let Some(content) = file.contents_utf8() else {
+            continue;
+        };
+        if let Some(summary) = extract_summary(content) {
+            // Leak the summary string so the map can hand out `&'static str`
+            // for the lifetime of the binary. ~235 entries; the leak is
+            // bounded and amortised by the cache.
+            let leaked: &'static str = Box::leak(summary.into_boxed_str());
+            out.insert(slug.to_string(), leaked);
+        }
+    }
+    out
 }
 
 fn sanitise_slug(slug: &str) -> Result<&str> {
@@ -185,11 +284,69 @@ mod tests {
     }
 
     #[test]
-    fn grep_filters_by_slug_substring() {
+    fn grep_filters_by_slug_or_summary_substring() {
         let oca = list_probes(Some("oca")).expect("grep must succeed");
         assert!(!oca.is_empty(), "expected some oca matches");
-        assert!(oca
-            .iter()
-            .all(|p| p.slug.to_ascii_lowercase().contains("oca")));
+        assert!(oca.iter().all(|p| {
+            let slug_hit = p.slug.to_ascii_lowercase().contains("oca");
+            let summary_hit = p
+                .summary
+                .map(|s| s.to_ascii_lowercase().contains("oca"))
+                .unwrap_or(false);
+            slug_hit || summary_hit
+        }));
+    }
+
+    #[test]
+    fn extracts_summary_skipping_license_header() {
+        let src = "// This Pine Script\u{00ae} code is licensed under Apache-2.0\n\
+                   // SPDX-License-Identifier: Apache-2.0\n\
+                   // \u{00a9} PineForge contributors 2026\n\
+                   //\n\
+                   // OCA probe 02 - multi-bracket\n\
+                   // Purpose: two strategy.exit brackets attached to same long entry,\n\
+                   // different ATR widths + different oca_name.\n\
+                   //\n\
+                   // strategy.exit is close-only.\n\
+                   //@version=6\n\
+                   strategy(\"x\")\n";
+        let summary = extract_summary(src).expect("must extract");
+        assert!(summary.contains("OCA probe 02"));
+        assert!(summary.contains("Purpose"));
+        assert!(!summary.contains("Apache-2.0"));
+        assert!(!summary.contains("SPDX"));
+        // Should stop at the first blank `//` after prose begins, so the
+        // "strategy.exit is close-only" trailing fragment is excluded.
+        assert!(!summary.contains("close-only"));
+    }
+
+    #[test]
+    fn extracts_summary_returns_none_for_bare_source() {
+        let src = "//@version=6\nstrategy(\"x\")\n";
+        assert!(extract_summary(src).is_none());
+    }
+
+    #[test]
+    fn summary_for_returns_real_text_for_a_known_probe() {
+        let summary = summary_for("oca-multi-bracket-isolation-01");
+        assert!(
+            summary.is_some(),
+            "oca-multi-bracket-isolation-01 should have an extractable summary"
+        );
+        let s = summary.unwrap();
+        assert!(s.len() > 30, "summary should be non-trivial, got: {s:?}");
+    }
+
+    #[test]
+    fn most_probes_have_extractable_summaries() {
+        let listings = list_probes(None).expect("list");
+        let covered = listings.iter().filter(|p| p.summary.is_some()).count();
+        let total = listings.len();
+        let coverage = covered as f64 / total as f64;
+        assert!(
+            coverage >= 0.80,
+            "expected >=80% probe summary coverage, got {covered}/{total} ({:.1}%)",
+            coverage * 100.0
+        );
     }
 }
