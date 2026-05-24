@@ -21,7 +21,7 @@ Modules currently in `src/`:
 - `corpus`: in-binary PineForge validation corpus, embedded via `include_dir`. Exposes `load_probe(slug)` and `list_probes(grep)` over 235 probes (flat + nested under `symbol-specified/<SYMBOL>/`). Slug-aligned per-probe summaries are pending re-curation; `summary_for` returns `None` until that lands. Apache-2.0 + MPL-2.0 dual-licensed, attributing PineForge.
 - `search`: BM25 via tantivy over the v6 reference. RAM-backed Index built on first invocation (single-digit ms), OnceLock-cached. `name` field gets a 5x boost over `content`. Eventually grows to index `corpus` probe summaries + PineForge audit docs once those land.
 - `syntax`: Pine v6 lexer + AST + parser lifted from pinecone (MPL-2.0). Three sub-modules (`ast`, `lexer`, `parser`) re-exported through `syntax::*`. Drives `pine parse` and `pine tokens`. Parser regression tests run across 72 vendored `.pine` fixtures with `_ast.json` goldens.
-- `validate`: local-tier validator on top of `syntax`. Surfaces the first lex / parse failure as a structured `Diagnostic { severity, stage, message, line, column }`. Single-error today because the lifted parser bails on the first failure; multi-error recovery is future work that would touch `src/syntax/parser.rs`. The `--strict` tier (TV pine-lint HTTP call) belongs here later.
+- `validate`: two tiers. Local: lex + parse via `syntax`, returns first failure as a structured `Diagnostic { severity, stage, message, line, column }` (single-error today; the lifted parser bails on the first failure). Strict: POSTs the source to `pine-facade.tradingview.com/pine-facade/translate_light` via `ureq`, maps every error + warning the API returns into Diagnostics with `Stage::Strict`. No auth (endpoint is open), no on-disk cache, 10-second timeout. Response decoding pinned by inline fixture tests; never hits the network in CI.
 - `behavior`: structured signature + polymorphism lookup over pine-tools' JSON exports (`vendor/pine-data/v6/{functions,variables,constants,keywords,function-behavior}.json`). Public API: `lookup(name) -> Option<Behavior>`, where `Behavior` is one of `Function` / `Variable` / `Constant` / `Keyword`. Function entries optionally carry a `RawBehaviorEntry` with polymorphism markers + argument-ordering. Lenient deserialization (serde defaults on optional fields) so pine-tools schema tweaks don't break the binary.
 
 Planned modules per design:
@@ -115,6 +115,6 @@ Single-crate workspace, so `-p` is unnecessary.
 | `pine validate` | done v1 (first lex/parse error as structured Diagnostic; exit 1 on error) |
 | `pine version` | done |
 | `pine behavior <name>` | done (functions / variables / constants / keywords from baked pine-tools JSON) |
-| `pine validate --strict` | TODO (network call to TV's pine-lint, no auth, no cache) |
+| `pine validate --strict` | done (POSTs to TV's pine-lint, maps errors + warnings to Diagnostics; no auth, no cache, 10s timeout) |
 | `pine diff` | TODO (needs verify_corpus.py port; will require OHLCV bake) |
 | `pine indicator --strict` | TODO (per-bar parity; will require OHLCV bake) |

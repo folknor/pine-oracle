@@ -328,27 +328,37 @@ fn print_behavior_text(b: &behavior::Behavior) {
 }
 
 fn cmd_validate(code: &str, strict: bool, format: ResolvedFormat) -> Result<()> {
-    if strict {
-        bail!("validate --strict: not implemented yet (will shell to TradingView's pine-lint API)");
-    }
-    let report = validate::check(code);
+    let report = if strict {
+        validate::strict(code)?
+    } else {
+        validate::check(code)
+    };
     match format {
         ResolvedFormat::Json => {
             println!("{}", serde_json::to_string(&report)?);
         }
         ResolvedFormat::Text => {
-            if report.ok {
+            if report.diagnostics.is_empty() {
                 println!("ok");
             } else {
                 for d in &report.diagnostics {
+                    let sev = match d.severity {
+                        validate::Severity::Error => "error",
+                        validate::Severity::Warning => "warning",
+                    };
                     let stage = match d.stage {
                         validate::Stage::Lex => "lex",
                         validate::Stage::Parse => "parse",
+                        validate::Stage::Strict => "strict",
                     };
-                    match d.column {
-                        Some(col) => println!("error[{stage}] {}:{}: {}", d.line, col, d.message),
-                        None => println!("error[{stage}] {}: {}", d.line, d.message),
-                    }
+                    let loc = match d.column {
+                        Some(col) => format!("{}:{}", d.line, col),
+                        None => format!("{}", d.line),
+                    };
+                    println!("{sev}[{stage}] {loc}: {}", d.message);
+                }
+                if report.ok {
+                    println!("ok (warnings only)");
                 }
             }
         }
