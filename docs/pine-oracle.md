@@ -144,33 +144,52 @@ Global flags:
 
 ## Output format
 
-Every subcommand emits stable JSON under `--format json`. Agents parse in one read. Example for `lookup`:
+Every subcommand emits stable JSON under `--format json`. Agents parse in one read.
+
+### Schema versioning
+
+Every JSON payload carries a top-level `"schema_version": <integer>`. The current schema is **`1`**. Object payloads (e.g. `lookup`, `probe`, `behavior`, `diff`, `validate`) receive the field inline at the top level alongside the payload's own fields. Array payloads (e.g. `tokens`, `probes`) are wrapped as `{ "schema_version": 1, "items": [...] }`. Scalar payloads (none today, but reserved) wrap as `{ "schema_version": 1, "value": ... }`.
+
+Agents should:
+
+- Read `schema_version` first; if it does not match the version they were written against, refuse the payload or fall back to a less specific interpretation.
+- Treat any unknown top-level fields as forward-compatible additions and ignore them.
+
+The version bumps when:
+
+- A field is removed or renamed (breaking).
+- A field's type changes (breaking).
+- An enum variant is removed or renamed (breaking).
+- The array-vs-object wrapping of a payload changes (breaking).
+
+The version does **not** bump when:
+
+- A new optional field is added.
+- A new enum variant is added (callers should already handle "unknown variant" defensively).
+- Field values gain new categories of content (e.g. `tier` adds a new label).
+
+### Example: `lookup`
 
 ```json
 {
+  "schema_version": 1,
+  "category": "Functions",
   "name": "math.max",
-  "kind": "function",
-  "overloads": [
-    {
-      "parameters": [
-        {"name": "number0", "type": "series<int|float>"},
-        {"name": "number1", "type": "series<int|float>"}
-      ],
-      "return_type": "series<int|float>"
-    }
-  ],
-  "behavior": {
-    "na_propagation": "yes",
-    "polymorphic": false,
-    "series_or_simple": "both",
-    "variadic": true
-  },
-  "source": "tradingview-docs",
-  "snapshot_date": "2026-04-12"
+  "content": "..."
 }
 ```
 
-Schema versioning: every JSON payload carries `"schema_version": N`. Bumps when output shape changes. Agents pin a minimum version.
+### Example: `tokens`
+
+```json
+{
+  "schema_version": 1,
+  "items": [
+    { "typ": { "Ident": "x" }, "lexeme": "x", "line": 1, "column": 1 },
+    { "typ": "Eof", "lexeme": "", "line": 1, "column": 2 }
+  ]
+}
+```
 
 ## Per-probe descriptions: the BM25 unlock
 
@@ -296,7 +315,7 @@ Release cadence: pin to pine-data scrape cadence. When TV's docs change, regener
 
 3. **Corpus distribution.** **Resolved:** baked into the binary. Vendored under `vendor/pineforge-corpus/`, embedded via `include_dir!()`, ~72 MB baked subset, no on-disk state at runtime.
 
-4. **Output schema stability.** Agents will parse this. Schema breakage breaks every downstream prompt and every cited finding. Lock in `schema_version` early; document the deprecation policy.
+4. **Output schema stability.** **Resolved.** Every JSON payload carries `schema_version: 1` (objects inline, arrays wrapped as `{schema_version, items}`). Bump rules + agent-side contract documented in the "Output format" section.
 
 5. **`validate --strict` auth.** **Resolved:** no auth required. The TradingView pine-lint endpoint is open; pine-oracle stores no credentials anywhere because it stores nothing anywhere.
 

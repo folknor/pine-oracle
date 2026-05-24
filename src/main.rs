@@ -1,7 +1,50 @@
 use anyhow::{bail, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use pine_cli::{behavior, corpus, diff, reference, search, syntax, validate};
+use serde::Serialize;
 use std::io::IsTerminal;
+
+/// JSON output schema version. Bumped on any breaking shape change to a
+/// subcommand's JSON output. Documented in docs/pine-oracle.md.
+const SCHEMA_VERSION: u32 = 1;
+
+/// Wrap `payload` in the versioned envelope. Objects get the field inserted
+/// at the top level; arrays and scalars are wrapped as
+/// `{schema_version, items}` / `{schema_version, value}`. Public-ish only
+/// so the test below can pin the wire shape.
+fn versioned_json<T: Serialize>(payload: &T) -> Result<serde_json::Value> {
+    let mut v = serde_json::to_value(payload)?;
+    let kind = match &v {
+        serde_json::Value::Object(_) => 0,
+        serde_json::Value::Array(_) => 1,
+        _ => 2,
+    };
+    match kind {
+        0 => {
+            if let serde_json::Value::Object(ref mut obj) = v {
+                obj.insert("schema_version".into(), serde_json::json!(SCHEMA_VERSION));
+            }
+        }
+        1 => {
+            v = serde_json::json!({
+                "schema_version": SCHEMA_VERSION,
+                "items": v,
+            });
+        }
+        _ => {
+            v = serde_json::json!({
+                "schema_version": SCHEMA_VERSION,
+                "value": v,
+            });
+        }
+    }
+    Ok(v)
+}
+
+fn print_json<T: Serialize>(payload: &T) -> Result<()> {
+    println!("{}", serde_json::to_string(&versioned_json(payload)?)?);
+    Ok(())
+}
 
 #[derive(Parser)]
 #[command(name = "pine", version, about = "Pine v6 oracle CLI", long_about = None)]
@@ -114,7 +157,7 @@ fn cmd_lookup(name: &str, format: ResolvedFormat) -> Result<()> {
     if let Some(entry) = reference::lookup(name) {
         match format {
             ResolvedFormat::Json => {
-                println!("{}", serde_json::to_string(&entry)?);
+                print_json(&entry)?;
             }
             ResolvedFormat::Text => {
                 println!("{} ({})\n", entry.name, entry.category);
@@ -132,14 +175,11 @@ fn cmd_lookup(name: &str, format: ResolvedFormat) -> Result<()> {
     match format {
         ResolvedFormat::Json => {
             let names: Vec<&str> = prefix_hits.iter().map(|e| e.name.as_str()).collect();
-            println!(
-                "{}",
-                serde_json::to_string(&serde_json::json!({
-                    "query": name,
-                    "exact": false,
-                    "matches": names,
-                }))?
-            );
+            print_json(&serde_json::json!({
+                "query": name,
+                "exact": false,
+                "matches": names,
+            }))?;
         }
         ResolvedFormat::Text => {
             eprintln!("no exact match; {} prefix hit(s):", prefix_hits.len());
@@ -165,13 +205,10 @@ fn cmd_search(query: &str, limit: usize, format: ResolvedFormat) -> Result<()> {
                     })
                 })
                 .collect();
-            println!(
-                "{}",
-                serde_json::to_string(&serde_json::json!({
-                    "query": query,
-                    "matches": matches,
-                }))?
-            );
+            print_json(&serde_json::json!({
+                "query": query,
+                "matches": matches,
+            }))?;
         }
         ResolvedFormat::Text => {
             if hits.is_empty() {
@@ -190,7 +227,7 @@ fn cmd_probe(slug: &str, format: ResolvedFormat) -> Result<()> {
     let probe = corpus::load_probe(slug)?;
     match format {
         ResolvedFormat::Json => {
-            println!("{}", serde_json::to_string(&probe)?);
+            print_json(&probe)?;
         }
         ResolvedFormat::Text => {
             println!("slug: {}", probe.slug);
@@ -219,7 +256,7 @@ fn cmd_probes(grep: Option<&str>, format: ResolvedFormat) -> Result<()> {
     let probes = corpus::list_probes(grep)?;
     match format {
         ResolvedFormat::Json => {
-            println!("{}", serde_json::to_string(&probes)?);
+            print_json(&probes)?;
         }
         ResolvedFormat::Text => {
             if probes.is_empty() {
@@ -246,7 +283,7 @@ fn cmd_diff(probe_slug: &str, trades_csv_path: &str, format: ResolvedFormat) -> 
     let report = diff::diff(probe_slug, &user_csv)?;
     match format {
         ResolvedFormat::Json => {
-            println!("{}", serde_json::to_string(&report)?);
+            print_json(&report)?;
         }
         ResolvedFormat::Text => print_diff_text(&report),
     }
@@ -289,7 +326,7 @@ fn cmd_behavior(name: &str, format: ResolvedFormat) -> Result<()> {
     };
     match format {
         ResolvedFormat::Json => {
-            println!("{}", serde_json::to_string(&b)?);
+            print_json(&b)?;
         }
         ResolvedFormat::Text => print_behavior_text(&b),
     }
@@ -378,7 +415,7 @@ fn cmd_validate(code: &str, strict: bool, format: ResolvedFormat) -> Result<()> 
     };
     match format {
         ResolvedFormat::Json => {
-            println!("{}", serde_json::to_string(&report)?);
+            print_json(&report)?;
         }
         ResolvedFormat::Text => {
             if report.diagnostics.is_empty() {
@@ -437,7 +474,7 @@ fn cmd_parse(code: &str, format: ResolvedFormat) -> Result<()> {
 
     match format {
         ResolvedFormat::Json => {
-            println!("{}", serde_json::to_string(&program)?);
+            print_json(&program)?;
         }
         ResolvedFormat::Text => {
             println!("{}", serde_json::to_string_pretty(&program)?);
@@ -454,7 +491,7 @@ fn cmd_tokens(code: &str, format: ResolvedFormat) -> Result<()> {
 
     match format {
         ResolvedFormat::Json => {
-            println!("{}", serde_json::to_string(&tokens)?);
+            print_json(&tokens)?;
         }
         ResolvedFormat::Text => {
             for t in &tokens {
@@ -470,13 +507,10 @@ fn cmd_version(format: ResolvedFormat) -> Result<()> {
     let categories = reference::categories();
     match format {
         ResolvedFormat::Json => {
-            println!(
-                "{}",
-                serde_json::to_string(&serde_json::json!({
-                    "binary": binary,
-                    "reference_categories": categories,
-                }))?
-            );
+            print_json(&serde_json::json!({
+                "binary": binary,
+                "reference_categories": categories,
+            }))?;
         }
         ResolvedFormat::Text => {
             println!("pine-cli {binary}");
@@ -484,4 +518,41 @@ fn cmd_version(format: ResolvedFormat) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn object_payload_gets_schema_version_inline() {
+        let payload = serde_json::json!({ "name": "x", "n": 1 });
+        let v = versioned_json(&payload).expect("must wrap");
+        assert_eq!(v["schema_version"], serde_json::json!(SCHEMA_VERSION));
+        assert_eq!(v["name"], "x");
+        assert_eq!(v["n"], 1);
+    }
+
+    #[test]
+    fn array_payload_gets_wrapped_under_items() {
+        let payload = serde_json::json!([1, 2, 3]);
+        let v = versioned_json(&payload).expect("must wrap");
+        assert_eq!(v["schema_version"], serde_json::json!(SCHEMA_VERSION));
+        assert_eq!(v["items"], serde_json::json!([1, 2, 3]));
+        assert!(v.get("name").is_none());
+    }
+
+    #[test]
+    fn scalar_payload_gets_wrapped_under_value() {
+        let v = versioned_json(&42).expect("must wrap");
+        assert_eq!(v["schema_version"], serde_json::json!(SCHEMA_VERSION));
+        assert_eq!(v["value"], 42);
+    }
+
+    #[test]
+    fn schema_version_is_one() {
+        // Hard-pin: bumping SCHEMA_VERSION requires updating this test AND
+        // the docs in docs/pine-oracle.md "Schema versioning" section.
+        assert_eq!(SCHEMA_VERSION, 1);
+    }
 }
