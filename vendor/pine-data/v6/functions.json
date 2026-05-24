@@ -1049,24 +1049,24 @@
     "name": "array.slice",
     "namespace": "array",
     "syntax": "array.slice(id, index_from, index_to) → array<type>",
-    "description": "The function creates a slice from an existing array. If an object from the slice changes, the changes are applied to both the new and the original arrays.",
+    "description": "Creates an array representing a slice of an existing array. Setting a slice's element to a new value changes the corresponding element in the original array to that value. Likewise, inserting or removing an element in the slice inserts or removes an element in the original array at the index range covered by the slice.",
     "parameters": [
       {
         "name": "id",
         "type": "any array type",
-        "description": "An array object.",
+        "description": "The reference (ID) of the array from which to create a new slice.",
         "required": false
       },
       {
         "name": "index_from",
         "type": "series int",
-        "description": "Zero-based index at which to begin extraction.",
+        "description": "The id array index corresponding to the start of the slice.",
         "required": false
       },
       {
         "name": "index_to",
         "type": "series int",
-        "description": "Zero-based index before which to end extraction. The function extracts up to but not including the element with this index.",
+        "description": "The id array index corresponding to the end of the slice. The index is non-inclusive; the resulting slice contains all the original array's elements from index_from to index_to - 1.",
         "required": false
       }
     ],
@@ -1106,6 +1106,12 @@
         "type": "series sort_order",
         "description": "The sort order: order.ascending (default) or order.descending.",
         "required": false
+      },
+      {
+        "name": "sort_field",
+        "type": "unknown",
+        "description": "",
+        "required": false
       }
     ],
     "returns": "void",
@@ -1127,6 +1133,12 @@
         "name": "order",
         "type": "series sort_order",
         "description": "The sort order: order.ascending or order.descending. Optional. The default is order.ascending.",
+        "required": false
+      },
+      {
+        "name": "sort_field",
+        "type": "unknown",
+        "description": "",
         "required": false
       }
     ],
@@ -1572,7 +1584,7 @@
       },
       {
         "name": "text_formatting",
-        "type": "const text_format",
+        "type": "series text_format",
         "description": "The formatting of the displayed text. Formatting options support addition. For example, text.format_bold + text.format_italic will make the text both bold and italicized. Possible values: text.format_none, text.format_bold, text.format_italic. Optional. The default is text.format_none.",
         "required": false
       },
@@ -1938,7 +1950,7 @@
       },
       {
         "name": "text_formatting",
-        "type": "const text_format",
+        "type": "series text_format",
         "description": "The formatting of the displayed text. Formatting options support addition. For example, text.format_bold + text.format_italic will make the text both bold and italicized. Possible values: text.format_none, text.format_bold, text.format_italic. Optional. The default is text.format_none.",
         "required": false
       }
@@ -2563,6 +2575,156 @@
     "example": ""
   },
   {
+    "name": "footprint.buy_volume",
+    "namespace": "footprint",
+    "syntax": "footprint.buy_volume(id) → series float",
+    "description": "Calculates the total \"buy\" volume for the volume footprint represented by a footprint object.",
+    "parameters": [
+      {
+        "name": "id",
+        "type": "footprint",
+        "description": "The reference (ID) of the footprint object to analyze.",
+        "required": false
+      }
+    ],
+    "returns": "series float",
+    "example": ""
+  },
+  {
+    "name": "footprint.delta",
+    "namespace": "footprint",
+    "syntax": "footprint.delta(id) → series float",
+    "description": "Calculates the overall volume delta for the volume footprint represented by a footprint object. The value represents the difference between the footprint's total \"buy\" volume and \"sell\" volume. A positive value indicates that the total \"buy\" volume in the footprint exceeds the total \"sell\" volume, and a negative value indicates the opposite.",
+    "parameters": [
+      {
+        "name": "id",
+        "type": "footprint",
+        "description": "The reference (ID) of the footprint object to analyze.",
+        "required": false
+      }
+    ],
+    "returns": "series float",
+    "example": ""
+  },
+  {
+    "name": "footprint.get_row_by_price",
+    "namespace": "footprint",
+    "syntax": "footprint.get_row_by_price(id, price) → volume_row",
+    "description": "Analyzes the volume footprint represented by a footprint object to find the row whose price range includes the specified price level. If the price belongs to one of the rows, the function returns the ID of the volume_row object that contains the data for that row. Otherwise, it returns na.",
+    "parameters": [
+      {
+        "name": "id",
+        "type": "footprint",
+        "description": "The reference (ID) of the footprint object to analyze.",
+        "required": false
+      },
+      {
+        "name": "price",
+        "type": "series int/float",
+        "description": "The price value for which to find the corresponding footprint row.",
+        "required": false
+      }
+    ],
+    "returns": "volume_row",
+    "example": ""
+  },
+  {
+    "name": "footprint.poc",
+    "namespace": "footprint",
+    "syntax": "footprint.poc(id) → volume_row",
+    "description": "Finds the Point of Control (POC) row for the volume footprint represented by a footprint object, then returns the ID of a volume_row object containing the data for that row.",
+    "parameters": [
+      {
+        "name": "id",
+        "type": "footprint",
+        "description": "The reference (ID) of the footprint object to analyze.",
+        "required": false
+      }
+    ],
+    "returns": "volume_row",
+    "example": ""
+  },
+  {
+    "name": "footprint.rows",
+    "namespace": "footprint",
+    "syntax": "footprint.rows(id) → array<volume_row>",
+    "description": "Creates an array containing all volume_row IDs from a footprint object. Each volume_row object referenced in the array contains data for one row in the calculated volume footprint, where the first object represents the lowest row and the last one represents the highest row.",
+    "parameters": [
+      {
+        "name": "id",
+        "type": "footprint",
+        "description": "The reference (ID) of the footprint object to analyze.",
+        "required": false
+      }
+    ],
+    "returns": "array<volume_row>",
+    "example": ""
+  },
+  {
+    "name": "footprint.sell_volume",
+    "namespace": "footprint",
+    "syntax": "footprint.sell_volume(id) → series float",
+    "description": "Calculates the total \"sell\" volume for the volume footprint represented by a footprint object.",
+    "parameters": [
+      {
+        "name": "id",
+        "type": "footprint",
+        "description": "The reference (ID) of the footprint object to analyze.",
+        "required": false
+      }
+    ],
+    "returns": "series float",
+    "example": ""
+  },
+  {
+    "name": "footprint.total_volume",
+    "namespace": "footprint",
+    "syntax": "footprint.total_volume(id) → series float",
+    "description": "Calculates the sum of the total \"buy\" volume and \"sell\" volume for the volume footprint represented by a footprint object.",
+    "parameters": [
+      {
+        "name": "id",
+        "type": "footprint",
+        "description": "The reference (ID) of the footprint object to analyze.",
+        "required": false
+      }
+    ],
+    "returns": "series float",
+    "example": ""
+  },
+  {
+    "name": "footprint.vah",
+    "namespace": "footprint",
+    "syntax": "footprint.vah(id) → volume_row",
+    "description": "Finds the Value Area High (VAH) row for the volume footprint represented by a footprint object, then returns the ID of a volume_row object containing the data for that row.",
+    "parameters": [
+      {
+        "name": "id",
+        "type": "footprint",
+        "description": "The reference (ID) of the footprint object to analyze.",
+        "required": false
+      }
+    ],
+    "returns": "volume_row",
+    "example": ""
+  },
+  {
+    "name": "footprint.val",
+    "namespace": "footprint",
+    "syntax": "footprint.val(id) → volume_row",
+    "description": "Finds the Value Area Low (VAL) row for the volume footprint represented by a footprint object, then returns the ID of a volume_row object containing the data for that row.",
+    "parameters": [
+      {
+        "name": "id",
+        "type": "footprint",
+        "description": "The reference (ID) of the footprint object to analyze.",
+        "required": false
+      }
+    ],
+    "returns": "volume_row",
+    "example": ""
+  },
+  {
     "name": "hline",
     "syntax": "hline(price, title, color, linestyle, linewidth, editable, display) → hline",
     "description": "Renders a horizontal line at a given fixed price level.",
@@ -2640,108 +2802,108 @@
   {
     "name": "indicator",
     "syntax": "indicator(title, shorttitle, overlay, format, precision, scale, max_bars_back, timeframe, timeframe_gaps, explicit_plot_zorder, max_lines_count, max_labels_count, max_boxes_count, calc_bars_count, max_polylines_count, dynamic_requests, behind_chart) → void",
-    "description": "This declaration statement designates the script as an indicator and sets a number of indicator-related properties.",
+    "description": "A declaration statement that identifies the script as an indicator and sets specific script-wide properties.",
     "parameters": [
       {
         "name": "title",
         "type": "const string",
-        "description": "The title of the script. It is displayed on the chart when no shorttitle argument is used, and becomes the publication's default title when publishing the script.",
+        "description": "A string representing the script's title. The script displays the string's text in all possible locations if the declaration statement does not include a shorttitle argument. Additionally, the \"Publish script\" window uses the text as the default title for a script publication.",
         "required": false
       },
       {
         "name": "shorttitle",
         "type": "const string",
-        "description": "The script's display name on charts. If specified, it will replace the title argument in most chart-related windows. Optional. The default is the argument used for title.",
+        "description": "Optional. A string representing the script's display name on charts. If specified and not an empty string, the value's text replaces the title string in most chart locations, including the \"Settings\" window, the script's status line, the Data Window, and the \"Create alert\" dialog box. Otherwise, the title string appears as the script's title in all locations. The default is an empty string.",
         "required": false
       },
       {
         "name": "overlay",
         "type": "const bool",
-        "description": "If true, the script's visuals appear on the main chart pane if the user adds it to the chart directly, or in another script's pane if the user applies it to that script. If false, the script's visuals appear in a separate pane. Changes to the overlay value apply only after the user adds the script to the chart again. Additionally, if the user moves the script to another pane by selecting a \"Move to\" option in the script's \"More\" menu, it does not move back to its original pane after any updates to the source code. The default is false.  Strategy-specific labels that display entries and exits will be displayed over the main chart regardless of this setting.",
+        "description": "Optional. If true, the script's visuals appear on the main chart pane if the user adds it to the chart directly, or in another script's pane if the user applies it to that script. If false, the script's visuals appear in a separate pane. However, if a function call that creates visuals includes force_overlay = true, its output always appears on the main chart pane, even if the script occupies a separate pane. Changes to this argument apply only after the user adds the script to the chart again. Additionally, if the user moves the script to another pane by selecting a \"Move to\" option in the script's \"More\" menu, the script does not move back to its original pane after any updates to the source code. The default is false.",
         "required": false
       },
       {
         "name": "format",
         "type": "const string",
-        "description": "Specifies the formatting of the script's displayed values. Possible values: format.inherit, format.price, format.volume, format.percent. Optional. The default is format.inherit.",
+        "description": "Optional. Specifies the format of the script's plotted values. Possible values are format.inherit, format.price, format.volume, and format.percent. The default is format.inherit.",
         "required": false
       },
       {
         "name": "precision",
         "type": "const int",
-        "description": "Specifies the number of digits after the floating point of the script's displayed values. Must be a non-negative integer no greater than 16. If format is set to format.inherit and precision is specified, the format will instead be set to format.price. When the function's format parameter uses format.volume, the precision parameter will not affect the result, as the decimal precision rules defined by format.volume supersede other precision settings. Optional. The default is inherited from the precision of the chart's symbol.",
+        "description": "Optional. Specifies the number of fractional digits that the script shows for plotted numbers. The value must be an integer from 0 to 16. If specified and the format argument is format.inherit, the script uses format.price as the formatting option instead. If the format argument is {format.volume}, the script ignores the precision value, because the decimal precision rules specified by format.volume supersede other precision settings. By default, the script inherits the precision settings of the chart.",
         "required": false
       },
       {
         "name": "scale",
         "type": "const scale_type",
-        "description": "The price scale used. Possible values: scale.right, scale.left, scale.none. The scale.none value can only be applied in combination with overlay = true. Optional. By default, the script uses the same scale as the chart.",
+        "description": "Optional. Determines the location of the script's price scale and the scaling behavior of the script's visuals. Possible values are scale.right, scale.left, and scale.none. If specified and the script overlays on the main chart pane or another script's pane, the script scales its visuals independently to fit the pane's visual space. If the script occupies the same pane as the main chart or another script, scale.right or scale.left adds a separate price scale for the script to the left or right side of that pane. If the script occupies a separate pane, either argument positions the price scale for that pane on the left or right side without adding a new scale. If the argument is scale.none, which is valid only if the overlay argument is true, the script displays plotted numbers directly on the scale of the existing pane, or displays values on a new price scale if the user moves it to a new pane. Changes to the argument apply only after the user adds the script to the chart again. If not specified, the script uses the main price scale for the pane it occupies, and it does not scale its visuals separately if it overlays on an existing pane.",
         "required": false
       },
       {
         "name": "max_bars_back",
         "type": "const int",
-        "description": "The length of the historical buffer the script keeps for every variable and function, which determines how many past values can be referenced using the [] history-referencing operator. The required buffer size is automatically detected by the Pine Script® runtime. Using this parameter is only necessary when a runtime error occurs because automatic detection fails. More information on the underlying mechanics of the historical buffer can be found in our Help Center. Optional. The default is 0.",
+        "description": "Optional. Sets the minimum length of all the script's historical buffers, which determine the number of bars back that the script can reference for each series using the [] operator or the functions that retrieve history internally. The value must be an integer from 0 to 5000. By default, Pine's runtime system automatically calculates appropriate historical buffer sizes for each series while loading a script. Manually setting buffer sizes is necessary only in rare cases where automatic size detection fails. See the Historical buffers section of our User Manual for advanced details.",
         "required": false
       },
       {
         "name": "timeframe",
         "type": "const string",
-        "description": "Adds multi-timeframe functionality to simple scripts. When specified, a \"Timeframe\" field will be included in the \"Calculation\" section of the script's \"Settings/Inputs\" tab. The field's default value will be the argument supplied, whose format must conform to timeframe string specifications. To specify the chart's timeframe, use an empty string or the timeframe.period variable. The parameter cannot be used with scripts using Pine Script® drawings. Optional. The default is timeframe.period.",
+        "description": "Optional. A valid timeframe string that determines the main timeframe the script uses for its calculations. If specified, the script automatically adds a \"Timeframe\" input to the \"Settings/Inputs\" tab. The input's displayed default in the tab represents the same timeframe as the specified argument. If the value is an empty string or not specified, the script uses the same timeframe as the chart. An argument is allowed for this parameter only if the script does not use drawing types or alert() function calls.",
         "required": false
       },
       {
         "name": "timeframe_gaps",
         "type": "const bool",
-        "description": "Specifies how the indicator's values are displayed on chart bars when the timeframe is higher than the chart's. If true, a value only appears on a chart bar when the higher timeframe value becomes available, otherwise na is returned (thus a \"gap\" occurs). With false, what would otherwise be gaps are filled with the latest known value returned, avoiding na values. When specified, a \"Wait for timeframe closes\" checkbox will be included in the \"Calculation\" section of the script's \"Settings/Inputs\" tab. Optional. The default is true.",
+        "description": "Optional. Controls how the script displays plotted values if the timeframe value represents a higher timeframe than the chart's timeframe. An argument for this parameter is allowed only if the call includes a timeframe argument. If specified, the script adds a \"Wait for timeframe closes\" input, where users can change the setting, below the generated \"Timeframe\" input in the \"Settings/Inputs\" tab. If true, the indicator displays values only on the chart bars where new higher-timeframe data is available, and na on all other bars. If false, the indicator displays the last retrieved values on all chart bars where new data is not available. The default is true.",
         "required": false
       },
       {
         "name": "explicit_plot_zorder",
         "type": "const bool",
-        "description": "Specifies the order in which the script's plots, fills, and hlines are rendered. If true, plots are drawn in the order in which they appear in the script's code, each newer plot being drawn above the previous ones. This only applies to plot*() functions, fill(), and hline(). Optional. The default is false.",
+        "description": "Optional. Specifies which rules the script uses to determine the visual order of plots from plot*() calls, levels from hline() calls, and fills from fill() calls on the chart. If true, the indicator displays these visuals in the order of their function calls in the code. If false, the script uses the default z-index rules to determine the order of the visuals. The default is false.",
         "required": false
       },
       {
         "name": "max_lines_count",
         "type": "const int",
-        "description": "The number of last line drawings displayed. Possible values: 1-500. The count is approximate; more drawings than the specified count may be displayed. Optional. The default is 50.",
+        "description": "Optional. Determines the maximum number of line objects that remain available to the script. The system automatically deletes the oldest line objects when the number of lines exceeds the limit. The limit specified by the argument is approximate; the script might display more drawings than specified. The default is ~50 lines.",
         "required": false
       },
       {
         "name": "max_labels_count",
         "type": "const int",
-        "description": "The number of last label drawings displayed. Possible values: 1-500. The count is approximate; more drawings than the specified count may be displayed. Optional. The default is 50.",
+        "description": "Optional. Determines the maximum number of label objects that remain available to the script. The system automatically deletes the oldest label objects when the number of labels exceeds the limit. The limit specified by the argument is approximate; the script might display more drawings than specified. The default is ~50 labels.",
         "required": false
       },
       {
         "name": "max_boxes_count",
         "type": "const int",
-        "description": "The number of last box drawings displayed. Possible values: 1-500. The count is approximate; more drawings than the specified count may be displayed. Optional. The default is 50.",
+        "description": "Optional. Determines the maximum number of box objects that remain available to the script. The system automatically deletes the oldest box objects when the number of boxes exceeds the limit. The limit specified by the argument is approximate; the script might display more drawings than specified. The default is ~50 boxes.",
         "required": false
       },
       {
         "name": "calc_bars_count",
         "type": "const int",
-        "description": "Limits the initial calculation of a script to the last number of bars specified. When specified, a \"Calculated bars\" field will be included in the \"Calculation\" section of the script's \"Settings/Inputs\" tab. Optional. The default is 0, in which case the script executes on all available bars.",
+        "description": "Optional. Determines how many of the most recent historical bars are available to the script. If specified, the script automatically adds a \"Calculated bars\" input to the \"Settings/Inputs\" tab. If the value is positive and less than the number of historical bars in the dataset, the script starts its calculations that number of bars before the most recent bar. If the value is 0, the script's calculations start on the dataset's first bar. The default is 0.",
         "required": false
       },
       {
         "name": "max_polylines_count",
         "type": "const int",
-        "description": "The number of last polyline drawings displayed. Possible values: 1-100. The count is approximate; more drawings than the specified count may be displayed. Optional. The default is 50.",
+        "description": "Optional. Determines the maximum number of polyline objects that remain available to the script. The system automatically deletes the oldest polyline objects when the number of polylines exceeds the limit. The limit specified by the argument is approximate; the script might display more drawings than specified. The default is ~50 polylines.",
         "required": false
       },
       {
         "name": "dynamic_requests",
         "type": "const bool",
-        "description": "Specifies whether the script can dynamically call functions from the request.*() namespace. Dynamic request.*() calls are allowed within the local scopes of conditional structures (e.g., if), loops (e.g., for), and exported functions. Additionally, such calls allow \"series\" arguments for many of their parameters. Optional. The default is true. See the User Manual's Dynamic requests section for more information.",
+        "description": "Optional. Specifies whether the script can use dynamic request.*() function calls. Dynamic request.*() calls are allowed within the local scopes of conditional structures (e.g., if), loops (e.g., for), and exported functions. Additionally, such calls allow \"series\" arguments for several parameters that otherwise require values with \"simple\" or weaker qualifiers. See the Dynamic requests section of our User Manual for more information. The default is true.",
         "required": false
       },
       {
         "name": "behind_chart",
         "type": "const bool",
-        "description": "Optional. Controls whether all plots and drawings appear behind the chart display (if true) or in front of it (if false). This parameter only takes effect when the overlay parameter is true. The default is true.",
+        "description": "Optional. Controls whether all plots and drawings appear behind the chart display (if true) or in front of it (if false). This parameter takes effect only when the overlay argument is true. Changes to the argument apply only after the user adds the script to the chart again. The default is true.",
         "required": false
       }
     ],
@@ -3812,7 +3974,7 @@
       },
       {
         "name": "text_formatting",
-        "type": "const text_format",
+        "type": "series text_format",
         "description": "The formatting of the displayed text. Formatting options support addition. For example, text.format_bold + text.format_italic will make the text both bold and italicized. Possible values: text.format_none, text.format_bold, text.format_italic. Optional. The default is text.format_none.",
         "required": false
       },
@@ -3978,7 +4140,7 @@
       },
       {
         "name": "text_formatting",
-        "type": "const text_format",
+        "type": "series text_format",
         "description": "The formatting of the displayed text. Formatting options support addition. For example, text.format_bold + text.format_italic will make the text both bold and italicized. Possible values: text.format_none, text.format_bold, text.format_italic. Optional. The default is text.format_none.",
         "required": false
       }
@@ -6473,6 +6635,12 @@
         "type": "series sort_order",
         "description": "The sort order. Possible values: order.ascending (default), order.descending.",
         "required": false
+      },
+      {
+        "name": "sort_field",
+        "type": "unknown",
+        "description": "",
+        "required": false
       }
     ],
     "returns": "void",
@@ -7593,6 +7761,34 @@
     "example": "//@version=6indicator(\"request.financial\")f = request.financial(\"NASDAQ:MSFT\", \"ACCOUNTS_PAYABLE\", \"FY\")plot(f)"
   },
   {
+    "name": "request.footprint",
+    "namespace": "request",
+    "syntax": "request.footprint(ticks_per_row, va_percent, imbalance_percent) → footprint",
+    "description": "Requests the ID of a footprint object that contains data for calculating volume footprint information for the current chart bar. Scripts can use the returned ID in calls to the footprint.*() functions to retrieve footprint data, including footprint rows, categorized volume sums, and volume delta.",
+    "parameters": [
+      {
+        "name": "ticks_per_row",
+        "type": "simple int",
+        "description": "The price range of each footprint row, expressed in ticks.",
+        "required": false
+      },
+      {
+        "name": "va_percent",
+        "type": "simple int/float",
+        "description": "Optional. The percentage of each footprint's total volume to use for calculating the value area (VA). The default is 70.",
+        "required": false
+      },
+      {
+        "name": "imbalance_percent",
+        "type": "simple int/float",
+        "description": "Optional. The percentage difference in volume for detecting row imbalances. Scripts can use volume_row IDs retrieved from the returned footprint object in calls to volume_row.has_buy_imbalance() and volume_row.has_sell_imbalance() to identify imbalanced rows. A row is imbalanced if its \"buy\" volume exceeds the \"sell\" volume of the row below it by the specified percentage, or if its \"sell\" volume exceeds the \"buy\" volume of the row above it by the percentage. The default is 300.",
+        "required": false
+      }
+    ],
+    "returns": "footprint",
+    "example": ""
+  },
+  {
     "name": "request.quandl",
     "namespace": "request",
     "syntax": "request.quandl(ticker, gaps, index, ignore_invalid_symbol) → series float",
@@ -8303,7 +8499,7 @@
       {
         "name": "scale",
         "type": "const scale_type",
-        "description": "The price scale used. Possible values: scale.right, scale.left, scale.none. The scale.none value can only be applied in combination with overlay = true. Optional. By default, the script uses the same scale as the chart.",
+        "description": "Optional. Determines the location of the script's price scale and the scaling behavior of the script's visuals. Possible values are scale.right, scale.left, and scale.none. If specified and the script overlays on the main chart pane or another script's pane, the script scales its visuals independently to fit the pane's visual space. If the script occupies the same pane as the main chart or another script, scale.right or scale.left adds a separate price scale for the script to the left or right side of that pane. If the script occupies a separate pane, either argument positions the price scale for that pane on the left or right side without adding a new scale. If the argument is scale.none, which is valid only if the overlay argument is true, the script displays plotted numbers directly on the scale of the existing pane, or displays values on a new price scale if the user moves it to a new pane. Changes to the argument apply only after the user adds the script to the chart again. If not specified, the script uses the main price scale for the pane it occupies, and it does not scale its visuals separately if it overlays on an existing pane.",
         "required": false
       },
       {
@@ -11092,7 +11288,7 @@
       },
       {
         "name": "text_formatting",
-        "type": "const text_format",
+        "type": "series text_format",
         "description": "The formatting of the displayed text. Formatting options support addition. For example, text.format_bold + text.format_italic will make the text both bold and italicized. Possible values: text.format_none, text.format_bold, text.format_italic. Optional. The default is text.format_none.",
         "required": false
       }
@@ -11296,7 +11492,7 @@
       },
       {
         "name": "text_formatting",
-        "type": "const text_format",
+        "type": "series text_format",
         "description": "The formatting of the displayed text. Formatting options support addition. For example, text.format_bold + text.format_italic will make the text both bold and italicized. Possible values: text.format_none, text.format_bold, text.format_italic. Optional. The default is text.format_none.",
         "required": false
       }
@@ -12224,6 +12420,134 @@
     ],
     "returns": "const int",
     "example": "//@version=6indicator(\"timestamp\")plot(timestamp(2016, 01, 19, 09, 30), linewidth=3, color=color.green)plot(timestamp(syminfo.timezone, 2016, 01, 19, 09, 30), color=color.blue)plot(timestamp(2016, 01, 19, 09, 30), color=color.yellow)plot(timestamp(\"GMT+6\", 2016, 01, 19, 09, 30))plot(timestamp(2019, 06, 19, 09, 30, 15), color=color.lime)plot(timestamp(\"GMT+3\", 2019, 06, 19, 09, 30, 15), color=color.fuchsia)plot(timestamp(\"Feb 01 2020 22:10:05\"))plot(timestamp(\"2011-10-10T14:48:00\"))plot(timestamp(\"04 Dec 1995 00:12:00 GMT+5\"))"
+  },
+  {
+    "name": "volume_row.buy_volume",
+    "namespace": "volume_row",
+    "syntax": "volume_row.buy_volume(id) → series float",
+    "description": "Calculates the total \"buy\" volume for the volume footprint row represented by a volume_row object.",
+    "parameters": [
+      {
+        "name": "id",
+        "type": "volume_row",
+        "description": "The reference (ID) of the volume_row object to analyze.",
+        "required": false
+      }
+    ],
+    "returns": "series float",
+    "example": ""
+  },
+  {
+    "name": "volume_row.delta",
+    "namespace": "volume_row",
+    "syntax": "volume_row.delta(id) → series float",
+    "description": "Calculates the volume delta for the volume footprint row represented by a volume_row object. The value represents the difference between the row's \"buy\" volume and \"sell\" volume. A positive value indicates that the \"buy\" volume for the row exceeds the \"sell\" volume, and a negative value indicates the opposite.",
+    "parameters": [
+      {
+        "name": "id",
+        "type": "volume_row",
+        "description": "The reference (ID) of the volume_row object to analyze.",
+        "required": false
+      }
+    ],
+    "returns": "series float",
+    "example": ""
+  },
+  {
+    "name": "volume_row.down_price",
+    "namespace": "volume_row",
+    "syntax": "volume_row.down_price(id) → series float",
+    "description": "Retrieves the lower price level of the volume footprint row represented by a volume_row object.",
+    "parameters": [
+      {
+        "name": "id",
+        "type": "volume_row",
+        "description": "The reference (ID) of the volume_row object to analyze.",
+        "required": false
+      }
+    ],
+    "returns": "series float",
+    "example": ""
+  },
+  {
+    "name": "volume_row.has_buy_imbalance",
+    "namespace": "volume_row",
+    "syntax": "volume_row.has_buy_imbalance(id) → series bool",
+    "description": "Checks whether the volume footprint row represented by a volume_row object has a \"buy\" imbalance, based on the imbalance_percent argument of the request.footprint() call that the object depends on. Returns true if the row's \"buy\" volume exceeds the \"sell\" volume of the row below it in the footprint by the specified percentage, and false otherwise.",
+    "parameters": [
+      {
+        "name": "id",
+        "type": "volume_row",
+        "description": "The reference (ID) of the volume_row object to analyze.",
+        "required": false
+      }
+    ],
+    "returns": "series bool",
+    "example": ""
+  },
+  {
+    "name": "volume_row.has_sell_imbalance",
+    "namespace": "volume_row",
+    "syntax": "volume_row.has_sell_imbalance(id) → series bool",
+    "description": "Checks whether the volume footprint row represented by a volume_row object has a sell imbalance, based on the imbalance_percent argument of the request.footprint() call that the object depends on. Returns true if the row's \"sell\" volume exceeds the \"buy\" volume of the row above it in the footprint by the specified percentage, and false otherwise.",
+    "parameters": [
+      {
+        "name": "id",
+        "type": "volume_row",
+        "description": "The reference (ID) of the volume_row object to analyze.",
+        "required": false
+      }
+    ],
+    "returns": "series bool",
+    "example": ""
+  },
+  {
+    "name": "volume_row.sell_volume",
+    "namespace": "volume_row",
+    "syntax": "volume_row.sell_volume(id) → series float",
+    "description": "Calculates the total \"sell\" volume for the volume footprint row represented by a volume_row object.",
+    "parameters": [
+      {
+        "name": "id",
+        "type": "volume_row",
+        "description": "The reference (ID) of the volume_row object to analyze.",
+        "required": false
+      }
+    ],
+    "returns": "series float",
+    "example": ""
+  },
+  {
+    "name": "volume_row.total_volume",
+    "namespace": "volume_row",
+    "syntax": "volume_row.total_volume(id) → series float",
+    "description": "Calculates the sum of the \"buy\" and \"sell\" volume for the volume footprint row represented by a volume_row object.",
+    "parameters": [
+      {
+        "name": "id",
+        "type": "volume_row",
+        "description": "The reference (ID) of the volume_row object to analyze.",
+        "required": false
+      }
+    ],
+    "returns": "series float",
+    "example": ""
+  },
+  {
+    "name": "volume_row.up_price",
+    "namespace": "volume_row",
+    "syntax": "volume_row.up_price(id) → series float",
+    "description": "Retrieves the upper price level of the volume footprint row represented by a volume_row object.",
+    "parameters": [
+      {
+        "name": "id",
+        "type": "volume_row",
+        "description": "The reference (ID) of the volume_row object to analyze.",
+        "required": false
+      }
+    ],
+    "returns": "series float",
+    "example": ""
   },
   {
     "name": "weekofyear",
