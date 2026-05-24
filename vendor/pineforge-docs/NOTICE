@@ -1,0 +1,23 @@
+PineForge Pine v6 audit documentation
+======================================
+
+Source:  https://github.com/fullpass-4pass/pineforge-engine,
+         path docs/pine_v6_audit_master.md
+License: Apache-2.0 (see LICENSE in this directory)
+
+`pine_v6_audit_master.md` is PineForge contributors' standalone audit of
+Pine v6: 38 critical + ~62 minor known divergences between TradingView's
+published reference and the actual codegen/runtime behaviour.
+
+Local modifications:
+  - U+2014 EM DASH and U+2013 EN DASH characters (26 occurrences) were
+    rewritten to U+002D HYPHEN-MINUS so the file passes pine-oracle's
+    gremlin scan. The rewrite is punctuation-only and does not change
+    rendered semantics; see commit history for the exact change.
+
+pine-oracle indexes the audit at build time via `src/search.rs`, exposing
+its sections as `kind: "audit"` results. The doc itself remains the
+canonical source; consumers seeing an audit hit should expand the section
+title through the section structure documented in the upstream file.
+
+Snapshot date: see git log for vendor/pineforge-docs/pine_v6_audit_master.md.

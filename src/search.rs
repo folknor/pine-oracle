@@ -13,6 +13,8 @@
 // the reference's `oca_name=` parameter docs and the corpus's OCA probes.
 
 use anyhow::Result;
+use comrak::nodes::{AstNode, NodeValue};
+use comrak::{parse_document, Arena, Options};
 use serde::Serialize;
 use std::sync::OnceLock;
 use tantivy::collector::TopDocs;
@@ -21,6 +23,8 @@ use tantivy::schema::{Field, Schema, STORED, STRING, TEXT};
 use tantivy::{Index, IndexReader, ReloadPolicy, TantivyDocument};
 
 use crate::{corpus, reference};
+
+const AUDIT_MARKDOWN: &str = include_str!("../vendor/pineforge-docs/pine_v6_audit_master.md");
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SearchHit {
@@ -81,6 +85,22 @@ fn build() -> Result<Engine> {
         }
     }
 
+    // Source 3: vendored PineForge audit doc. Each H2 / H3 section becomes
+    // one doc so a query like `pine search fallthrough` surfaces the exact
+    // class of divergence the section discusses. Category="Audit",
+    // kind="audit". The doc-level table-of-contents H2 ("Headline" etc.) is
+    // indexed too; those sections tend to score lower because their content
+    // is shorter, which matches their intent as navigation rather than
+    // forensic substance.
+    for (title, body) in audit_sections() {
+        let mut doc = TantivyDocument::default();
+        doc.add_text(name_field, &title);
+        doc.add_text(category_field, "Audit");
+        doc.add_text(kind_field, "audit");
+        doc.add_text(content_field, &body);
+        writer.add_document(doc)?;
+    }
+
     writer.commit()?;
 
     let reader = index
@@ -138,6 +158,56 @@ fn first_text(doc: &TantivyDocument, field: Field) -> Option<String> {
     use tantivy::schema::Value;
     doc.get_first(field)
         .and_then(|v| v.as_str().map(|s| s.to_string()))
+}
+
+/// Split `AUDIT_MARKDOWN` into `(heading_text, body_text)` pairs for each
+/// H2 / H3 section. Body is everything from the heading line to (but not
+/// including) the next heading at any level.
+fn audit_sections() -> Vec<(String, String)> {
+    let arena = Arena::new();
+    let opts = Options::default();
+    let root = parse_document(&arena, AUDIT_MARKDOWN, &opts);
+    let lines: Vec<&str> = AUDIT_MARKDOWN.lines().collect();
+
+    fn collect<'a>(node: &'a AstNode<'a>, out: &mut Vec<(String, u8, usize)>) {
+        if let NodeValue::Heading(h) = &node.data.borrow().value {
+            if h.level == 2 || h.level == 3 {
+                let mut text = String::new();
+                for child in node.children() {
+                    if let NodeValue::Text(t) = &child.data.borrow().value {
+                        text.push_str(t);
+                    }
+                }
+                let start = node.data.borrow().sourcepos.start.line;
+                out.push((text, h.level, start));
+            }
+        }
+        for child in node.children() {
+            collect(child, out);
+        }
+    }
+
+    let mut headings = Vec::new();
+    collect(root, &mut headings);
+
+    let mut out = Vec::with_capacity(headings.len());
+    for (i, (title, _, start)) in headings.iter().enumerate() {
+        let end = if i + 1 < headings.len() {
+            headings[i + 1].2 - 1
+        } else {
+            lines.len()
+        };
+        let body: String = lines[*start..end]
+            .iter()
+            .skip(1)
+            .copied()
+            .collect::<Vec<_>>()
+            .join("\n")
+            .trim()
+            .to_string();
+        out.push((title.trim().to_string(), body));
+    }
+    out
 }
 
 #[cfg(test)]
@@ -201,5 +271,31 @@ mod tests {
                 .collect::<Vec<_>>()
         );
         assert_eq!(probe_hit.unwrap().category, "Corpus");
+    }
+
+    #[test]
+    fn audit_sections_parse() {
+        let s = audit_sections();
+        assert!(
+            s.len() >= 5,
+            "expected several audit sections, got {}",
+            s.len()
+        );
+        // Every section should have a non-empty title.
+        assert!(s.iter().all(|(t, _)| !t.is_empty()));
+    }
+
+    #[test]
+    fn audit_doc_appears_in_search() {
+        // "fallthrough" is the canonical name for the most-dangerous
+        // divergence class in audit_master ("Silent fallthrough -> return 0").
+        let hits = query("fallthrough", 25).expect("search must succeed");
+        assert!(
+            hits.iter().any(|h| h.kind == "audit"),
+            "expected at least one audit-kind hit for `fallthrough`, got {:?}",
+            hits.iter()
+                .map(|h| (h.kind.as_str(), h.name.as_str()))
+                .collect::<Vec<_>>()
+        );
     }
 }

@@ -16,7 +16,7 @@ Modules currently in `src/`:
 
 - `reference`: in-process lookup + substring search over the vendored TradingView v6 reference (`vendor/pine-reference/spec/v6.md`, 941 entries). Cached behind `OnceLock`. MPL-2.0, lifted from pinecone.
 - `corpus`: in-binary PineForge validation corpus, embedded via `include_dir`. Exposes `load_probe(slug)` and `list_probes(grep)` over 235 probes (flat + nested under `symbol-specified/<SYMBOL>/`). `summary_for(slug)` extracts the author-written prose comment block from each `strategy.pine` header (skipping license / SPDX / copyright / version-directive lines), cached behind a OnceLock; >=80% of probes get a real summary out of the box. `list_probes(grep)` matches against slug OR summary text. The richer engine-internals prose in `docs/probe-summaries.md` is keyed to engine-internal slugs that do not match the published corpus and is not loaded here. Apache-2.0 + MPL-2.0 dual-licensed, attributing PineForge.
-- `search`: BM25 via tantivy over the v6 reference + the baked PineForge corpus. RAM-backed Index built on first invocation (~10 ms), OnceLock-cached, ~1.18k docs total (941 reference + 235 probes). Schema fields: `name`, `category`, `kind` ("reference" or "probe"), `content`. `name` field gets a 5x boost over `content`. Probes are indexed with slug as `name`, author-extracted summary as `content` (slug-as-fallback when no summary).
+- `search`: BM25 via tantivy over three sources: the v6 reference (941 entries), the baked PineForge corpus (235 probes), and PineForge's Pine v6 audit doc (H2/H3 sections of `pine_v6_audit_master.md`, ~38 critical + ~62 minor known TV-vs-engine divergences). RAM-backed Index built on first invocation (~10-15 ms), OnceLock-cached. Schema fields: `name`, `category`, `kind` ("reference" / "probe" / "audit"), `content`. `name` gets a 5x boost over `content`. Probes are indexed with slug as `name`, author-extracted summary as `content` (slug-as-fallback when no summary).
 - `syntax`: Pine v6 lexer + AST + parser lifted from pinecone (MPL-2.0). Three sub-modules (`ast`, `lexer`, `parser`) re-exported through `syntax::*`. Drives `pine parse` and `pine tokens`. Parser regression tests run across 72 vendored `.pine` fixtures with `_ast.json` goldens. **Temporary**: this lift is the v0 backing for `pine validate`. Long-term it gets replaced by piners-syntax (the analyzer piners builds for its runtime) or, as a bridge, a WASM transpile of pine-tools' TS analyzer. The lifted pinecone parser stops at the first lex / parse error and has no type checker.
 - `validate`: two tiers, with inverted authority vs. an earlier draft of the design doc.
   - **Local (`validate::check`)**: lex + parse via `syntax`, returns first failure as `Diagnostic { severity, stage, message, line, column }`. Today catches one error only; will become an IDE-quality multi-error multi-stage validator once piners-syntax (or a WASM pine-tools transpile) lands.
@@ -47,6 +47,7 @@ Current vendors:
 - `vendor/pine-reference/`: pinecone's `crates/pine-reference/spec/v6.md` (MPL-2.0). Local mod: U+00A0 NO-BREAK SPACE rewritten to U+0020 SPACE for the gremlin scan. See `vendor/pine-reference/NOTICE`.
 - `vendor/pineforge-corpus/`: <https://github.com/fullpass-4pass/pineforge-corpus> (Apache-2.0), pruned to the subset baked into the binary. See `vendor/pineforge-corpus/VENDORING_NOTES.md` for kept / dropped manifest and refresh procedure. Refresh via `scripts/prune-vendored-corpus.sh`.
 - `vendor/pine-data/v6/`: structured JSON snapshots from `../pine-tools/pine-data/v6/` (MIT, folknor owns pine-tools). Five files: `functions.json`, `variables.json`, `constants.json`, `keywords.json`, `function-behavior.json`. Refresh by re-running pine-tools' `pnpm run scrape` + `pnpm run discover:behavior`, then copying the JSON files in.
+- `vendor/pineforge-docs/`: PineForge's `docs/pine_v6_audit_master.md` (Apache-2.0). 38 critical + ~62 minor known divergences between TV's published reference and the actual codegen/runtime behaviour. Local mod: em/en-dashes rewritten to ASCII hyphens for the gremlin scan; see `vendor/pineforge-docs/NOTICE`.
 
 ## Rules
 
@@ -105,7 +106,7 @@ Single-crate workspace, so `-p` is unnecessary.
 | Subcommand | Status |
 |---|---|
 | `pine lookup <name>` | done (cross-category exact, prefix fallback) |
-| `pine search <query>` | done (tantivy BM25, 5x name boost; indexes v6 reference + baked corpus probes; hits carry `kind` = "reference" or "probe"; `--kind <reference\|probe>` narrows the result set) |
+| `pine search <query>` | done (tantivy BM25, 5x name boost; indexes v6 reference + corpus probes + PineForge audit doc; hits carry `kind` = "reference" / "probe" / "audit"; `--kind <kind>` narrows the result set) |
 | `pine probe <slug>` | done (baked corpus, flat + nested slugs) |
 | `pine probes [--grep TEXT]` | done (matches against slug or extracted-from-source summary text) |
 | `pine parse` | done via the pinecone lift; will deepen when piners-syntax replaces it |
