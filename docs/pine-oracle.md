@@ -144,6 +144,10 @@ pine diff <probe> <trades.csv>  tier-classify a piners trade list against the pr
 pine diff ... --show-diffs N    + worst-N matched pairs (ranked) + every TV/user orphan trade
 pine indicator --list           list baked indicator strict fixtures; add --grep / --baseline to narrow
 pine indicator --baseline ?     list indicator baseline kinds with counts
+pine indicator <slug>           inspect fixture source, bars, expected keys/previews, actual keys, tolerance, and metadata
+pine indicator <slug> --metadata-only
+                               inspect fixture metadata without running the source
+pine indicator <slug> --actual  run fixture and print actual runner output series without diffing
 pine indicator --strict <slug>  per-bar indicator parity against a vendored TV baseline
 pine indicator --strict --all   run every matching indicator fixture; add --grep / --baseline to narrow
 pine version                    pine-data snapshot metadata + bake counts + binary version
@@ -221,7 +225,7 @@ indicators/<slug>/
   source.pine        # Pine v6 indicator source
   bars.json          # OHLCV fixture; typically BTCUSDC daily 2025-01-01..2025-11-20 cited window
   expect.json        # per-bar expected outputs, with custom NaN/Infinity tokens
-  metadata.json      # baseline kind, TV chart version, snapshot date
+  metadata.json      # baseline kind plus optional TV capture metadata
 ```
 
 `bars.json` accepts either a bare array of OHLCV bars or the richer object form below. The object form is preferred because it pins chart context for time/session-sensitive scripts:
@@ -266,9 +270,9 @@ indicators/<slug>/
 }
 ```
 
-`baseline` must be `"smoke"` (deterministic substrate fixtures) or `"tv"` (TradingView-captured baselines). There is no implicit third tier; any other value is rejected at load time, and a missing `metadata.json` is treated as `"smoke"`. TV baselines additionally require `pine_version` + `tv_snapshot`. `pine indicator --list`, `pine indicator --baseline ?`, and `pine version` report smoke vs TV counts separately.
+`baseline` must be `"smoke"` (deterministic substrate fixtures) or `"tv"` (TradingView-captured baselines). There is no implicit third tier; any other value is rejected at load time, and a missing `metadata.json` is treated as `"smoke"`. TV baselines additionally require `pine_version` + `tv_snapshot`; smoke fixtures must not define `tv_snapshot`. `pine indicator --list`, `pine indicator --baseline ?`, and `pine version` report smoke vs TV counts separately.
 
-`test_range` is optional. When present, the comparer only checks bars whose `bars.json` Unix-second timestamps fall between `start` and `end` inclusive. Expected output arrays may be either full-series length or already sliced to the range length; mismatch reports still use the original zero-based bar index. Output keys may use the runner's generated keys (`plot`, `plot#1`, `plotshape`, etc.) or a plot title such as `"Close Line"` when the Pine call supplies one. Duplicate titles are disambiguated with `#1`, `#2`, etc.
+`test_range` is optional. When present, the comparer only checks bars whose `bars.json` Unix-second timestamps fall between `start` and `end` inclusive. Expected output arrays may be either full-series length or already sliced to the range length; mismatch reports still use the original zero-based bar index. Output keys may use the runner's generated keys (`plot`, `plot#1`, `plotshape`, etc.) or a plot title such as `"Close Line"` when the Pine call supplies one. Duplicate titles are disambiguated with `#1`, `#2`, etc. Empty output keys and empty expected series are rejected by strict fixture validation. Tolerance must be finite, non-negative, and no greater than `0.001`. For recognized fixed timeframes, adjacent bar timestamps must not be shorter than the timeframe. Fixed `M` month timeframes use a conservative 27-day minimum spacing check because calendar months vary.
 
 Custom value tokens:
 
@@ -279,7 +283,7 @@ Custom value tokens:
 | `"__-Infinity__"` | `-inf` |
 | `"__undefined__"` | unset / before warmup |
 
-`pine indicator --strict <slug>` runs `source.pine` through piners-runner against `bars.json`, serializes outputs with the same token convention, diffs against `expect.json`, and exits non-zero on mismatch. Discrepancy report cites bar index + output name + expected vs actual. `pine indicator --strict --all` runs every matching fixture and returns an aggregate report. `pine indicator --list` lists baked fixtures with symbol/timeframe, bar count, output count, range window, and baseline metadata; list mode and batch strict mode both accept `--grep TEXT` plus `--baseline smoke|tv`. The `smoke-*` fixtures are deterministic substrate checks covering basic plot replay, plot-title matching, duplicate-title disambiguation, warmup `na`, ranged comparison, bool `plotshape`, and same-symbol `request.security`; real TV baselines still need to be added under `indicators/`.
+`pine indicator <slug>` inspects one fixture without running value parity: source, bar count, bar window, expected output keys, actual runner output keys, expected lengths, first/last expected values, tolerance, notes, and baseline metadata. It compiles and runs the fixture once only to populate actual output keys and key-drift fields; add `--metadata-only` to skip that runner check for a cheap source/bars/expect read. `pine indicator <slug> --actual` runs the fixture once and reports piners-runner's actual output keys + series without comparing against `expect.json`; JSON output also includes `runner_expect`, an `expect.json`-shaped object for deterministic smoke fixture authoring. `runner_expect` intentionally omits fixture metadata such as `pine_version` and `test_range`, and uses zero tolerance. This is the authoring/debug path for smoke fixtures and output-key drift. `pine indicator --strict <slug>` runs `source.pine` through piners-runner against `bars.json`, serializes outputs with the same token convention, diffs against `expect.json`, and exits non-zero on mismatch. Discrepancy report cites bar index + output name + expected vs actual. `pine indicator --strict --all` runs every matching fixture and returns an aggregate report. `pine indicator --list` lists baked fixtures with symbol/timeframe, bar count, output count, range window, and baseline metadata; list mode and batch strict mode both accept `--grep TEXT` plus `--baseline smoke|tv`. The `smoke-*` fixtures are deterministic substrate checks covering basic plot replay, plot-title matching, duplicate-title disambiguation, warmup `na`, ranged comparison, bool `plotshape`, and same-symbol `request.security`; real TV baselines still need to be added under `indicators/`.
 
 Strict reports include `expected_output_keys` and `actual_output_keys` so fixture authors can see the exact keys produced by piners-runner when a capture uses titles, duplicate titles, or generated fallback names.
 
@@ -356,7 +360,7 @@ Release cadence: pin to pine-tools' scrape cadence. When TV's docs change, refre
 
 10. **License umbrella for the oracle binary.** Vendoring decisions span MPL-2.0 (Pinecone), Apache-2.0 (PineForge), MIT (pine-tools, folknor-owned), and clean-room paraphrases of AGPL (PineTS, deferred). The crate itself uses MPL-2.0; vendored artifacts retain their upstream licenses through their own LICENSE / NOTICE files.
 
-11. **PineTS compat-test schema versioning.** Every `expect.json` carries `schema_version`, `pine_version` (grammar / runtime version that generated it), and `tv_snapshot` (when TV's broker state was captured). Engine-version mismatch errors instead of silently comparing; regenerations bump `tv_snapshot`. Concrete shape:
+11. **Indicator expect schema versioning.** Every `expect.json` carries `schema_version`. `pine_version` is optional fixture metadata; `tv_snapshot` is only legal for `baseline: "tv"` fixtures and may live in `expect.json` or `metadata.json`. Smoke fixtures must not define `tv_snapshot`, and `pine indicator <slug> --actual` omits optional metadata from its generated `runner_expect`. Concrete TV-baseline shape:
 
     ```json
     {

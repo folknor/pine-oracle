@@ -126,6 +126,13 @@ enum Command {
         /// Run strict per-bar parity for every matching fixture.
         #[arg(long)]
         all: bool,
+        /// Run the fixture once and print piners-runner actual outputs
+        /// without comparing against expect.json.
+        #[arg(long)]
+        actual: bool,
+        /// Print fixture detail without compiling/running the Pine source.
+        #[arg(long)]
+        metadata_only: bool,
         /// List baked indicator fixtures.
         #[arg(long)]
         list: bool,
@@ -180,16 +187,22 @@ fn main() -> Result<()> {
             slug,
             strict,
             all,
+            actual,
+            metadata_only,
             list,
             grep,
             baseline,
         } => commands::indicator::run(
-            slug.as_deref(),
-            strict,
-            list,
-            all,
-            grep.as_deref(),
-            baseline.as_deref(),
+            &commands::indicator::Args {
+                slug: slug.as_deref(),
+                strict,
+                list,
+                all,
+                actual,
+                metadata_only,
+                grep: grep.as_deref(),
+                baseline: baseline.as_deref(),
+            },
             format,
         ),
         Command::Version => cmd_version(format),
@@ -367,6 +380,8 @@ mod tests {
                 slug,
                 strict,
                 all,
+                actual,
+                metadata_only,
                 list,
                 grep,
                 baseline,
@@ -374,6 +389,8 @@ mod tests {
                 assert_eq!(slug, None);
                 assert!(!strict);
                 assert!(!all);
+                assert!(!actual);
+                assert!(!metadata_only);
                 assert!(list);
                 assert_eq!(grep.as_deref(), Some("request"));
                 assert_eq!(baseline.as_deref(), Some("smoke"));
@@ -399,6 +416,8 @@ mod tests {
                 slug,
                 strict,
                 all,
+                actual,
+                metadata_only,
                 list,
                 grep,
                 baseline,
@@ -406,9 +425,98 @@ mod tests {
                 assert_eq!(slug, None);
                 assert!(strict);
                 assert!(all);
+                assert!(!actual);
+                assert!(!metadata_only);
                 assert!(!list);
                 assert_eq!(grep, None);
                 assert_eq!(baseline.as_deref(), Some("smoke"));
+            }
+            _ => panic!("expected indicator command"),
+        }
+    }
+
+    #[test]
+    fn indicator_detail_parses_slug_without_flags() {
+        let cli = Cli::try_parse_from(["pine", "indicator", "smoke-close"])
+            .expect("indicator detail args should parse");
+
+        match cli.command {
+            Command::Indicator {
+                slug,
+                strict,
+                all,
+                actual,
+                metadata_only,
+                list,
+                grep,
+                baseline,
+            } => {
+                assert_eq!(slug.as_deref(), Some("smoke-close"));
+                assert!(!strict);
+                assert!(!all);
+                assert!(!actual);
+                assert!(!metadata_only);
+                assert!(!list);
+                assert_eq!(grep, None);
+                assert_eq!(baseline, None);
+            }
+            _ => panic!("expected indicator command"),
+        }
+    }
+
+    #[test]
+    fn indicator_actual_parses_slug_with_flag() {
+        let cli = Cli::try_parse_from(["pine", "indicator", "smoke-close", "--actual"])
+            .expect("indicator actual args should parse");
+
+        match cli.command {
+            Command::Indicator {
+                slug,
+                strict,
+                all,
+                actual,
+                metadata_only,
+                list,
+                grep,
+                baseline,
+            } => {
+                assert_eq!(slug.as_deref(), Some("smoke-close"));
+                assert!(!strict);
+                assert!(!all);
+                assert!(actual);
+                assert!(!metadata_only);
+                assert!(!list);
+                assert_eq!(grep, None);
+                assert_eq!(baseline, None);
+            }
+            _ => panic!("expected indicator command"),
+        }
+    }
+
+    #[test]
+    fn indicator_metadata_only_parses_slug_with_flag() {
+        let cli = Cli::try_parse_from(["pine", "indicator", "smoke-close", "--metadata-only"])
+            .expect("indicator metadata-only args should parse");
+
+        match cli.command {
+            Command::Indicator {
+                slug,
+                strict,
+                all,
+                actual,
+                metadata_only,
+                list,
+                grep,
+                baseline,
+            } => {
+                assert_eq!(slug.as_deref(), Some("smoke-close"));
+                assert!(!strict);
+                assert!(!all);
+                assert!(!actual);
+                assert!(metadata_only);
+                assert!(!list);
+                assert_eq!(grep, None);
+                assert_eq!(baseline, None);
             }
             _ => panic!("expected indicator command"),
         }

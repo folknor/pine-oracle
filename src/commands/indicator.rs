@@ -3,48 +3,76 @@ use pine_cli::indicator;
 
 use crate::output::{ResolvedFormat, print_json};
 
-pub(crate) fn run(
-    slug: Option<&str>,
-    strict: bool,
-    list: bool,
-    all: bool,
-    grep: Option<&str>,
-    baseline: Option<&str>,
-    format: ResolvedFormat,
-) -> Result<()> {
-    if baseline.is_some_and(indicator::is_baseline_catalog_request) {
+pub(crate) struct Args<'a> {
+    pub(crate) slug: Option<&'a str>,
+    pub(crate) strict: bool,
+    pub(crate) list: bool,
+    pub(crate) all: bool,
+    pub(crate) actual: bool,
+    pub(crate) metadata_only: bool,
+    pub(crate) grep: Option<&'a str>,
+    pub(crate) baseline: Option<&'a str>,
+}
+
+pub(crate) fn run(args: &Args<'_>, format: ResolvedFormat) -> Result<()> {
+    if args
+        .baseline
+        .is_some_and(indicator::is_baseline_catalog_request)
+    {
         return print_baseline_catalog(format);
     }
-    if list {
-        if strict {
+    if args.list {
+        if args.strict {
             bail!("`pine indicator --list` cannot combine with `--strict`");
         }
-        let grep = resolve_list_grep(slug, grep)?;
-        if all {
+        if args.actual {
+            bail!("`pine indicator --list` cannot combine with `--actual`");
+        }
+        if args.metadata_only {
+            bail!("`pine indicator --list` cannot combine with `--metadata-only`");
+        }
+        let grep = resolve_list_grep(args.slug, args.grep)?;
+        if args.all {
             bail!("`pine indicator --list` cannot combine with `--all`");
         }
-        return print_fixture_list(grep, baseline, format);
+        return print_fixture_list(grep, args.baseline, format);
     }
-    if all {
-        if slug.is_some() {
+    if args.all {
+        if args.slug.is_some() {
             bail!("`pine indicator --strict --all` cannot combine with a fixture slug");
         }
-        if !strict {
+        if args.actual {
+            bail!("`pine indicator --strict --all` cannot combine with `--actual`");
+        }
+        if args.metadata_only {
+            bail!("`pine indicator --strict --all` cannot combine with `--metadata-only`");
+        }
+        if !args.strict {
             bail!("`pine indicator --all` requires `--strict`");
         }
-        return print_batch_report(grep, baseline, format);
+        return print_batch_report(args.grep, args.baseline, format);
     }
-    if grep.is_some() || baseline.is_some() {
+    if args.grep.is_some() || args.baseline.is_some() {
         bail!("`pine indicator --grep/--baseline` requires `--list` or `--all`");
     }
-    if !strict {
-        bail!(
-            "`pine indicator` currently supports `--strict <slug>`, `--strict --all`, or `--list`"
-        );
-    }
-    let Some(slug) = slug else {
-        bail!("`pine indicator --strict` requires a fixture slug");
+    let Some(slug) = args.slug else {
+        bail!("`pine indicator` requires a fixture slug, `--strict --all`, or `--list`");
     };
+    if args.actual {
+        if args.strict {
+            bail!("`pine indicator --actual` cannot combine with `--strict`");
+        }
+        if args.metadata_only {
+            bail!("`pine indicator --actual` cannot combine with `--metadata-only`");
+        }
+        return print_actual_report(slug, format);
+    }
+    if !args.strict {
+        return print_fixture_detail(slug, args.metadata_only, format);
+    }
+    if args.metadata_only {
+        bail!("`pine indicator --metadata-only` cannot combine with `--strict`");
+    }
     let report = indicator::run_strict(slug)?;
     match format {
         ResolvedFormat::Json => print_json(&report)?,
@@ -52,6 +80,28 @@ pub(crate) fn run(
     }
     if !report.ok {
         std::process::exit(1);
+    }
+    Ok(())
+}
+
+fn print_actual_report(slug: &str, format: ResolvedFormat) -> Result<()> {
+    let report = indicator::run_actual(slug)?;
+    match format {
+        ResolvedFormat::Json => print_json(&report)?,
+        ResolvedFormat::Text => print_actual_report_text(&report),
+    }
+    Ok(())
+}
+
+fn print_fixture_detail(slug: &str, metadata_only: bool, format: ResolvedFormat) -> Result<()> {
+    let detail = if metadata_only {
+        indicator::load_fixture_detail(slug)?
+    } else {
+        indicator::load_fixture_detail_with_actual(slug)?
+    };
+    match format {
+        ResolvedFormat::Json => print_json(&detail)?,
+        ResolvedFormat::Text => print_fixture_detail_text(&detail),
     }
     Ok(())
 }
@@ -176,6 +226,122 @@ fn print_batch_report_text(report: &indicator::IndicatorBatchReport) {
     }
 }
 
+fn print_fixture_detail_text(detail: &indicator::IndicatorFixtureDetail) {
+    println!("indicator:   {}", detail.slug);
+    println!("baseline:    {}", detail.baseline);
+    if let Some(notes) = &detail.notes {
+        println!("notes:       {notes}");
+    }
+    println!("bars:        {}", detail.bar_count);
+    if let Some(symbol) = &detail.symbol {
+        println!("symbol:      {symbol}");
+    }
+    if let Some(timeframe) = &detail.timeframe {
+        println!("timeframe:   {timeframe}");
+    }
+    if let Some(source) = &detail.data_source {
+        println!("data source: {source}");
+    }
+    if let (Some(first), Some(last)) = (detail.first_bar_timestamp, detail.last_bar_timestamp) {
+        println!("bar window:  {first} .. {last}");
+    }
+    println!("outputs:     {}", detail.output_count);
+    for output in &detail.expected_outputs {
+        println!("  {}", expected_output_summary(output));
+    }
+    if detail.actual_outputs_checked {
+        println!("actual keys: {}", output_keys(&detail.actual_output_keys));
+        if !detail.missing_expected_output_keys.is_empty() {
+            println!(
+                "missing:     {}",
+                output_keys(&detail.missing_expected_output_keys)
+            );
+        }
+        if !detail.unexpected_actual_output_keys.is_empty() {
+            println!(
+                "unexpected:  {}",
+                output_keys(&detail.unexpected_actual_output_keys)
+            );
+        }
+    } else {
+        println!("actual keys: skipped");
+    }
+    println!("tolerance:   {}", detail.tolerance);
+    if let Some(range) = &detail.test_range {
+        println!("range:       {} .. {}", range.start, range.end);
+    }
+    if let Some(pine_version) = &detail.pine_version {
+        println!("pine:        {pine_version}");
+    }
+    if let Some(tv_snapshot) = &detail.tv_snapshot {
+        println!("tv snapshot: {tv_snapshot}");
+    }
+    if let Some(runtime_error) = &detail.runtime_error {
+        println!("runtime:     {runtime_error}");
+    }
+    if !detail.stub_dependencies.is_empty() {
+        println!("stubs:       {}", detail.stub_dependencies.len());
+        for stub in &detail.stub_dependencies {
+            println!("  {} ({} call(s))", stub.name, stub.call_count);
+        }
+    }
+    println!("\nsource.pine:\n{}", detail.source_pine);
+}
+
+fn print_actual_report_text(report: &indicator::IndicatorActualReport) {
+    println!("indicator:   {}", report.slug);
+    println!("baseline:    {}", report.baseline);
+    println!("bars:        {}", report.bar_count);
+    println!("outputs:     {}", report.output_count);
+    if let Some(runtime_error) = &report.runtime_error {
+        println!("runtime:     {runtime_error}");
+    }
+    if report.stub_dependencies.is_empty() {
+        println!("stubs:       0");
+    } else {
+        println!("stubs:       {}", report.stub_dependencies.len());
+        for stub in &report.stub_dependencies {
+            println!("  {} ({} call(s))", stub.name, stub.call_count);
+        }
+    }
+    for (key, values) in &report.outputs {
+        println!("  {}", output_series_summary(key, values));
+    }
+    println!("runner expect: available in --format json as runner_expect");
+}
+
+fn expected_output_summary(output: &indicator::IndicatorExpectedOutput) -> String {
+    output_summary(
+        &output.key,
+        output.value_count,
+        output.first_value,
+        output.last_value,
+    )
+}
+
+fn output_series_summary(key: &str, values: &[indicator::OutputValue]) -> String {
+    output_summary(
+        key,
+        values.len(),
+        values.first().copied(),
+        values.last().copied(),
+    )
+}
+
+fn output_summary(
+    key: &str,
+    value_count: usize,
+    first_value: Option<indicator::OutputValue>,
+    last_value: Option<indicator::OutputValue>,
+) -> String {
+    match (first_value, last_value) {
+        (Some(first), Some(last)) => {
+            format!("{key} ({value_count} value(s), first={first}, last={last})")
+        }
+        _ => format!("{key} ({value_count} value(s))"),
+    }
+}
+
 fn print_report_text(report: &indicator::IndicatorReport) {
     println!("indicator:   {}", report.slug);
     println!("baseline:    {}", report.baseline);
@@ -297,6 +463,19 @@ mod tests {
     }
 
     #[test]
+    fn expected_output_summary_includes_value_preview() {
+        let detail = indicator::load_fixture_detail("smoke-titled-outputs").expect("detail");
+        assert_eq!(
+            expected_output_summary(&detail.expected_outputs[0]),
+            "Close Line (4 value(s), first=9, last=13)"
+        );
+        assert_eq!(
+            expected_output_summary(&detail.expected_outputs[1]),
+            "Up Shape (4 value(s), first=false, last=true)"
+        );
+    }
+
+    #[test]
     fn list_slug_becomes_implicit_grep() {
         assert_eq!(
             resolve_list_grep(Some("request"), None).expect("valid"),
@@ -312,8 +491,90 @@ mod tests {
 
     #[test]
     fn list_rejects_strict_flag() {
-        let err = run(None, true, true, false, None, None, ResolvedFormat::Text)
-            .expect_err("must reject");
+        let err = run(
+            &Args {
+                slug: None,
+                strict: true,
+                list: true,
+                all: false,
+                actual: false,
+                metadata_only: false,
+                grep: None,
+                baseline: None,
+            },
+            ResolvedFormat::Text,
+        )
+        .expect_err("must reject");
+        assert!(err.to_string().contains("cannot combine"));
+    }
+
+    #[test]
+    fn actual_output_summary_includes_value_preview() {
+        let report = indicator::run_actual("smoke-titled-outputs").expect("actual report");
+        assert_eq!(
+            output_series_summary("Close Line", &report.outputs["Close Line"]),
+            "Close Line (4 value(s), first=9, last=13)"
+        );
+        assert_eq!(
+            output_series_summary("Up Shape", &report.outputs["Up Shape"]),
+            "Up Shape (4 value(s), first=false, last=true)"
+        );
+    }
+
+    #[test]
+    fn actual_rejects_strict_flag() {
+        let err = run(
+            &Args {
+                slug: Some("smoke-close"),
+                strict: true,
+                list: false,
+                all: false,
+                actual: true,
+                metadata_only: false,
+                grep: None,
+                baseline: None,
+            },
+            ResolvedFormat::Text,
+        )
+        .expect_err("must reject");
+        assert!(err.to_string().contains("cannot combine"));
+    }
+
+    #[test]
+    fn actual_rejects_metadata_only_flag() {
+        let err = run(
+            &Args {
+                slug: Some("smoke-close"),
+                strict: false,
+                list: false,
+                all: false,
+                actual: true,
+                metadata_only: true,
+                grep: None,
+                baseline: None,
+            },
+            ResolvedFormat::Text,
+        )
+        .expect_err("must reject");
+        assert!(err.to_string().contains("cannot combine"));
+    }
+
+    #[test]
+    fn strict_rejects_metadata_only_flag() {
+        let err = run(
+            &Args {
+                slug: Some("smoke-close"),
+                strict: true,
+                list: false,
+                all: false,
+                actual: false,
+                metadata_only: true,
+                grep: None,
+                baseline: None,
+            },
+            ResolvedFormat::Text,
+        )
+        .expect_err("must reject");
         assert!(err.to_string().contains("cannot combine"));
     }
 }

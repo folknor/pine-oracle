@@ -7,7 +7,7 @@
 // baseline. The current command substrate runs the source through piners'
 // runner and diffs runner outputs against the baked expectation.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 use std::path::{Component, Path};
 use std::sync::Arc;
@@ -25,6 +25,11 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 static INDICATORS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/indicators");
 const BASELINE_CATALOG_MARKER: &str = "?";
+pub const EXPECT_SCHEMA_VERSION: u32 = 1;
+const DEFAULT_RUNNER_EXPECT_TOLERANCE: f64 = 0.0;
+const MAX_EXPECT_TOLERANCE: f64 = 1e-3;
+const DAILY_TIMEFRAME_TOLERANCE_SECONDS: i64 = 60 * 60;
+const CALENDAR_MONTH_MIN_SPACING_SECONDS: i64 = 27 * 24 * 60 * 60;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct IndicatorListing {
@@ -67,6 +72,82 @@ pub struct IndicatorBatchReport {
     pub passed_count: usize,
     pub failed_count: usize,
     pub reports: Vec<IndicatorReport>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct IndicatorFixtureDetail {
+    pub slug: String,
+    pub baseline: BaselineKind,
+    pub source_pine: String,
+    pub bar_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub symbol: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeframe: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data_source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_bar_timestamp: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_bar_timestamp: Option<i64>,
+    pub output_count: usize,
+    pub expected_outputs: Vec<IndicatorExpectedOutput>,
+    pub actual_outputs_checked: bool,
+    pub actual_output_keys: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub missing_expected_output_keys: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub unexpected_actual_output_keys: Vec<String>,
+    pub tolerance: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub test_range: Option<TestRange>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pine_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tv_snapshot: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_error: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub stub_dependencies: Vec<piners_runner::StubDependency>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct IndicatorActualReport {
+    pub slug: String,
+    pub baseline: BaselineKind,
+    pub bar_count: usize,
+    pub output_count: usize,
+    pub output_keys: Vec<String>,
+    pub outputs: BTreeMap<String, Vec<OutputValue>>,
+    pub runner_expect: IndicatorGeneratedExpect,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_error: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub stub_dependencies: Vec<piners_runner::StubDependency>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct IndicatorGeneratedExpect {
+    pub schema_version: u32,
+    pub indicator_slug: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pine_version: Option<String>,
+    pub tolerance: f64,
+    pub outputs: BTreeMap<String, Vec<OutputValue>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub test_range: Option<TestRange>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct IndicatorExpectedOutput {
+    pub key: String,
+    pub value_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_value: Option<OutputValue>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_value: Option<OutputValue>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -417,6 +498,22 @@ pub fn run_strict(slug: &str) -> Result<IndicatorReport> {
     run_fixture(&fixture)
 }
 
+pub fn load_fixture_detail(slug: &str) -> Result<IndicatorFixtureDetail> {
+    let fixture = load_fixture(slug)?;
+    Ok(fixture_detail(&fixture, None))
+}
+
+pub fn load_fixture_detail_with_actual(slug: &str) -> Result<IndicatorFixtureDetail> {
+    let fixture = load_fixture(slug)?;
+    let actual = run_fixture_actual(&fixture)?;
+    Ok(fixture_detail(&fixture, Some(&actual)))
+}
+
+pub fn run_actual(slug: &str) -> Result<IndicatorActualReport> {
+    let fixture = load_fixture(slug)?;
+    run_fixture_actual(&fixture)
+}
+
 pub fn run_strict_filtered(
     grep: Option<&str>,
     baseline_filter: Option<&str>,
@@ -479,7 +576,78 @@ fn load_listing_lenient(slug: &str) -> IndicatorListing {
         output_count,
         test_range,
         pine_version: expect_pine.or(metadata.pine_version),
-        tv_snapshot: expect_tv.or(metadata.tv_snapshot),
+        tv_snapshot: if metadata.baseline == BaselineKind::Smoke {
+            None
+        } else {
+            expect_tv.or(metadata.tv_snapshot)
+        },
+    }
+}
+
+fn fixture_detail(
+    fixture: &IndicatorFixture,
+    actual: Option<&IndicatorActualReport>,
+) -> IndicatorFixtureDetail {
+    let expected_outputs = fixture
+        .expect
+        .outputs
+        .iter()
+        .map(|(key, values)| IndicatorExpectedOutput {
+            key: key.clone(),
+            value_count: values.len(),
+            first_value: values.first().copied(),
+            last_value: values.last().copied(),
+        })
+        .collect();
+    let actual_output_keys = actual
+        .map(|actual| actual.output_keys.clone())
+        .unwrap_or_default();
+    let expected_keys = fixture
+        .expect
+        .outputs
+        .keys()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let actual_keys = actual_output_keys.iter().cloned().collect::<BTreeSet<_>>();
+    let missing_expected_output_keys = actual
+        .map(|_| expected_keys.difference(&actual_keys).cloned().collect())
+        .unwrap_or_default();
+    let unexpected_actual_output_keys = actual
+        .map(|_| actual_keys.difference(&expected_keys).cloned().collect())
+        .unwrap_or_default();
+    IndicatorFixtureDetail {
+        slug: fixture.slug.clone(),
+        baseline: fixture.metadata.baseline,
+        source_pine: fixture.source.clone(),
+        bar_count: fixture.bars.bars.len(),
+        symbol: fixture.bars.symbol.clone(),
+        timeframe: fixture.bars.timeframe.clone(),
+        data_source: fixture.bars.source.clone(),
+        first_bar_timestamp: fixture.bars.bars.first().map(|bar| bar.timestamp),
+        last_bar_timestamp: fixture.bars.bars.last().map(|bar| bar.timestamp),
+        output_count: fixture.expect.outputs.len(),
+        expected_outputs,
+        actual_outputs_checked: actual.is_some(),
+        actual_output_keys,
+        missing_expected_output_keys,
+        unexpected_actual_output_keys,
+        tolerance: fixture.expect.tolerance,
+        test_range: fixture.expect.test_range.clone(),
+        pine_version: fixture
+            .expect
+            .pine_version
+            .clone()
+            .or_else(|| fixture.metadata.pine_version.clone()),
+        tv_snapshot: fixture
+            .expect
+            .tv_snapshot
+            .clone()
+            .or_else(|| fixture.metadata.tv_snapshot.clone()),
+        notes: fixture.metadata.notes.clone(),
+        runtime_error: actual.and_then(|actual| actual.runtime_error.clone()),
+        stub_dependencies: actual
+            .map(|actual| actual.stub_dependencies.clone())
+            .unwrap_or_default(),
     }
 }
 
@@ -581,10 +749,11 @@ fn parse_bars(json: &str) -> Result<BarsFile> {
 fn parse_expect(slug: &str, json: &str) -> Result<ExpectFile> {
     let expect: ExpectFile =
         serde_json::from_str(json).with_context(|| format!("parsing {slug}/expect.json"))?;
-    if expect.schema_version != 1 {
+    if expect.schema_version != EXPECT_SCHEMA_VERSION {
         bail!(
-            "{slug}/expect.json has unsupported schema_version {}; expected 1",
-            expect.schema_version
+            "{slug}/expect.json has unsupported schema_version {}; expected {}",
+            expect.schema_version,
+            EXPECT_SCHEMA_VERSION
         );
     }
     if expect.indicator_slug != slug {
@@ -596,8 +765,23 @@ fn parse_expect(slug: &str, json: &str) -> Result<ExpectFile> {
     if !expect.tolerance.is_finite() || expect.tolerance < 0.0 {
         bail!("{slug}/expect.json tolerance must be a finite non-negative number");
     }
+    if expect.tolerance > MAX_EXPECT_TOLERANCE {
+        bail!(
+            "{slug}/expect.json tolerance {} is too loose; expected <= {}",
+            expect.tolerance,
+            MAX_EXPECT_TOLERANCE
+        );
+    }
     if expect.outputs.is_empty() {
         bail!("{slug}/expect.json must define at least one output");
+    }
+    for (name, values) in &expect.outputs {
+        if name.trim().is_empty() {
+            bail!("{slug}/expect.json output keys must not be empty");
+        }
+        if values.is_empty() {
+            bail!("{slug}/expect.json output `{name}` must define at least one value");
+        }
     }
     // test_range validation happens in `comparison_plan` so the parsed seconds
     // are reused for window selection instead of being parsed twice.
@@ -616,22 +800,29 @@ fn validate_baseline_metadata(
     expect: &ExpectFile,
     metadata: &MetadataFile,
 ) -> Result<()> {
-    if matches!(metadata.baseline, BaselineKind::Tv) {
-        if expect
-            .pine_version
-            .as_ref()
-            .or(metadata.pine_version.as_ref())
-            .is_none()
-        {
-            bail!("{slug}/metadata.json baseline `tv` requires pine_version");
+    match metadata.baseline {
+        BaselineKind::Tv => {
+            if expect
+                .pine_version
+                .as_ref()
+                .or(metadata.pine_version.as_ref())
+                .is_none()
+            {
+                bail!("{slug}/metadata.json baseline `tv` requires pine_version");
+            }
+            if expect
+                .tv_snapshot
+                .as_ref()
+                .or(metadata.tv_snapshot.as_ref())
+                .is_none()
+            {
+                bail!("{slug}/metadata.json baseline `tv` requires tv_snapshot");
+            }
         }
-        if expect
-            .tv_snapshot
-            .as_ref()
-            .or(metadata.tv_snapshot.as_ref())
-            .is_none()
-        {
-            bail!("{slug}/metadata.json baseline `tv` requires tv_snapshot");
+        BaselineKind::Smoke => {
+            if expect.tv_snapshot.is_some() || metadata.tv_snapshot.is_some() {
+                bail!("{slug} smoke fixtures must not define tv_snapshot");
+            }
         }
     }
     Ok(())
@@ -650,36 +841,80 @@ fn validate_bars(slug: &str, bars: &BarsFile) -> Result<()> {
         }
         previous_timestamp = Some(bar.timestamp);
     }
+    validate_timeframe_spacing(slug, bars)?;
     Ok(())
 }
 
+fn validate_timeframe_spacing(slug: &str, bars: &BarsFile) -> Result<()> {
+    let Some(timeframe) = bars.timeframe.as_deref() else {
+        return Ok(());
+    };
+    let Some(min_seconds) = timeframe_min_spacing_seconds(timeframe) else {
+        return Ok(());
+    };
+    for (index, pair) in bars.bars.windows(2).enumerate() {
+        let delta = pair[1].timestamp - pair[0].timestamp;
+        if delta < min_seconds {
+            bail!(
+                "{slug}/bars.json timestamp delta between bars {index} and {} is {delta}s, shorter than timeframe `{timeframe}` minimum {min_seconds}s",
+                index + 1
+            );
+        }
+    }
+    Ok(())
+}
+
+fn timeframe_min_spacing_seconds(timeframe: &str) -> Option<i64> {
+    let timeframe = timeframe.trim().to_ascii_uppercase();
+    if timeframe.is_empty() {
+        return None;
+    }
+    if let Ok(minutes) = timeframe.parse::<i64>() {
+        return positive_seconds(minutes, 60);
+    }
+    let unit_start = timeframe
+        .char_indices()
+        .find_map(|(index, ch)| (!ch.is_ascii_digit()).then_some(index))
+        .unwrap_or(timeframe.len());
+    let (count, unit) = timeframe.split_at(unit_start);
+    let count = if count.is_empty() {
+        1
+    } else {
+        count.parse::<i64>().ok()?
+    };
+    let seconds = match unit {
+        "S" => positive_seconds(count, 1)?,
+        "H" => positive_seconds(count, 60 * 60)?,
+        "D" => positive_seconds(count, 24 * 60 * 60)?,
+        "W" => positive_seconds(count, 7 * 24 * 60 * 60)?,
+        "M" => positive_seconds(count, CALENDAR_MONTH_MIN_SPACING_SECONDS)?,
+        _ => return None,
+    };
+    let tolerance = match unit {
+        "D" | "W" | "M" => DAILY_TIMEFRAME_TOLERANCE_SECONDS,
+        _ => 0,
+    };
+    Some(seconds.saturating_sub(tolerance).max(1))
+}
+
+fn positive_seconds(count: i64, unit_seconds: i64) -> Option<i64> {
+    if count <= 0 {
+        return None;
+    }
+    count.checked_mul(unit_seconds)
+}
+
 fn run_fixture(fixture: &IndicatorFixture) -> Result<IndicatorReport> {
-    if fixture.bars.bars.is_empty() {
-        bail!("{}/bars.json contains no bars", fixture.slug);
-    }
-    let engine = Engine::new();
-    let program = Arc::new(
-        engine
-            .compile_source(&fixture.source, None)
-            .with_context(|| format!("compiling {}/source.pine", fixture.slug))?,
-    );
-    if !matches!(program.script_kind, ScriptKind::Indicator) {
-        bail!("{} is not an indicator fixture", fixture.slug);
-    }
-    let bars = Arc::new(fixture.bars.to_series());
-    let result = run_single(RunConfig::new(program, bars));
-    let actual_outputs = actual_plot_outputs(&result.pine_outputs, fixture.bars.bars.len());
+    let actual = run_fixture_actual(fixture)?;
     let comparison = comparison_plan(fixture)?;
     let expected_output_keys = fixture.expect.outputs.keys().cloned().collect::<Vec<_>>();
-    let actual_output_keys = actual_outputs.keys().cloned().collect::<Vec<_>>();
     let mut mismatches = diff_outputs(
         &fixture.expect.outputs,
-        &actual_outputs,
+        &actual.outputs,
         fixture.expect.tolerance,
         &comparison,
     );
-    let runtime_error = result.runtime_error.map(|e| e.to_string());
-    if runtime_error.is_some() {
+    if actual.runtime_error.is_some() {
         mismatches.push(IndicatorMismatch {
             output: "<runtime>".to_string(),
             bar_index: None,
@@ -700,7 +935,7 @@ fn run_fixture(fixture: &IndicatorFixture) -> Result<IndicatorReport> {
         compared_bar_count: comparison.compared_bar_count(),
         output_count: fixture.expect.outputs.len(),
         expected_output_keys,
-        actual_output_keys,
+        actual_output_keys: actual.output_keys,
         mismatch_count,
         tolerance: fixture.expect.tolerance,
         test_range: fixture.expect.test_range.clone(),
@@ -714,9 +949,47 @@ fn run_fixture(fixture: &IndicatorFixture) -> Result<IndicatorReport> {
             .tv_snapshot
             .clone()
             .or_else(|| fixture.metadata.tv_snapshot.clone()),
-        runtime_error,
-        stub_dependencies: result.stub_dependencies,
+        runtime_error: actual.runtime_error,
+        stub_dependencies: actual.stub_dependencies,
         mismatches,
+    })
+}
+
+fn run_fixture_actual(fixture: &IndicatorFixture) -> Result<IndicatorActualReport> {
+    if fixture.bars.bars.is_empty() {
+        bail!("{}/bars.json contains no bars", fixture.slug);
+    }
+    let engine = Engine::new();
+    let program = Arc::new(
+        engine
+            .compile_source(&fixture.source, None)
+            .with_context(|| format!("compiling {}/source.pine", fixture.slug))?,
+    );
+    if !matches!(program.script_kind, ScriptKind::Indicator) {
+        bail!("{} is not an indicator fixture", fixture.slug);
+    }
+    let bars = Arc::new(fixture.bars.to_series());
+    let result = run_single(RunConfig::new(program, bars));
+    let outputs = actual_plot_outputs(&result.pine_outputs, fixture.bars.bars.len());
+    let output_keys = outputs.keys().cloned().collect::<Vec<_>>();
+    let runner_expect = IndicatorGeneratedExpect {
+        schema_version: EXPECT_SCHEMA_VERSION,
+        indicator_slug: fixture.slug.clone(),
+        pine_version: None,
+        tolerance: DEFAULT_RUNNER_EXPECT_TOLERANCE,
+        outputs: outputs.clone(),
+        test_range: None,
+    };
+    Ok(IndicatorActualReport {
+        slug: fixture.slug.clone(),
+        baseline: fixture.metadata.baseline,
+        bar_count: fixture.bars.bars.len(),
+        output_count: outputs.len(),
+        output_keys,
+        outputs,
+        runner_expect,
+        runtime_error: result.runtime_error.map(|e| e.to_string()),
+        stub_dependencies: result.stub_dependencies,
     })
 }
 
@@ -1089,8 +1362,8 @@ mod tests {
         "timeframe": "1D",
         "source": "test",
         "bars": [
-            {"timestamp": 1, "open": 10.0, "high": 11.0, "low": 9.0, "close": 10.0, "volume": 100.0},
-            {"timestamp": 2, "open": 10.0, "high": 12.0, "low": 9.0, "close": 11.0, "volume": 110.0}
+            {"timestamp": 1735689600, "open": 10.0, "high": 11.0, "low": 9.0, "close": 10.0, "volume": 100.0},
+            {"timestamp": 1735776000, "open": 10.0, "high": 12.0, "low": 9.0, "close": 11.0, "volume": 110.0}
         ]
     }"#;
 
@@ -1115,7 +1388,6 @@ mod tests {
                 "schema_version": 1,
                 "indicator_slug": "close-plus-one",
                 "pine_version": "6.0.0",
-                "tv_snapshot": "self-test",
                 "outputs": {"plot": [11.0, 12.0]}
             }"#,
             None,
@@ -1281,6 +1553,153 @@ mod tests {
     }
 
     #[test]
+    fn fixture_detail_includes_source_bars_and_expected_outputs() {
+        let detail = load_fixture_detail_with_actual("smoke-titled-outputs").expect("detail");
+        assert_eq!(detail.slug, "smoke-titled-outputs");
+        assert_eq!(detail.baseline, BaselineKind::Smoke);
+        assert!(detail.source_pine.contains("plot(close, \"Close Line\")"));
+        assert_eq!(detail.symbol.as_deref(), Some("SMOKE:FIXTURE"));
+        assert_eq!(detail.timeframe.as_deref(), Some("1D"));
+        assert_eq!(detail.bar_count, 4);
+        assert_eq!(detail.first_bar_timestamp, Some(1735689600));
+        assert_eq!(detail.last_bar_timestamp, Some(1735948800));
+        assert_eq!(detail.output_count, 2);
+        assert!(detail.actual_outputs_checked);
+        assert_eq!(detail.actual_output_keys, vec!["Close Line", "Up Shape"]);
+        assert!(detail.missing_expected_output_keys.is_empty());
+        assert!(detail.unexpected_actual_output_keys.is_empty());
+        assert_eq!(detail.expected_outputs[0].key, "Close Line");
+        assert_eq!(detail.expected_outputs[0].value_count, 4);
+        assert_eq!(
+            detail.expected_outputs[0].first_value,
+            Some(OutputValue::number(9.0))
+        );
+        assert_eq!(
+            detail.expected_outputs[0].last_value,
+            Some(OutputValue::number(13.0))
+        );
+        assert_eq!(detail.expected_outputs[1].key, "Up Shape");
+        assert_eq!(detail.expected_outputs[1].value_count, 4);
+        assert_eq!(
+            detail.expected_outputs[1].first_value,
+            Some(OutputValue::bool(false))
+        );
+        assert_eq!(
+            detail.expected_outputs[1].last_value,
+            Some(OutputValue::bool(true))
+        );
+        assert!(
+            detail
+                .notes
+                .as_deref()
+                .is_some_and(|notes| notes.contains("title-based output matching"))
+        );
+        assert!(detail.runtime_error.is_none());
+        assert!(detail.stub_dependencies.is_empty());
+    }
+
+    #[test]
+    fn fixture_detail_can_skip_runner_output_check() {
+        let detail = load_fixture_detail("smoke-titled-outputs").expect("detail");
+        assert_eq!(detail.slug, "smoke-titled-outputs");
+        assert!(!detail.actual_outputs_checked);
+        assert!(detail.actual_output_keys.is_empty());
+        assert!(detail.missing_expected_output_keys.is_empty());
+        assert!(detail.unexpected_actual_output_keys.is_empty());
+        assert_eq!(detail.expected_outputs.len(), 2);
+    }
+
+    #[test]
+    fn actual_report_returns_runner_outputs_without_diffing() {
+        let report = run_actual("smoke-titled-outputs").expect("actual report");
+        assert_eq!(report.slug, "smoke-titled-outputs");
+        assert_eq!(report.baseline, BaselineKind::Smoke);
+        assert_eq!(report.bar_count, 4);
+        assert_eq!(report.output_count, 2);
+        assert_eq!(report.output_keys, vec!["Close Line", "Up Shape"]);
+        assert_eq!(report.runner_expect.schema_version, EXPECT_SCHEMA_VERSION);
+        assert_eq!(report.runner_expect.indicator_slug, "smoke-titled-outputs");
+        assert_eq!(report.runner_expect.pine_version, None);
+        assert_eq!(
+            report.runner_expect.tolerance,
+            DEFAULT_RUNNER_EXPECT_TOLERANCE
+        );
+        assert_eq!(
+            report.outputs["Close Line"],
+            vec![
+                OutputValue::number(9.0),
+                OutputValue::number(11.0),
+                OutputValue::number(12.0),
+                OutputValue::number(13.0),
+            ]
+        );
+        assert_eq!(
+            report.outputs["Up Shape"],
+            vec![
+                OutputValue::bool(false),
+                OutputValue::bool(true),
+                OutputValue::bool(false),
+                OutputValue::bool(true),
+            ]
+        );
+        assert_eq!(report.runner_expect.outputs, report.outputs);
+        assert_eq!(report.runner_expect.test_range, None);
+        assert!(report.runtime_error.is_none());
+        assert!(report.stub_dependencies.is_empty());
+    }
+
+    #[test]
+    fn actual_runner_expect_does_not_inherit_fixture_metadata() {
+        let fixture = parse_fixture(
+            "actual-metadata",
+            "indicator(\"fixture\")\nplot(close)\n".to_string(),
+            RANGE_BARS,
+            r#"{
+                "schema_version": 1,
+                "indicator_slug": "actual-metadata",
+                "pine_version": "6.0.0",
+                "tolerance": 0.0001,
+                "outputs": {"plot": [11.0, 12.0]},
+                "test_range": {
+                    "start": "2025-01-02T00:00:00Z",
+                    "end": "2025-01-03T00:00:00Z"
+                }
+            }"#,
+            None,
+        )
+        .expect("fixture");
+        let report = run_fixture_actual(&fixture).expect("actual report");
+        assert_eq!(report.runner_expect.pine_version, None);
+        assert_eq!(
+            report.runner_expect.tolerance,
+            DEFAULT_RUNNER_EXPECT_TOLERANCE
+        );
+        assert_eq!(report.runner_expect.test_range, None);
+    }
+
+    #[test]
+    fn fixture_detail_reports_output_key_drift() {
+        let fixture = parse_fixture(
+            "title-drift",
+            "indicator(\"fixture\")\nplot(close, \"Close line\")\n".to_string(),
+            BARS,
+            r#"{
+                "schema_version": 1,
+                "indicator_slug": "title-drift",
+                "outputs": {"Close Line": [10.0, 11.0]}
+            }"#,
+            None,
+        )
+        .expect("fixture");
+        let actual = run_fixture_actual(&fixture).expect("actual report");
+        let detail = fixture_detail(&fixture, Some(&actual));
+        assert!(detail.actual_outputs_checked);
+        assert_eq!(detail.actual_output_keys, vec!["Close line"]);
+        assert_eq!(detail.missing_expected_output_keys, vec!["Close Line"]);
+        assert_eq!(detail.unexpected_actual_output_keys, vec!["Close line"]);
+    }
+
+    #[test]
     fn fixture_list_filters_by_grep_and_baseline() {
         let fixtures =
             list_fixtures_filtered(Some("request"), Some("SMOKE")).expect("filtered fixtures");
@@ -1318,6 +1737,144 @@ mod tests {
     fn invalid_baseline_filter_errors() {
         let err = list_fixtures_filtered(None, Some("paper")).expect_err("must reject");
         assert!(err.to_string().contains("unknown indicator baseline"));
+    }
+
+    #[test]
+    fn rejects_unsupported_expect_schema_version() {
+        let err = parse_expect(
+            "bad-schema",
+            r#"{
+                "schema_version": 2,
+                "indicator_slug": "bad-schema",
+                "outputs": {"plot": [1.0]}
+            }"#,
+        )
+        .expect_err("must reject unsupported schema version");
+        assert!(err.to_string().contains("unsupported schema_version 2"));
+        assert!(
+            err.to_string()
+                .contains(&format!("expected {EXPECT_SCHEMA_VERSION}"))
+        );
+    }
+
+    #[test]
+    fn rejects_loose_expect_tolerance() {
+        let err = parse_expect(
+            "loose-tolerance",
+            r#"{
+                "schema_version": 1,
+                "indicator_slug": "loose-tolerance",
+                "tolerance": 1.0,
+                "outputs": {"plot": [1.0]}
+            }"#,
+        )
+        .expect_err("must reject loose tolerance");
+        assert!(err.to_string().contains("tolerance 1"));
+        assert!(err.to_string().contains("too loose"));
+    }
+
+    #[test]
+    fn rejects_empty_expected_output_key() {
+        let err = parse_expect(
+            "empty-key",
+            r#"{
+                "schema_version": 1,
+                "indicator_slug": "empty-key",
+                "outputs": {"": [1.0]}
+            }"#,
+        )
+        .expect_err("must reject empty output key");
+        assert!(err.to_string().contains("output keys must not be empty"));
+    }
+
+    #[test]
+    fn rejects_empty_expected_output_series() {
+        let err = parse_expect(
+            "empty-series",
+            r#"{
+                "schema_version": 1,
+                "indicator_slug": "empty-series",
+                "outputs": {"plot": []}
+            }"#,
+        )
+        .expect_err("must reject empty output series");
+        assert!(
+            err.to_string()
+                .contains("output `plot` must define at least one value")
+        );
+    }
+
+    #[test]
+    fn smoke_fixture_rejects_tv_snapshot_metadata() {
+        let err = parse_fixture(
+            "smoke-tv-copy",
+            "indicator(\"fixture\")\nplot(close)\n".to_string(),
+            BARS,
+            r#"{
+                "schema_version": 1,
+                "indicator_slug": "smoke-tv-copy",
+                "tv_snapshot": "2026-05-20",
+                "outputs": {"plot": [10.0, 11.0]}
+            }"#,
+            None,
+        )
+        .expect_err("must reject stale tv metadata");
+        assert!(
+            err.to_string()
+                .contains("smoke fixtures must not define tv_snapshot")
+        );
+    }
+
+    #[test]
+    fn rejects_bar_spacing_shorter_than_timeframe() {
+        let hourly_bars_marked_daily = r#"{
+            "symbol": "NASDAQ:SPY",
+            "timeframe": "1D",
+            "source": "test",
+            "bars": [
+                {"timestamp": 1735689600, "open": 10.0, "high": 11.0, "low": 9.0, "close": 10.0, "volume": 100.0},
+                {"timestamp": 1735693200, "open": 10.0, "high": 12.0, "low": 9.0, "close": 11.0, "volume": 110.0}
+            ]
+        }"#;
+        let err = parse_fixture(
+            "bad-spacing",
+            "indicator(\"fixture\")\nplot(close)\n".to_string(),
+            hourly_bars_marked_daily,
+            r#"{
+                "schema_version": 1,
+                "indicator_slug": "bad-spacing",
+                "outputs": {"plot": [10.0, 11.0]}
+            }"#,
+            None,
+        )
+        .expect_err("must reject bars shorter than timeframe");
+        assert!(err.to_string().contains("shorter than timeframe `1D`"));
+    }
+
+    #[test]
+    fn rejects_monthly_bar_spacing_shorter_than_timeframe() {
+        let hourly_bars_marked_monthly = r#"{
+            "symbol": "NASDAQ:SPY",
+            "timeframe": "M",
+            "source": "test",
+            "bars": [
+                {"timestamp": 1735689600, "open": 10.0, "high": 11.0, "low": 9.0, "close": 10.0, "volume": 100.0},
+                {"timestamp": 1735693200, "open": 10.0, "high": 12.0, "low": 9.0, "close": 11.0, "volume": 110.0}
+            ]
+        }"#;
+        let err = parse_fixture(
+            "bad-month-spacing",
+            "indicator(\"fixture\")\nplot(close)\n".to_string(),
+            hourly_bars_marked_monthly,
+            r#"{
+                "schema_version": 1,
+                "indicator_slug": "bad-month-spacing",
+                "outputs": {"plot": [10.0, 11.0]}
+            }"#,
+            None,
+        )
+        .expect_err("must reject bars shorter than monthly timeframe");
+        assert!(err.to_string().contains("shorter than timeframe `M`"));
     }
 
     #[test]
