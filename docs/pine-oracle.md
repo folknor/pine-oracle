@@ -127,8 +127,10 @@ pine search <query>             BM25 across all sources, ranked
 pine behavior <name>            polymorphism, side-effects, series-vs-simple, na-propagation
 pine probe <slug>               probe contents: strategy.pine + tv_trades.csv + summary
 pine probes                     list all baked probes
-pine probes --grep <text>       list probes whose slug matches text (summary text once re-curated)
+pine probes --grep <text>       list probes whose slug or extracted summary matches text
+pine probes --feature <name>    list probes whose strategy.pine uses the named Pine feature (`?` lists the catalog)
 pine diff <probe> <trades.csv>  tier-classify a piners trade list against the probe's tv_trades
+pine diff ... --show-diffs N    + worst-N matched pairs (ranked) + every TV/user orphan trade
 pine version                    pine-data snapshot date + corpus revision + binary version
 ```
 
@@ -354,8 +356,8 @@ Secondary win: the same tool serves pine-tools' own dogfooding, future Pine proj
 | `pine validate` | Done (v0 - first error only; deepens with piners-syntax) |
 | `pine validate --strict` | Done (yes/no oracle; diagnostics non-actionable) |
 | `pine probe` | Done |
-| `pine probes` (+ `--grep`) | Done with summary-text match |
-| `pine diff` | Done v1 (interior trim deferred until OHLCV bake) |
+| `pine probes` (+ `--grep`, `--feature`) | Done with summary-text match + 12-feature source-scan index (`--feature ?` lists the catalog) |
+| `pine diff` (+ `--show-diffs N`) | Done v1 (worst-N matched pairs + every TV/user orphan; interior trim deferred until OHLCV bake) |
 | `pine version` | Done (self-describes bake counts) |
 | `pine indicator --strict` | **Pending** - needs piners' engine + OHLCV bake |
 

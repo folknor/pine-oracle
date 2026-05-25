@@ -18,8 +18,8 @@ runtime configuration.
 | `pine validate <code>` | Local lex + parse diagnostics. **First error only today**; deepens when piners-syntax 0.1 ships |
 | `pine validate --strict <code>` | POST to TradingView's pine-lint endpoint. Yes/no oracle; diagnostic prose is non-actionable |
 | `pine probe <slug>` | Pull a baked PineForge corpus probe (strategy.pine + tv_trades.csv + author-extracted summary) |
-| `pine probes [--grep TEXT]` | List baked probes; substring-match on slug or summary |
-| `pine diff <probe> <trades.csv>` | Tier-classify a user trade list against the probe's TV ground truth (port of PineForge's verify_corpus.py) |
+| `pine probes [--grep TEXT] [--feature NAME]` | List baked probes; `--grep` matches slug or summary substring, `--feature` restricts by detected Pine-feature usage (`oca`, `trail`, `pyramiding`, `mtf`, `varip`, `magnifier`, `matrix`, `map`, `udt`, `method`, `process_orders_on_close`, `barstate_isfirst`; pass `?` to list the catalog) |
+| `pine diff <probe> <trades.csv> [--show-diffs N]` | Tier-classify a user trade list against the probe's TV ground truth (port of PineForge's verify_corpus.py); `--show-diffs N` emits the worst-N matched pairs plus every TV / user orphan |
 | `pine version` | Binary version + bake counts (reference entries, corpus probes, audit + narrative sections) |
 
 All subcommands accept `--format json|text|auto`. JSON outputs carry
@@ -49,7 +49,7 @@ upstream. Top-level `NOTICE` consolidates the per-component attributions.
 - **Pinecone** (MPL-2.0) - the Pine v6 reference markdown snapshot
   (`vendor/pine-reference/spec/v6.md`) and the lexer / AST / parser
   lifted into `src/syntax/`. The single highest-ROI vendoring source.
-- **PineForge contributors** (Apache-2.0) - the 235-probe validation
+- **PineForge contributors** (Apache-2.0) - the 239-probe validation
   corpus (`vendor/pineforge-corpus/`), the Pine v6 audit doc
   (`vendor/pineforge-docs/pine_v6_audit_master.md`, 38 critical + ~62
   minor documented TV-vs-engine divergences), the 18 narrative explainer

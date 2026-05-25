@@ -51,8 +51,8 @@ crates.io or pinned by git ref.
 
 - Replace `Box::leak`-per-summary in `corpus::build_summary_index` with
   a single arena allocator (e.g. `&'static [u8]` slab) if leak count
-  ever becomes a memory concern. Bounded today at ~235 entries; not
-  urgent.
+  ever becomes a memory concern. Bounded today at 239 entries with
+  median ~650 chars each (~150 KB total); not urgent.
 - The AST pretty-printer renders type annotations as raw strings
   (`: int`). When piners-syntax lands and exposes structured types,
   print qualifier + type kind separately.
