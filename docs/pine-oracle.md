@@ -73,7 +73,7 @@ Two tiers, in inverted authority order vs. an earlier draft of this doc:
 
 - **Local tier (`pine validate`)**. The workhorse. Uses **piners-syntax** for lexing, parsing, type checking, and semantic analysis, returning every diagnostic the pipeline can recover with correct line + column positions. The builtins table starts from **piners-runtime** so validation matches piners where the runtime has an implementation or stub, then pine-oracle fills any missing public symbols from the vendored pine-tools JSON.
 - **Strict tier (`pine validate --strict`)**. **Yes / no oracle only. Do not try to fix your script from its diagnostics.** TradingView's `pine-facade/translate_light` endpoint is profoundly bad as a validator: it stops at the first error, breaks on trailing whitespace (e.g. an extra space at end of line is "invalid"), and reports the wrong line / column for essentially every diagnostic. The diagnostic prose is non-actionable: it tells you *something* is wrong but not where or what in any reliable way. The only trustworthy output is the `success` bit (true / false). Use this exactly once, after you believe `pine validate` (local tier) reports clean: a final yes / no from TV's broker before you publish. Do not iterate against it; iterate against the local tier. No auth required, no on-disk cache.
-- **Indicator strict tier (`pine indicator --strict <slug>`)**. Different oracle: runs an indicator against fixture bars through **piners-runner** and diffs per-bar values against a baked baseline using the PineTS-derived `.expect.json` schema (see "Strict-mode indicator test format" below). Corpus is trade-list parity; this is per-bar indicator parity. The runner/differ/CLI substrate is implemented and covered by deterministic smoke fixtures, including bool `plotshape` and same-symbol `request.security`; real TV baselines are the remaining data gap.
+- **Indicator strict tier (`pine indicator --strict <slug>`)**. Different oracle: runs an indicator against fixture bars through **piners-runner** and diffs per-bar values against a baked baseline using the PineTS-derived `.expect.json` schema (see "Strict-mode indicator test format" below). Corpus is trade-list parity; this is per-bar indicator parity. The runner/differ/CLI substrate is implemented and covered by deterministic smoke fixtures, including plot-title matching, duplicate-title disambiguation, bool `plotshape`, and same-symbol `request.security`; real TV baselines are the remaining data gap.
 
 ## Vendoring inventory
 
@@ -142,8 +142,10 @@ pine probes --grep <text>       list probes whose slug or extracted summary matc
 pine probes --feature <name>    list probes whose strategy.pine uses the named Pine feature (`?` lists the catalog)
 pine diff <probe> <trades.csv>  tier-classify a piners trade list against the probe's tv_trades
 pine diff ... --show-diffs N    + worst-N matched pairs (ranked) + every TV/user orphan trade
-pine indicator --list           list baked indicator strict fixtures
+pine indicator --list           list baked indicator strict fixtures; add --grep / --baseline to narrow
+pine indicator --baseline ?     list indicator baseline kinds with counts
 pine indicator --strict <slug>  per-bar indicator parity against a vendored TV baseline
+pine indicator --strict --all   run every matching indicator fixture; add --grep / --baseline to narrow
 pine version                    pine-data snapshot metadata + bake counts + binary version
 ```
 
@@ -264,9 +266,9 @@ indicators/<slug>/
 }
 ```
 
-`baseline` must be `"smoke"` (deterministic substrate fixtures) or `"tv"` (TradingView-captured baselines). There is no implicit third tier; any other value is rejected at load time, and a missing `metadata.json` is treated as `"smoke"`. TV baselines additionally require `pine_version` + `tv_snapshot`. `pine indicator --list` and `pine version` report smoke vs TV counts separately.
+`baseline` must be `"smoke"` (deterministic substrate fixtures) or `"tv"` (TradingView-captured baselines). There is no implicit third tier; any other value is rejected at load time, and a missing `metadata.json` is treated as `"smoke"`. TV baselines additionally require `pine_version` + `tv_snapshot`. `pine indicator --list`, `pine indicator --baseline ?`, and `pine version` report smoke vs TV counts separately.
 
-`test_range` is optional. When present, the comparer only checks bars whose `bars.json` Unix-second timestamps fall between `start` and `end` inclusive. Expected output arrays may be either full-series length or already sliced to the range length; mismatch reports still use the original zero-based bar index.
+`test_range` is optional. When present, the comparer only checks bars whose `bars.json` Unix-second timestamps fall between `start` and `end` inclusive. Expected output arrays may be either full-series length or already sliced to the range length; mismatch reports still use the original zero-based bar index. Output keys may use the runner's generated keys (`plot`, `plot#1`, `plotshape`, etc.) or a plot title such as `"Close Line"` when the Pine call supplies one. Duplicate titles are disambiguated with `#1`, `#2`, etc.
 
 Custom value tokens:
 
@@ -277,7 +279,9 @@ Custom value tokens:
 | `"__-Infinity__"` | `-inf` |
 | `"__undefined__"` | unset / before warmup |
 
-`pine indicator --strict <slug>` runs `source.pine` through piners-runner against `bars.json`, serializes outputs with the same token convention, diffs against `expect.json`, and exits non-zero on mismatch. Discrepancy report cites bar index + output name + expected vs actual. `pine indicator --list` lists baked fixtures. The `smoke-*` fixtures are deterministic substrate checks covering basic plot replay, warmup `na`, ranged comparison, bool `plotshape`, and same-symbol `request.security`; real TV baselines still need to be added under `indicators/`.
+`pine indicator --strict <slug>` runs `source.pine` through piners-runner against `bars.json`, serializes outputs with the same token convention, diffs against `expect.json`, and exits non-zero on mismatch. Discrepancy report cites bar index + output name + expected vs actual. `pine indicator --strict --all` runs every matching fixture and returns an aggregate report. `pine indicator --list` lists baked fixtures with symbol/timeframe, bar count, output count, range window, and baseline metadata; list mode and batch strict mode both accept `--grep TEXT` plus `--baseline smoke|tv`. The `smoke-*` fixtures are deterministic substrate checks covering basic plot replay, plot-title matching, duplicate-title disambiguation, warmup `na`, ranged comparison, bool `plotshape`, and same-symbol `request.security`; real TV baselines still need to be added under `indicators/`.
+
+Strict reports include `expected_output_keys` and `actual_output_keys` so fixture authors can see the exact keys produced by piners-runner when a capture uses titles, duplicate titles, or generated fallback names.
 
 Baselines are regenerated by running the indicator on TV (manual paste + log capture, similar to the PRNG fixture workflow in `docs/prng-parity.md`). `metadata.json` pins the TV version + date so regenerated baselines are reproducible.
 

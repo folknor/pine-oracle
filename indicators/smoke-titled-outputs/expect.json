@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "indicator_slug": "smoke-titled-outputs",
+  "pine_version": "6.0.0",
+  "tolerance": 0.0,
+  "outputs": {
+    "Close Line": [9.0, 11.0, 12.0, 13.0],
+    "Up Shape": [false, true, false, true]
+  }
+}

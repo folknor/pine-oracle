@@ -24,11 +24,22 @@ use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 static INDICATORS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/indicators");
+const BASELINE_CATALOG_MARKER: &str = "?";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct IndicatorListing {
     pub slug: String,
     pub baseline: BaselineKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub symbol: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeframe: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bar_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub test_range: Option<TestRange>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pine_version: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -43,6 +54,22 @@ pub struct IndicatorFixtureCounts {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct IndicatorBaselineInfo {
+    pub baseline: BaselineKind,
+    pub description: &'static str,
+    pub count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct IndicatorBatchReport {
+    pub ok: bool,
+    pub fixture_count: usize,
+    pub passed_count: usize,
+    pub failed_count: usize,
+    pub reports: Vec<IndicatorReport>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct IndicatorReport {
     pub slug: String,
     pub baseline: BaselineKind,
@@ -50,6 +77,8 @@ pub struct IndicatorReport {
     pub bar_count: usize,
     pub compared_bar_count: usize,
     pub output_count: usize,
+    pub expected_output_keys: Vec<String>,
+    pub actual_output_keys: Vec<String>,
     pub mismatch_count: usize,
     pub tolerance: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -99,6 +128,15 @@ pub enum BaselineKind {
     #[default]
     Smoke,
     Tv,
+}
+
+impl BaselineKind {
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Smoke => "deterministic runner/differ substrate fixture",
+            Self::Tv => "TradingView-captured oracle baseline",
+        }
+    }
 }
 
 impl fmt::Display for BaselineKind {
@@ -324,6 +362,22 @@ pub fn list_fixtures() -> Result<Vec<IndicatorListing>> {
     Ok(out)
 }
 
+pub fn list_fixtures_filtered(
+    grep: Option<&str>,
+    baseline_filter: Option<&str>,
+) -> Result<Vec<IndicatorListing>> {
+    let filter = baseline_filter.map(parse_baseline_kind).transpose()?;
+    let needle = grep.map(str::to_ascii_lowercase);
+    let mut fixtures = list_fixtures()?;
+    if let Some(filter) = filter {
+        fixtures.retain(|fixture| fixture.baseline == filter);
+    }
+    if let Some(needle) = needle {
+        fixtures.retain(|fixture| indicator_listing_matches(fixture, &needle));
+    }
+    Ok(fixtures)
+}
+
 pub fn fixture_counts() -> Result<IndicatorFixtureCounts> {
     let fixtures = list_fixtures()?;
     let total = fixtures.len();
@@ -338,9 +392,56 @@ pub fn fixture_counts() -> Result<IndicatorFixtureCounts> {
     Ok(IndicatorFixtureCounts { total, smoke, tv })
 }
 
+pub fn baseline_catalog() -> Result<Vec<IndicatorBaselineInfo>> {
+    let counts = fixture_counts()?;
+    Ok(vec![
+        IndicatorBaselineInfo {
+            baseline: BaselineKind::Smoke,
+            description: BaselineKind::Smoke.description(),
+            count: counts.smoke,
+        },
+        IndicatorBaselineInfo {
+            baseline: BaselineKind::Tv,
+            description: BaselineKind::Tv.description(),
+            count: counts.tv,
+        },
+    ])
+}
+
+pub fn is_baseline_catalog_request(baseline: &str) -> bool {
+    baseline == BASELINE_CATALOG_MARKER
+}
+
 pub fn run_strict(slug: &str) -> Result<IndicatorReport> {
     let fixture = load_fixture(slug)?;
     run_fixture(&fixture)
+}
+
+pub fn run_strict_filtered(
+    grep: Option<&str>,
+    baseline_filter: Option<&str>,
+) -> Result<IndicatorBatchReport> {
+    let fixtures = list_fixtures_filtered(grep, baseline_filter)?;
+    let mut reports = Vec::with_capacity(fixtures.len());
+    for fixture in fixtures {
+        reports.push(run_strict(&fixture.slug)?);
+    }
+    let fixture_count = reports.len();
+    if fixture_count == 0 {
+        bail!(
+            "no indicator fixtures matched ({})",
+            filter_description(grep, baseline_filter)
+        );
+    }
+    let passed_count = reports.iter().filter(|report| report.ok).count();
+    let failed_count = fixture_count - passed_count;
+    Ok(IndicatorBatchReport {
+        ok: failed_count == 0,
+        fixture_count,
+        passed_count,
+        failed_count,
+        reports,
+    })
 }
 
 // Lenient listing: malformed metadata or expect.json downgrades to defaults
@@ -353,18 +454,84 @@ fn load_listing_lenient(slug: &str) -> IndicatorListing {
         .flatten()
         .and_then(|json| serde_json::from_str(json).ok())
         .unwrap_or_default();
-    let (expect_pine, expect_tv) = optional_utf8(slug, "expect.json")
+    let bars = optional_utf8(slug, "bars.json")
         .ok()
         .flatten()
-        .and_then(|json| serde_json::from_str::<ExpectFile>(json).ok())
-        .map_or((None, None), |expect| {
-            (expect.pine_version, expect.tv_snapshot)
+        .and_then(|json| parse_bars(json).ok());
+    let (expect_pine, expect_tv, output_count, test_range) = optional_utf8(slug, "expect.json")
+        .ok()
+        .flatten()
+        .and_then(|json| parse_expect(slug, json).ok())
+        .map_or((None, None, None, None), |expect| {
+            (
+                expect.pine_version,
+                expect.tv_snapshot,
+                Some(expect.outputs.len()),
+                expect.test_range,
+            )
         });
     IndicatorListing {
         slug: slug.to_string(),
         baseline: metadata.baseline,
+        symbol: bars.as_ref().and_then(|bars| bars.symbol.clone()),
+        timeframe: bars.as_ref().and_then(|bars| bars.timeframe.clone()),
+        bar_count: bars.as_ref().map(|bars| bars.bars.len()),
+        output_count,
+        test_range,
         pine_version: expect_pine.or(metadata.pine_version),
         tv_snapshot: expect_tv.or(metadata.tv_snapshot),
+    }
+}
+
+fn indicator_listing_matches(fixture: &IndicatorListing, needle: &str) -> bool {
+    fixture.slug.to_ascii_lowercase().contains(needle)
+        || fixture
+            .baseline
+            .to_string()
+            .to_ascii_lowercase()
+            .contains(needle)
+        || fixture
+            .symbol
+            .as_deref()
+            .is_some_and(|value| value.to_ascii_lowercase().contains(needle))
+        || fixture
+            .timeframe
+            .as_deref()
+            .is_some_and(|value| value.to_ascii_lowercase().contains(needle))
+        || fixture
+            .pine_version
+            .as_deref()
+            .is_some_and(|value| value.to_ascii_lowercase().contains(needle))
+        || fixture
+            .tv_snapshot
+            .as_deref()
+            .is_some_and(|value| value.to_ascii_lowercase().contains(needle))
+        || fixture.test_range.as_ref().is_some_and(|range| {
+            range.start.to_ascii_lowercase().contains(needle)
+                || range.end.to_ascii_lowercase().contains(needle)
+        })
+}
+
+fn parse_baseline_kind(raw: &str) -> Result<BaselineKind> {
+    match raw.to_ascii_lowercase().as_str() {
+        "smoke" => Ok(BaselineKind::Smoke),
+        "tv" => Ok(BaselineKind::Tv),
+        other => bail!("unknown indicator baseline `{other}`; expected smoke or tv"),
+    }
+}
+
+fn filter_description(grep: Option<&str>, baseline_filter: Option<&str>) -> String {
+    let mut parts = Vec::new();
+    if let Some(grep) = grep {
+        parts.push(format!("grep={grep}"));
+    }
+    if let Some(baseline) = baseline_filter {
+        parts.push(format!("baseline={baseline}"));
+    }
+    if parts.is_empty() {
+        "no filters".to_string()
+    } else {
+        parts.join(" ")
     }
 }
 
@@ -503,6 +670,8 @@ fn run_fixture(fixture: &IndicatorFixture) -> Result<IndicatorReport> {
     let result = run_single(RunConfig::new(program, bars));
     let actual_outputs = actual_plot_outputs(&result.pine_outputs, fixture.bars.bars.len());
     let comparison = comparison_plan(fixture)?;
+    let expected_output_keys = fixture.expect.outputs.keys().cloned().collect::<Vec<_>>();
+    let actual_output_keys = actual_outputs.keys().cloned().collect::<Vec<_>>();
     let mut mismatches = diff_outputs(
         &fixture.expect.outputs,
         &actual_outputs,
@@ -530,6 +699,8 @@ fn run_fixture(fixture: &IndicatorFixture) -> Result<IndicatorReport> {
         bar_count: fixture.bars.bars.len(),
         compared_bar_count: comparison.compared_bar_count(),
         output_count: fixture.expect.outputs.len(),
+        expected_output_keys,
+        actual_output_keys,
         mismatch_count,
         tolerance: fixture.expect.tolerance,
         test_range: fixture.expect.test_range.clone(),
@@ -783,7 +954,8 @@ fn actual_plot_outputs(
         if output.channel != PineOutputChannel::Plot || output.event != PineOutputEventKind::Emit {
             continue;
         }
-        let key = indicator_output_key(&mut keys, &output.name, output.call_site);
+        let key_base = output_title(output).unwrap_or(&output.name);
+        let key = indicator_output_key(&mut keys, key_base, output.call_site);
         let values = actual
             .entry(key)
             .or_insert_with(|| vec![OutputValue::undefined(); bar_count]);
@@ -808,22 +980,35 @@ fn indicator_output_key(
     if let Some(key) = keys.get(&identity) {
         return key.clone();
     }
-    let ordinal = keys
-        .values()
-        .filter(|key| {
-            key.as_str() == name
-                || key
-                    .strip_prefix(name)
-                    .is_some_and(|suffix| suffix.starts_with('#'))
-        })
-        .count();
-    let key = if ordinal == 0 {
-        name.to_string()
-    } else {
-        format!("{name}#{ordinal}")
+    let mut ordinal = 0;
+    let key = loop {
+        let candidate = if ordinal == 0 {
+            name.to_string()
+        } else {
+            format!("{name}#{ordinal}")
+        };
+        if !keys.values().any(|key| key == &candidate) {
+            break candidate;
+        }
+        ordinal += 1;
     };
     keys.insert(identity, key.clone());
     key
+}
+
+fn output_title(output: &PineOutput) -> Option<&str> {
+    if !matches!(
+        output.name.as_str(),
+        "plot" | "plotarrow" | "plotchar" | "plotshape"
+    ) {
+        return None;
+    }
+    // piners-runner stores the title at args[1] for both positional and
+    // named-argument calls; the named-title fixture pins that contract.
+    output.args.get(1).and_then(|title| {
+        let title = title.trim();
+        (!title.is_empty() && title != "na").then_some(title)
+    })
 }
 
 fn output_value_from_text(text: &str) -> OutputValue {
@@ -940,6 +1125,65 @@ mod tests {
         assert!(report.ok, "{:?}", report.mismatches);
         assert_eq!(report.output_count, 1);
         assert_eq!(report.bar_count, 2);
+        assert_eq!(report.expected_output_keys, vec!["plot"]);
+        assert_eq!(report.actual_output_keys, vec!["plot"]);
+    }
+
+    #[test]
+    fn strict_fixture_matches_named_plot_titles() {
+        let fixture = parse_fixture(
+            "named-titles",
+            "indicator(\"fixture\")\nplot(close, title=\"Close Line\")\nplotshape(close > open, title=\"Up Shape\")\n".to_string(),
+            BARS,
+            r#"{
+                "schema_version": 1,
+                "indicator_slug": "named-titles",
+                "outputs": {
+                    "Close Line": [10.0, 11.0],
+                    "Up Shape": [false, true]
+                }
+            }"#,
+            None,
+        )
+        .expect("fixture");
+        let report = run_fixture(&fixture).expect("run");
+        assert!(report.ok, "{:?}", report.mismatches);
+        assert_eq!(report.expected_output_keys, vec!["Close Line", "Up Shape"]);
+        assert_eq!(report.actual_output_keys, vec!["Close Line", "Up Shape"]);
+    }
+
+    #[test]
+    fn output_keys_do_not_collide_with_literal_hash_titles() {
+        let mut keys = HashMap::new();
+        assert_eq!(
+            indicator_output_key(&mut keys, "Signal#1", Some(10)),
+            "Signal#1"
+        );
+        assert_eq!(
+            indicator_output_key(&mut keys, "Signal", Some(20)),
+            "Signal"
+        );
+        assert_eq!(
+            indicator_output_key(&mut keys, "Signal", Some(30)),
+            "Signal#2"
+        );
+    }
+
+    #[test]
+    fn duplicate_output_keys_reuse_call_site_identity() {
+        let mut keys = HashMap::new();
+        assert_eq!(
+            indicator_output_key(&mut keys, "Signal", Some(10)),
+            "Signal"
+        );
+        assert_eq!(
+            indicator_output_key(&mut keys, "Signal", Some(20)),
+            "Signal#1"
+        );
+        assert_eq!(
+            indicator_output_key(&mut keys, "Signal", Some(10)),
+            "Signal"
+        );
     }
 
     #[test]
@@ -965,7 +1209,7 @@ mod tests {
                 .unwrap_or_else(|err| panic!("fixture {slug} failed strict validation: {err}"));
             count += 1;
         }
-        assert!(count >= 8, "expected baked smoke fixtures, found {count}");
+        assert!(count >= 10, "expected baked smoke fixtures, found {count}");
     }
 
     #[test]
@@ -973,9 +1217,11 @@ mod tests {
         for slug in [
             "smoke-close",
             "smoke-close-plus-one",
+            "smoke-duplicate-titles",
             "smoke-na-output",
             "smoke-plotshape-bool",
             "smoke-request-security-current",
+            "smoke-titled-outputs",
             "smoke-two-plots",
             "smoke-sma-warmup",
             "smoke-test-range",
@@ -995,9 +1241,11 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(slugs.contains(&"smoke-close"));
         assert!(slugs.contains(&"smoke-close-plus-one"));
+        assert!(slugs.contains(&"smoke-duplicate-titles"));
         assert!(slugs.contains(&"smoke-na-output"));
         assert!(slugs.contains(&"smoke-plotshape-bool"));
         assert!(slugs.contains(&"smoke-request-security-current"));
+        assert!(slugs.contains(&"smoke-titled-outputs"));
         assert!(slugs.contains(&"smoke-two-plots"));
         assert!(slugs.contains(&"smoke-sma-warmup"));
         assert!(slugs.contains(&"smoke-test-range"));
@@ -1009,7 +1257,87 @@ mod tests {
         }
         let counts = fixture_counts().expect("counts");
         assert_eq!(counts.total, fixtures.len());
-        assert!(counts.smoke >= 8);
+        assert!(counts.smoke >= 10);
+    }
+
+    #[test]
+    fn fixture_listings_include_shape_counts_and_range() {
+        let fixtures = list_fixtures().expect("fixtures");
+        let close = fixtures
+            .iter()
+            .find(|fixture| fixture.slug == "smoke-close")
+            .expect("smoke-close listing");
+        assert_eq!(close.symbol.as_deref(), Some("SMOKE:FIXTURE"));
+        assert_eq!(close.timeframe.as_deref(), Some("1D"));
+        assert_eq!(close.bar_count, Some(4));
+        assert_eq!(close.output_count, Some(1));
+        assert!(close.test_range.is_none());
+
+        let ranged = fixtures
+            .iter()
+            .find(|fixture| fixture.slug == "smoke-test-range")
+            .expect("smoke-test-range listing");
+        assert!(ranged.test_range.is_some());
+    }
+
+    #[test]
+    fn fixture_list_filters_by_grep_and_baseline() {
+        let fixtures =
+            list_fixtures_filtered(Some("request"), Some("SMOKE")).expect("filtered fixtures");
+        assert!(
+            fixtures
+                .iter()
+                .any(|fixture| fixture.slug == "smoke-request-security-current")
+        );
+        assert!(
+            fixtures
+                .iter()
+                .all(|fixture| fixture.baseline == BaselineKind::Smoke)
+        );
+    }
+
+    #[test]
+    fn indicator_baseline_catalog_counts_fixtures() {
+        let counts = fixture_counts().expect("counts");
+        let catalog = baseline_catalog().expect("catalog");
+        let catalog_total = catalog.iter().map(|entry| entry.count).sum::<usize>();
+        assert_eq!(catalog_total, counts.total);
+        assert!(
+            catalog
+                .iter()
+                .any(|entry| entry.baseline == BaselineKind::Smoke && entry.count == counts.smoke)
+        );
+        assert!(
+            catalog
+                .iter()
+                .any(|entry| entry.baseline == BaselineKind::Tv && entry.count == counts.tv)
+        );
+    }
+
+    #[test]
+    fn invalid_baseline_filter_errors() {
+        let err = list_fixtures_filtered(None, Some("paper")).expect_err("must reject");
+        assert!(err.to_string().contains("unknown indicator baseline"));
+    }
+
+    #[test]
+    fn strict_batch_runs_matching_fixtures() {
+        let report =
+            run_strict_filtered(Some("request-security"), Some("smoke")).expect("batch run");
+        assert!(report.ok, "{:?}", report.reports);
+        assert_eq!(report.fixture_count, 1);
+        assert_eq!(report.passed_count, 1);
+        assert_eq!(report.failed_count, 0);
+        assert_eq!(report.reports[0].slug, "smoke-request-security-current");
+    }
+
+    #[test]
+    fn strict_batch_rejects_empty_filter_result() {
+        let err = run_strict_filtered(Some("definitely-not-a-fixture"), Some("smoke"))
+            .expect_err("must reject empty batch");
+        assert!(err.to_string().contains("no indicator fixtures matched"));
+        assert!(err.to_string().contains("grep=definitely-not-a-fixture"));
+        assert!(err.to_string().contains("baseline=smoke"));
     }
 
     #[test]

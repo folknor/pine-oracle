@@ -123,9 +123,19 @@ enum Command {
         /// Run strict per-bar parity for the named indicator fixture.
         #[arg(long)]
         strict: bool,
+        /// Run strict per-bar parity for every matching fixture.
+        #[arg(long)]
+        all: bool,
         /// List baked indicator fixtures.
         #[arg(long)]
         list: bool,
+        /// Restrict `--list` or `--all` by slug or fixture metadata.
+        #[arg(long)]
+        grep: Option<String>,
+        /// Restrict `--list` or `--all` to smoke or tv. Pass `?` to list
+        /// baseline kinds.
+        #[arg(long)]
+        baseline: Option<String>,
     },
 
     /// pine-data snapshot date + corpus revision + binary version
@@ -166,9 +176,22 @@ fn main() -> Result<()> {
             trades_csv,
             show_diffs,
         } => commands::diff::run(&probe, &trades_csv, show_diffs, format),
-        Command::Indicator { slug, strict, list } => {
-            commands::indicator::run(slug.as_deref(), strict, list, format)
-        }
+        Command::Indicator {
+            slug,
+            strict,
+            all,
+            list,
+            grep,
+            baseline,
+        } => commands::indicator::run(
+            slug.as_deref(),
+            strict,
+            list,
+            all,
+            grep.as_deref(),
+            baseline.as_deref(),
+            format,
+        ),
         Command::Version => cmd_version(format),
     }
 }
@@ -323,6 +346,71 @@ mod tests {
                 assert_eq!(kind.as_deref(), Some("?"));
             }
             _ => panic!("expected search command"),
+        }
+    }
+
+    #[test]
+    fn indicator_list_accepts_filters() {
+        let cli = Cli::try_parse_from([
+            "pine",
+            "indicator",
+            "--list",
+            "--grep",
+            "request",
+            "--baseline",
+            "smoke",
+        ])
+        .expect("indicator list args should parse");
+
+        match cli.command {
+            Command::Indicator {
+                slug,
+                strict,
+                all,
+                list,
+                grep,
+                baseline,
+            } => {
+                assert_eq!(slug, None);
+                assert!(!strict);
+                assert!(!all);
+                assert!(list);
+                assert_eq!(grep.as_deref(), Some("request"));
+                assert_eq!(baseline.as_deref(), Some("smoke"));
+            }
+            _ => panic!("expected indicator command"),
+        }
+    }
+
+    #[test]
+    fn indicator_all_accepts_filters() {
+        let cli = Cli::try_parse_from([
+            "pine",
+            "indicator",
+            "--strict",
+            "--all",
+            "--baseline",
+            "smoke",
+        ])
+        .expect("indicator all args should parse");
+
+        match cli.command {
+            Command::Indicator {
+                slug,
+                strict,
+                all,
+                list,
+                grep,
+                baseline,
+            } => {
+                assert_eq!(slug, None);
+                assert!(strict);
+                assert!(all);
+                assert!(!list);
+                assert_eq!(grep, None);
+                assert_eq!(baseline.as_deref(), Some("smoke"));
+            }
+            _ => panic!("expected indicator command"),
         }
     }
 }
