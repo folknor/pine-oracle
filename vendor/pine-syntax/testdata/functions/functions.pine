@@ -1,3 +1,0 @@
-var sma14 = sma(close, 14)
-var max_val = max(high, low)
-var result = foo()

@@ -1,6 +1,8 @@
 # The pine oracle
 
-A systemwide CLI tool that answers every Pine v6 question we currently answer from memory. Lives in its own Rust repo `pine-oracle/` -- not in piners, not in pine-tools. Installed once per machine. Queried by any agent in any session in any Pine-adjacent project.
+A systemwide CLI tool that answers every Pine v6 question reviewers would otherwise answer from memory. Lives in its own Rust repo `pine-oracle/` -- not in piners, not in pine-tools. Installed once per machine. Queried by any agent in any session in any Pine-adjacent project.
+
+This is the target design for pine-oracle. It describes the oracle the project is building toward; temporary implementation notes are included only when they explain sequencing or migration risk.
 
 ## Problem
 
@@ -37,7 +39,7 @@ Single binary, four layers.
 Two sources, merged at build time:
 
 - **Primary: Pinecone's `crates/pine-reference/spec/v6.md`** -- 918 KB / ~25k lines / **941 entries**, one per `### name`, uniform sub-sections (`Syntax`, `Arguments`, `Example`, `Type`, `Remarks`, `See also`). MPL-2.0 vendored copy of TradingView's published v6 reference. Embedded via `include_str!`, parsed once with `comrak` and cached behind a `OnceLock`. Drives `pine lookup` + the BM25 reference docs.
-- **Secondary: pine-tools' `pine-data/v6/*.json`** -- shipped in pine-tools' git tree today (`functions.json`, `variables.json`, `constants.json`, `keywords.json`, `function-behavior.json`). Copied into `vendor/pine-data/v6/` and `include_str!`'d. Adds polymorphism markers + structured signatures + argument-ordering metadata that complement v6.md's prose. Drives `pine behavior`.
+- **Secondary: pine-tools' `pine-data/v6/*.json`** -- published in pine-tools' git tree (`functions.json`, `variables.json`, `constants.json`, `keywords.json`, `function-behavior.json`). Copied into `vendor/pine-data/v6/` and `include_str!`'d. Adds polymorphism markers + structured signatures + argument-ordering metadata that complement v6.md's prose. Drives `pine behavior`.
 
 Combined size: ~1.5 MB. Trivial.
 
@@ -56,19 +58,19 @@ Per-probe summaries are extracted live at runtime from each `strategy.pine`'s he
 
 ### 3. Vendored corpus (baked)
 
-The corpus ships **inside the binary**. Reality after vendoring: the published PineForge corpus is ~245 MB cloned (38 MB git history, 75 MB OHLCV across four feeds, 239 probes' worth of strategy.pine + tv_trades.csv + engine_trades.csv + generated.cpp + reports). The vendored subset pine-oracle bakes is the strict minimum the public subcommands need: per-probe `strategy.pine`, `tv_trades.csv`, and optional `inputs.json`. Everything else (OHLCV feeds, PineForge's own `engine_trades.csv`, the transpiler's `generated.cpp`, validation reports, upstream tooling) is pruned out of `vendor/pineforge-corpus/` and not in the binary.
+The corpus ships **inside the binary**. The published PineForge corpus is ~245 MB cloned (38 MB git history, 75 MB OHLCV across four feeds, 239 probes' worth of strategy.pine + tv_trades.csv + engine_trades.csv + generated.cpp + reports). The vendored subset pine-oracle bakes is the strict minimum the public subcommands need: per-probe `strategy.pine`, `tv_trades.csv`, and optional `inputs.json`. Everything else (OHLCV feeds, PineForge's own `engine_trades.csv`, the transpiler's `generated.cpp`, validation reports, upstream tooling) is pruned out of `vendor/pineforge-corpus/` and not in the binary.
 
 Baked subset size: ~72 MB. Final binary size lands around 75-80 MB. Embedded via `include_dir!()` at compile time, queried as `&'static str` slices at runtime. Zero on-disk scratch, zero env vars, zero settings files.
 
 Pruning is reproducible: `scripts/prune-vendored-corpus.sh` operates on a fresh clone of <https://github.com/fullpass-4pass/pineforge-corpus>; see `vendor/pineforge-corpus/VENDORING_NOTES.md` for the kept / dropped manifest and the refresh procedure.
 
-When `pine indicator --strict` and `pine diff` v1 land, OHLCV gets added to the bake (the prune script grows a `--keep-data` flag or similar). Binary grows ~75 MB at that point.
+When OHLCV-backed checks land, the OHLCV feeds get added to the bake (the prune script grows a `--keep-data` flag or similar). That covers `pine indicator --strict` and any future `pine diff` path that needs bar-level trim. Binary size grows ~75 MB at that point.
 
 ### 4. Validator backend
 
 Two tiers, in inverted authority order vs. an earlier draft of this doc:
 
-- **Local tier (`pine validate`)**. The workhorse. IDE-quality diagnostics: every lex / parse error, every type error, every semantic warning, with correct line + column positions, multi-error. This is what serious work uses. Backed by **piners-syntax** once it stabilises (near-term): piners has to lex + parse + type-check Pine to execute it for backtesting; that analyzer is the natural Rust home and pine-oracle depends on it. The current pinecone-lifted lexer + parser in `src/syntax/` is a v0 stand-in that catches the first lex / parse error and has no type checking; it gets swapped out the moment piners-syntax ships 0.1.
+- **Local tier (`pine validate`)**. The workhorse. Uses **piners-syntax** for lexing, parsing, type checking, and semantic analysis, returning every diagnostic the pipeline can recover with correct line + column positions. The builtins table starts from **piners-runtime** so validation matches piners where the runtime has an implementation or stub, then pine-oracle fills any missing public symbols from the vendored pine-tools JSON.
 - **Strict tier (`pine validate --strict`)**. **Yes / no oracle only. Do not try to fix your script from its diagnostics.** TradingView's `pine-facade/translate_light` endpoint is profoundly bad as a validator: it stops at the first error, breaks on trailing whitespace (e.g. an extra space at end of line is "invalid"), and reports the wrong line / column for essentially every diagnostic. The diagnostic prose is non-actionable: it tells you *something* is wrong but not where or what in any reliable way. The only trustworthy output is the `success` bit (true / false). Use this exactly once, after you believe `pine validate` (local tier) reports clean: a final yes / no from TV's broker before you publish. Do not iterate against it; iterate against the local tier. No auth required, no on-disk cache.
 - **Indicator strict tier (`pine indicator --strict <probe>`)**. Different oracle: runs an indicator against fixture bars and diffs per-bar values against a vendored baseline using the PineTS-derived `.expect.json` schema (see "Strict-mode indicator test format" below). Corpus is trade-list parity; this is per-bar indicator parity.
 
@@ -76,24 +78,25 @@ Two tiers, in inverted authority order vs. an earlier draft of this doc:
 
 What to pull from where, in priority order. The oracle's license is the natural umbrella over whatever we vendor (MPL-2.0 for files derived from Pinecone, Apache-2.0 for everything else); AGPL sources are paraphrased clean-room and not vendored as-is.
 
-| # | Artifact | Source | License | Use | Status |
+| # | Artifact | Source | License | Use | Disposition |
 |---|---|---|---|---|---|
-| 1 | `spec/v6.md` (941 reference entries) | `research/pinecone/crates/pine-reference/` | MPL-2.0 | Primary BM25 substrate + lookup table | **Done** (`vendor/pine-reference/spec/v6.md`) |
-| 2 | Markdown query layer (~250 LOC) | `research/pinecone/crates/pine-reference/src/lib.rs:60-203` | MPL-2.0 | Backs `pine lookup` | **Done** (lifted into `src/reference.rs`) |
-| 3 | Pine v6 lexer + AST + parser (~3.3k LOC) | `research/pinecone/crates/pine-{lexer,ast,parser}/src/lib.rs` | MPL-2.0 | Backs `pine parse` / `pine tokens` / `pine validate` (v0) | **Done** (lifted into `src/syntax/`). Temporary - replaced when piners-syntax stabilises. |
-| 4 | 72 parser golden fixtures | `research/pinecone/crates/pine-parser/testdata/` | MPL-2.0 | Regression tests for the lifted parser | **Done** (`vendor/pine-syntax/testdata/`) |
-| 5 | `pine-data/v6/*.json` (functions / variables / constants / keywords / function-behavior) | `pine-tools/pine-data/v6/*.json` | MIT (folknor) | Backs `pine behavior` | **Done** (`vendor/pine-data/v6/`) |
-| 6 | PineForge validation corpus (239 probes) | `https://github.com/fullpass-4pass/pineforge-corpus` | Apache-2.0 | Backs `pine probe` / `pine probes` / `pine diff`; corpus-kind BM25 docs | **Done** (`vendor/pineforge-corpus/`) |
-| 7 | `docs/pine_v6_audit_master.md` (38 critical + ~62 minor divergences) | `research/pineforge-engine/docs/` | Apache-2.0 | Audit-kind BM25 docs | **Done** (`vendor/pineforge-docs/pine_v6_audit_master.md`) |
-| 8 | `docs/pages/*.md` (18 narrative docs) | `research/pineforge-engine/docs/pages/` | Apache-2.0 | Docs-kind BM25 substrate | **Done** (`vendor/pineforge-docs/pages/`) |
+| 1 | `spec/v6.md` (941 reference entries) | `research/pinecone/crates/pine-reference/` | MPL-2.0 | Primary BM25 substrate + lookup table | Vendor at `vendor/pine-reference/spec/v6.md` |
+| 2 | Markdown query layer (~250 LOC) | `research/pinecone/crates/pine-reference/src/lib.rs:60-203` | MPL-2.0 | Backs `pine lookup` | Lift into `src/reference.rs` |
+| 3 | Pine v6 syntax pipeline | `../piners/crates/piners-syntax/` | MIT OR Apache-2.0 | Backs `pine parse` / `pine tokens` / local `pine validate` | Path dependency; canonical syntax backend |
+| 4 | Pinecone lexer + parser lift + 72 parser goldens | `research/pinecone/crates/pine-{lexer,ast,parser}/` | MPL-2.0 | Former migration baseline | Removed from shipped sources after piners-syntax integration; not vendored or compiled |
+| 5 | `pine-data/v6/*.json` (functions / variables / constants / keywords / function-behavior) | `pine-tools/pine-data/v6/*.json` | MIT (folknor) | Backs `pine behavior` | Vendor at `vendor/pine-data/v6/` |
+| 6 | PineForge validation corpus (239 probes) | `https://github.com/fullpass-4pass/pineforge-corpus` | Apache-2.0 | Backs `pine probe` / `pine probes` / `pine diff`; corpus-kind BM25 docs | Vendor at `vendor/pineforge-corpus/` |
+| 7 | `docs/pine_v6_audit_master.md` (38 critical + ~62 minor divergences) | `research/pineforge-engine/docs/` | Apache-2.0 | Audit-kind BM25 docs | Vendor at `vendor/pineforge-docs/pine_v6_audit_master.md` |
+| 8 | `docs/pages/*.md` (18 narrative docs) | `research/pineforge-engine/docs/pages/` | Apache-2.0 | Docs-kind BM25 substrate | Vendor at `vendor/pineforge-docs/pages/` |
 | 9 | 21 engine-internals probe summaries | `research/pineforge-engine/src/engine_*.cpp` + tests | Apache-2.0 | Per-probe BM25 substrate | **Superseded.** The harvested summaries were keyed to engine-internal probe identifiers that do not match the published-corpus slugs. `corpus::summary_for` collects every prose comment line from each baked `strategy.pine`'s header instead, covering 100% of the 239 baked probes with multi-paragraph summaries (median ~650 chars) without any LLM curation. |
-| 10 | `scripts/verify_corpus.py` (622 lines Python) | `research/pineforge-engine/` | Apache-2.0 | Trade-list alignment + tier classification | **Done** (ported to `src/diff.rs`); interior-trim path pending OHLCV bake |
+| 10 | `scripts/verify_corpus.py` (622 lines Python) | `research/pineforge-engine/` | Apache-2.0 | Trade-list alignment + tier classification | Port to `src/diff.rs`; add interior trim once OHLCV is baked |
+| 10a | piners runtime builtins | `../piners/crates/piners-runtime/` | MIT OR Apache-2.0 | Primary builtins table for local validation | Path dependency; augmented with pine-data gap-fill |
 | 11 | `pineforge.h` doxygen blocks (~390 LOC) | `research/pineforge-engine/include/pineforge/` | Apache-2.0 | C ABI documentation | **Deferred.** Niche substrate (describes the C ABI consumers integrate against, not Pine semantics). Re-evaluate if `pine indicator --strict` needs it. |
 | 12 | 120 runtime golden fixtures | `research/pinecone/tests/testdata/` | MPL-2.0 | `pine behavior <feature>` per-feature substrate | **Deferred.** Lower yield once pine-tools JSON ships the structured signatures (item 5). |
 | 13 | Vendored TV docs scraper (50 LOC) | `research/pinecone/crates/pine-reference/src/lib.rs:9-58` | MPL-2.0 | Refresh v6.md snapshot when TV publishes updates | **Deferred.** pine-tools' scraper is the upstream of record now; pine-oracle re-vendors from pine-tools, not from TV directly. |
 | 14 | Seven Pine quirk patterns | `research/PineTS/src/namespaces/README.md` | AGPL paraphrase (clean-room) | BM25 substrate for "how does Pine handle X" | **Deferred.** PineForge narrative pages (item 8) cover most of the same ground without the AGPL paraphrase cost. |
 | 15 | Namespace enumeration (`KNOWN_NAMESPACES`, `FACTORY_METHODS`) | `research/PineTS/src/transpiler/settings.ts` | Not copyrightable (facts) | Structured data for `pine namespaces` / `pine factories` | **Deferred.** Subsumed by pine-tools' constants.json + keywords.json. |
-| 16 | `.pine.ts` + `.expect.json` compat-test format | `research/PineTS/tests/compatibility/` | Format only | Schema for `pine indicator --strict` | **Pending.** Adopted when `pine indicator --strict` lands. |
+| 16 | `.pine.ts` + `.expect.json` compat-test format | `research/PineTS/tests/compatibility/` | Format only | Schema for `pine indicator --strict` | Adopt when `pine indicator --strict` lands |
 
 ### What we don't pull from pine-tools
 
@@ -107,13 +110,17 @@ Explicit exclusions so a future reader doesn't assume these are in scope:
 
 The data pipeline (`crawl`, `scrape`, `generate`, `discover:behavior`) stays in pine-tools as the upstream source of truth for refreshing pine-data. The oracle consumes the generated artifacts but does not run the pipeline.
 
-## MVP path: ship `pine lookup` before BM25
+## Delivery phases
 
-Pinecone has a working ~250-LOC markdown query layer at `crates/pine-reference/src/lib.rs:60-203` plus `bin/main.rs`. It parses `spec/v6.md` with `comrak`, splits on level-2 / level-3 boundaries, supports exact-match and prefix search, and runs as a CLI today.
+Pinecone has a working ~250-LOC markdown query layer at `crates/pine-reference/src/lib.rs:60-203` plus `bin/main.rs`. It parses `spec/v6.md` with `comrak`, splits on level-2 / level-3 boundaries, supports exact-match and prefix search, and runs as a CLI in Pinecone.
 
-MVP for `pine`: lift this verbatim (MPL-2.0, file-level copyleft, add SPDX header), wrap in our subcommand surface, add JSON output. That gives us `pine lookup <name>` and `pine search <prefix>` for the entire 941-entry v6 reference on day one. BM25 with `tantivy` plus the supplementary indexed material (PineForge divergences, PineTS patterns, probe summaries) is the v2.
+Phase 1 lifts this verbatim (MPL-2.0, file-level copyleft, add SPDX header), wraps it in the subcommand surface, and adds JSON output. That gives `pine lookup <name>` and reference-only lookup/search over the entire 941-entry v6 reference.
 
-Skipping BM25 for v1 also defers the question of how to ship the index (in-binary blob vs sidecar file vs build-on-first-use).
+Phase 2 adds the `tantivy` BM25 index over all baked knowledge sources: the v6 reference, corpus probe summaries, the PineForge audit doc, and PineForge narrative docs. The index is rebuilt in memory on first search rather than shipped as a sidecar.
+
+Phase 3 bakes the PineForge corpus and adds the probe, probe-listing, behavior, parser, token, validation, and trade-list diff commands.
+
+Phase 4 integrates piners' runtime pieces: piners-syntax and piners-runtime back deep local validation, and the engine + OHLCV bake unlock `pine indicator --strict`.
 
 ## Subcommands
 
@@ -131,13 +138,14 @@ pine probes --grep <text>       list probes whose slug or extracted summary matc
 pine probes --feature <name>    list probes whose strategy.pine uses the named Pine feature (`?` lists the catalog)
 pine diff <probe> <trades.csv>  tier-classify a piners trade list against the probe's tv_trades
 pine diff ... --show-diffs N    + worst-N matched pairs (ranked) + every TV/user orphan trade
+pine indicator --strict <slug>  per-bar indicator parity against a vendored TV baseline
 pine version                    pine-data snapshot date + corpus revision + binary version
 ```
 
 Global flags:
 
 - `--format json|text` (default: `text` for tty, `json` for pipes)
-- `--no-color` (suppress ANSI styling in text mode; also auto-suppressed when `NO_COLOR=1` is set, when output is JSON, or when stdout isn't a tty - currently affects `pine search` + `pine validate` text output)
+- `--no-color` (suppress ANSI styling in text mode; also auto-suppressed when `NO_COLOR=1` is set, when output is JSON, or when stdout isn't a tty; applies to styled text emitters such as `pine search` and `pine validate`)
 - `--quiet` (suppress headers, just return the data)
 
 ## Output format
@@ -146,7 +154,7 @@ Every subcommand emits stable JSON under `--format json`. Agents parse in one re
 
 ### Schema versioning
 
-Every JSON payload carries a top-level `"schema_version": <integer>`. The current schema is **`1`**. Object payloads (e.g. `lookup`, `probe`, `behavior`, `diff`, `validate`) receive the field inline at the top level alongside the payload's own fields. Array payloads (e.g. `tokens`, `probes`) are wrapped as `{ "schema_version": 1, "items": [...] }`. Scalar payloads (none today, but reserved) wrap as `{ "schema_version": 1, "value": ... }`.
+Every JSON payload carries a top-level `"schema_version": <integer>`. The initial schema is **`1`**. Object payloads (e.g. `lookup`, `probe`, `behavior`, `diff`, `validate`) receive the field inline at the top level alongside the payload's own fields. Array payloads (e.g. `tokens`, `probes`) are wrapped as `{ "schema_version": 1, "items": [...] }`. Scalar payloads (none in the initial surface, but reserved) wrap as `{ "schema_version": 1, "value": ... }`.
 
 Agents should:
 
@@ -248,7 +256,7 @@ Three paths, all systemwide:
 - `brew install <tap>/pine/pine` (Homebrew tap, tap name TBD)
 - Manual `git clone && cargo install --path .`
 
-No first-run setup, no `corpus install` flow, no on-disk state. The corpus is baked in; the binary is self-contained. Final binary is ~75-80 MB today and grows to ~150 MB when OHLCV joins the bake for `pine diff` and `pine indicator --strict` v1.
+No first-run setup, no `corpus install` flow, no on-disk state. The corpus is baked in; the binary is self-contained. The initial full binary is ~75-80 MB and grows to ~150 MB when OHLCV joins the bake for `pine diff` and `pine indicator --strict` v1.
 
 ## Agent integration
 
@@ -268,9 +276,9 @@ The same rule lands in pine-tools' AGENTS.md, in any future Pine-related project
 }
 ```
 
-Concrete reviewer flow, today vs after:
+Concrete reviewer flow, before vs after:
 
-- **Today.** Reviewer claims "`array.mode` returns smallest on ties". Orchestrator reads claim, has no way to check, files it as MAJOR. Three sessions later, a different reviewer claims the opposite. Both findings exist; nobody knows which is right.
+- **Before.** Reviewer claims "`array.mode` returns smallest on ties". Orchestrator reads claim, has no way to check, files it as MAJOR. Three sessions later, a different reviewer claims the opposite. Both findings exist; nobody knows which is right.
 - **After.** Reviewer claims "`array.mode` returns smallest on ties". Orchestrator (or the reviewer itself) runs `pine lookup array.mode`. JSON answer cites TV docs. Claim is corrected or confirmed before being filed. Contradictions across sessions are impossible because every claim cites the same oracle.
 
 ## Build pipeline
@@ -289,34 +297,29 @@ In pine-oracle:
 
 Release cadence: pin to pine-tools' scrape cadence. When TV's docs change, refresh, rebuild, release.
 
-## Open questions
+## Resolved decisions
 
-1. **Validator backend.** **Resolved.** The local tier (`pine validate`) is backed by **piners-syntax** - piners' own Rust analyzer, which has to lex + parse + type-check Pine for the runtime anyway. Today pine-oracle ships the pinecone lift in `src/syntax/` as a v0 stand-in (first-error-only, no type checks); the swap to piners-syntax happens the moment its 0.1 ships. The piners-syntax public API is specified in chat history with this session and (TBD) committed alongside its first release. The WASM-bundle-pine-tools bridge option from an earlier draft is dropped: piners-syntax is on a near-term horizon, so the bridge is dead weight. The "bundled Node runtime + pine-tools JS" option (also from an earlier draft) is dropped too: forces a 50 MB+ node payload into the binary and violates the zero-on-disk-scratch contract via npm cache assumptions.
+1. **Validator backend.** The local tier (`pine validate`) is backed by **piners-syntax** and **piners-runtime**: piners-syntax owns lex / parse / type / semantic diagnostics, while piners-runtime supplies the primary builtins table. pine-oracle augments that table from vendored pine-tools JSON for public symbols piners does not expose yet. The WASM-bundle-pine-tools bridge option from an earlier draft is dropped: it would add a second syntax authority. The "bundled Node runtime + pine-tools JS" option is dropped too: it forces a 50 MB+ node payload into the binary and violates the zero-on-disk-scratch contract via npm cache assumptions.
 
-2. **Repo layout.** **Resolved:** new sibling Rust repo `pine-oracle/`. Not inside piners (would signal "piners helper", slow piners' build), not inside pine-tools (would force a Rust crate into a TS monorepo). pine-tools stays the upstream data source via `pnpm run export:json`.
+2. **Repo layout.** New sibling Rust repo `pine-oracle/`. Not inside piners (would signal "piners helper", slow piners' build), not inside pine-tools (would force a Rust crate into a TS monorepo). pine-tools stays the upstream data source via `pnpm run export:json`.
 
-3. **Corpus distribution.** **Resolved:** baked into the binary. Vendored under `vendor/pineforge-corpus/`, embedded via `include_dir!()`, ~72 MB baked subset, no on-disk state at runtime.
+3. **Corpus distribution.** Baked into the binary. Vendored under `vendor/pineforge-corpus/`, embedded via `include_dir!()`, ~72 MB baked subset, no on-disk state at runtime.
 
-4. **Output schema stability.** **Resolved.** Every JSON payload carries `schema_version: 1` (objects inline, arrays wrapped as `{schema_version, items}`). Bump rules + agent-side contract documented in the "Output format" section.
+4. **Output schema stability.** Every JSON payload carries `schema_version: 1` (objects inline, arrays wrapped as `{schema_version, items}`). Bump rules + agent-side contract documented in the "Output format" section.
 
-5. **`validate --strict` auth.** **Resolved:** no auth required. The TradingView pine-lint endpoint is open; pine-oracle stores no credentials anywhere because it stores nothing anywhere.
+5. **`validate --strict` auth.** No auth required. The TradingView pine-lint endpoint is open; pine-oracle stores no credentials anywhere because it stores nothing anywhere.
 
-6. **Per-probe summary ownership.** **Resolved (via live extraction).** `corpus::summary_for(slug)` collects every prose comment line from each baked `strategy.pine`'s header (title + `Purpose:` + `Trade shape:` + `TV setup:` etc.), joined on whitespace, no LLM curation pass required, no external dependency. 100% of the 239 probes get a substantive multi-paragraph summary out of the box (median ~650 chars).
+6. **Per-probe summary ownership.** `corpus::summary_for(slug)` collects every prose comment line from each baked `strategy.pine`'s header (title + `Purpose:` + `Trade shape:` + `TV setup:` etc.), joined on whitespace, no LLM curation pass required, no external dependency. 100% of the 239 probes get a substantive multi-paragraph summary out of the box (median ~650 chars).
 
-7. **Search corpus coverage.** Today BM25 indexes the v6 reference (941 entries) + the baked corpus probes (239, with author-extracted summaries). Hits carry a `kind` discriminator ("reference" / "probe") so consumers can route. Broader sources (pine-tools issue tracker, TV release notes, Pine v6 migration guide) are off the table for now: each broadens recall but dilutes precision; grow with demand.
+7. **Search corpus coverage.** BM25 indexes the v6 reference (941 entries), the baked corpus probes (239, with author-extracted summaries), the PineForge audit doc, and PineForge narrative pages. Hits carry a `kind` discriminator ("reference" / "probe" / "audit" / "docs") so consumers can route. Broader sources (pine-tools issue tracker, TV release notes, Pine v6 migration guide) are off the table for now: each broadens recall but dilutes precision; grow with demand.
 
-8. **Caching `validate --strict` responses.** **Resolved:** no cache. pine-oracle has zero on-disk state; a CLI invocation hits the API once and exits, so cross-invocation caching has nowhere to live.
-
-9. **TV v6.md redistribution.** Pinecone's vendored copy (`spec/v6.md`, 918 KB) is TradingView copyright. Pinecone's redistribution under MPL-2.0 is precedent but not blanket legal cover. Two paths:
-   - Vendor with prominent "snapshot of TV docs as of <date>, all content (c) TradingView" disclaimer; rely on Pinecone's precedent.
-   - Don't redistribute; ship only the *index* (function names, BM25 tokens, no prose) and link out to live TV docs for full content.
-   Resolution likely depends on whether the oracle is published publicly or internal-only.
+8. **Caching `validate --strict` responses.** No cache. pine-oracle has zero on-disk state; a CLI invocation hits the API once and exits, so cross-invocation caching has nowhere to live.
 
 9. **TV v6.md redistribution.** **Resolved:** vendor with disclaimer, consistent with the standing "bake everything into the binary" decision. `vendor/pine-reference/NOTICE` already calls out the file as a TV-docs snapshot with TradingView copyright. The top-level NOTICE adds the trademark disclaimer. Relies on Pinecone's MPL-2.0 redistribution precedent; if TV objects on a public release, the lift target is to switch to a stripped-reference shape (names + signatures only, no prose) without re-architecting the binary.
 
-10. **License umbrella for the oracle binary.** Vendoring decisions span MPL-2.0 (Pinecone), Apache-2.0 (PineForge), MIT (pine-tools, folknor-owned), and clean-room paraphrases of AGPL (PineTS, deferred). Cleanest umbrella: MPL-2.0 for files derived from Pinecone (file-level copyleft only), Apache-2.0 for everything else. Confirm before shipping publicly.
+10. **License umbrella for the oracle binary.** Vendoring decisions span MPL-2.0 (Pinecone), Apache-2.0 (PineForge), MIT (pine-tools, folknor-owned), and clean-room paraphrases of AGPL (PineTS, deferred). The crate itself uses MPL-2.0; vendored artifacts retain their upstream licenses through their own LICENSE / NOTICE files.
 
-11. **PineTS compat-test schema versioning.** **Resolved (filed for when the indicator subcommand lands).** Every `expect.json` carries `schema_version`, `pine_version` (grammar / runtime version that generated it), and `tv_snapshot` (when TV's broker state was captured). Engine-version mismatch errors instead of silently comparing; regenerations bump `tv_snapshot`. Concrete shape:
+11. **PineTS compat-test schema versioning.** Every `expect.json` carries `schema_version`, `pine_version` (grammar / runtime version that generated it), and `tv_snapshot` (when TV's broker state was captured). Engine-version mismatch errors instead of silently comparing; regenerations bump `tv_snapshot`. Concrete shape:
 
     ```json
     {
@@ -341,24 +344,3 @@ Release cadence: pin to pine-tools' scrape cadence. When TV's docs change, refre
 With `pine` in place and AGENTS.md citing it, the failure mode that prompted this doc (reviewers contradicting each other across sessions on what TV "actually does") becomes structurally hard. Every parity claim has a CLI receipt. Every disagreement points at the oracle, not at a human. Reviews stop relitigating semantics and focus on whether piners matches the cited semantics.
 
 Secondary win: the same tool serves pine-tools' own dogfooding, future Pine projects, and anyone outside our orbit who wants a fast Pine reference CLI. The investment compounds across every Pine workflow we touch.
-
-## Status (current)
-
-11 of 12 design-doc subcommands shipped:
-
-| Subcommand | Status |
-|---|---|
-| `pine lookup` | Done |
-| `pine search` (+ `--kind` filter) | Done across 4 sources |
-| `pine behavior` | Done |
-| `pine parse` | Done (v0 - lifted pinecone) |
-| `pine tokens` | Done (v0 - lifted pinecone) |
-| `pine validate` | Done (v0 - first error only; deepens with piners-syntax) |
-| `pine validate --strict` | Done (yes/no oracle; diagnostics non-actionable) |
-| `pine probe` | Done |
-| `pine probes` (+ `--grep`, `--feature`) | Done with summary-text match + 12-feature source-scan index (`--feature ?` lists the catalog) |
-| `pine diff` (+ `--show-diffs N`) | Done v1 (worst-N matched pairs + every TV/user orphan; interior trim deferred until OHLCV bake) |
-| `pine version` | Done (self-describes bake counts) |
-| `pine indicator --strict` | **Pending** - needs piners' engine + OHLCV bake |
-
-Open Questions: all resolved. 1 (validator backend - piners-syntax near-term), 2 (repo layout), 3 (corpus distribution), 4 (output schema), 5 (validate --strict auth), 6 (per-probe summaries), 7 (search corpus coverage), 8 (validate --strict cache), 9 (TV v6.md redistribution), 10 (license umbrella - MPL-2.0 only), 11 (PineTS expect.json schema).

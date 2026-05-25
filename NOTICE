@@ -18,13 +18,6 @@ vendor/pine-reference/
   Copyright (c) Pinecone contributors.
   See vendor/pine-reference/LICENSE and vendor/pine-reference/NOTICE.
 
-vendor/pine-syntax/
-  Pine v6 lexer + AST + parser lifted from pinecone, plus 72 parser
-  golden fixtures.
-  License: Mozilla Public License Version 2.0.
-  Copyright (c) Pinecone contributors.
-  See vendor/pine-syntax/LICENSE and vendor/pine-syntax/NOTICE.
-
 vendor/pine-data/v6/
   Pine v6 structured signatures + polymorphism markers from pine-tools.
   License: MIT License.
@@ -33,7 +26,7 @@ vendor/pine-data/v6/
   LICENSE at https://github.com/folknor/pine-tools.
 
 vendor/pineforge-corpus/
-  PineForge validation corpus: 235 Pine v6 strategies cross-validated
+  PineForge validation corpus: 239 Pine v6 strategies cross-validated
   against TradingView's broker emulator.
   License: Apache License Version 2.0.
   Copyright (c) PineForge contributors.
@@ -46,6 +39,14 @@ vendor/pineforge-docs/
   License: Apache License Version 2.0.
   Copyright (c) PineForge contributors.
   See vendor/pineforge-docs/LICENSE and vendor/pineforge-docs/NOTICE.
+
+Sibling path dependencies
+-------------------------
+
+../piners/crates/piners-syntax/
+../piners/crates/piners-runtime/
+  piners crates used for Pine syntax diagnostics and runtime builtins.
+  License: MIT OR Apache-2.0.
 
 Per-file SPDX identifiers
 -------------------------

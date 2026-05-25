@@ -17,6 +17,10 @@
 // (serde ignores unknown fields by default, plus serde(default) on
 // optional fields) so a schema tweak upstream doesn't break the binary.
 
+use piners_syntax::{
+    BuiltinsTable, FunctionParameter as SyntaxFunctionParameter, FunctionSignature,
+    PolymorphismRule, ValueType,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -265,6 +269,180 @@ pub fn lookup(name: &str) -> Option<Behavior> {
     None
 }
 
+/// Built-in surface for piners-syntax validation. piners-runtime is the
+/// primary authority; pine-oracle's vendored pine-tools JSON fills symbols
+/// not represented by the runtime table yet.
+pub fn syntax_builtins() -> &'static BuiltinsTable {
+    static BUILTINS: OnceLock<BuiltinsTable> = OnceLock::new();
+    BUILTINS.get_or_init(build_syntax_builtins)
+}
+
+fn build_syntax_builtins() -> BuiltinsTable {
+    let idx = index();
+    let mut table = piners_runtime::build_builtins_table();
+
+    for function in idx.functions.values() {
+        if table.function_signatures(&function.name).is_some() {
+            continue;
+        }
+        table.insert_function(
+            function.name.clone(),
+            FunctionSignature {
+                params: function
+                    .parameters
+                    .iter()
+                    .map(|param| SyntaxFunctionParameter {
+                        name: param.name.clone(),
+                        value_type: parse_value_type(&param.ty),
+                        optional: !param.required,
+                    })
+                    .collect(),
+                return_type: parse_value_type(&function.returns),
+                stateful: false,
+                stub: false,
+            },
+        );
+    }
+
+    for variable in idx.variables.values() {
+        table
+            .variables
+            .entry(variable.name.clone())
+            .or_insert_with(|| parse_value_type(&variable.ty));
+    }
+    for constant in idx.constants.values() {
+        table
+            .constants
+            .entry(constant.name.clone())
+            .or_insert_with(|| parse_value_type(&constant.ty));
+    }
+    for keyword in &idx.keywords {
+        table.keywords.insert(keyword.clone());
+    }
+    for (name, behavior) in &idx.function_behaviors {
+        if let Some(rule) = syntax_polymorphism_rule(behavior) {
+            table.polymorphism.entry(name.clone()).or_insert(rule);
+        }
+    }
+
+    table
+}
+
+fn syntax_polymorphism_rule(behavior: &RawBehaviorEntry) -> Option<PolymorphismRule> {
+    let detail = behavior.polymorphic.detail()?;
+    match detail.strategy.as_deref() {
+        Some("dependent-on-input") | None => Some(PolymorphismRule::Identity),
+        Some("numeric") => Some(PolymorphismRule::Numeric),
+        Some("collection-element") => Some(PolymorphismRule::CollectionElement),
+        Some(strategy @ ("array_new" | "map_keys" | "map_values")) => {
+            Some(PolymorphismRule::Custom(strategy.to_string()))
+        }
+        // piners-syntax treats unknown custom rules as fallback-to-static.
+        // Do not install inert rules from pine-data until the checker knows
+        // how to interpret them.
+        Some(_) => None,
+    }
+}
+
+fn parse_value_type(raw: &str) -> ValueType {
+    let ty = raw.trim();
+    if ty.is_empty() || ty.eq_ignore_ascii_case("void") {
+        return ValueType::Unknown;
+    }
+
+    let ty = strip_qualifier(ty);
+    if let Some((head, inner)) = split_generic(ty) {
+        return match head {
+            "series" => parse_value_type(inner),
+            "array" => ValueType::Array(Box::new(parse_value_type(inner))),
+            "matrix" => ValueType::Matrix(Box::new(parse_value_type(inner))),
+            "map" => {
+                let args = split_top_level(inner, ',');
+                if args.len() == 2 {
+                    ValueType::Map(
+                        Box::new(parse_value_type(args[0])),
+                        Box::new(parse_value_type(args[1])),
+                    )
+                } else {
+                    ValueType::Map(Box::new(ValueType::Unknown), Box::new(ValueType::Unknown))
+                }
+            }
+            _ => ValueType::Unknown,
+        };
+    }
+
+    if ty.contains('/') {
+        let parts = split_top_level(ty, '/');
+        if parts.iter().all(|part| matches!(*part, "int" | "float")) {
+            return ValueType::Float;
+        }
+        return ValueType::Unknown;
+    }
+
+    if matches!(ty, "source" | "series" | "literal") {
+        return ValueType::Unknown;
+    }
+
+    match ty {
+        "int" => ValueType::Int,
+        "float" => ValueType::Float,
+        "bool" => ValueType::Bool,
+        "string" => ValueType::String,
+        "color" => ValueType::Color,
+        "array" => ValueType::Array(Box::new(ValueType::Unknown)),
+        "matrix" => ValueType::Matrix(Box::new(ValueType::Unknown)),
+        "map" => ValueType::Map(Box::new(ValueType::Unknown), Box::new(ValueType::Unknown)),
+        "line" => ValueType::Line,
+        "label" => ValueType::Label,
+        "box" => ValueType::Box,
+        "table" => ValueType::Table,
+        "polyline" => ValueType::Polyline,
+        "linefill" => ValueType::Linefill,
+        "chart" => ValueType::Chart,
+        "chart.point" => ValueType::ChartPoint,
+        _ => ValueType::Unknown,
+    }
+}
+
+fn strip_qualifier(ty: &str) -> &str {
+    for qualifier in ["const ", "input ", "simple ", "series "] {
+        if let Some(rest) = ty.strip_prefix(qualifier) {
+            return rest.trim();
+        }
+    }
+    ty
+}
+
+fn split_generic(ty: &str) -> Option<(&str, &str)> {
+    let open = ty.find('<')?;
+    let close = ty.rfind('>')?;
+    if close <= open {
+        return None;
+    }
+    let head = ty[..open].trim();
+    let inner = ty[open + 1..close].trim();
+    Some((head, inner))
+}
+
+fn split_top_level(input: &str, delimiter: char) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut depth = 0usize;
+    let mut start = 0usize;
+    for (idx, ch) in input.char_indices() {
+        match ch {
+            '<' => depth += 1,
+            '>' => depth = depth.saturating_sub(1),
+            _ if ch == delimiter && depth == 0 => {
+                parts.push(input[start..idx].trim());
+                start = idx + ch.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    parts.push(input[start..].trim());
+    parts
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -317,6 +495,46 @@ mod tests {
     fn keyword_lookup_works() {
         let b = lookup("var").expect("var keyword must exist");
         assert!(matches!(b, Behavior::Keyword(_)));
+    }
+
+    #[test]
+    fn syntax_builtins_include_pine_data_functions() {
+        let builtins = syntax_builtins();
+        let signatures = builtins
+            .function_signatures("math.sqrt")
+            .expect("math.sqrt signature");
+        assert!(!signatures.is_empty());
+        assert!(builtins.variables.contains_key("close"));
+        assert!(builtins.constants.contains_key("color.red"));
+        assert!(builtins.polymorphism.contains_key("nz"));
+    }
+
+    #[test]
+    fn unknown_polymorphism_strategy_is_not_inserted() {
+        let entry = RawBehaviorEntry {
+            polymorphic: PolymorphicField::Dynamic(PolymorphicDetail {
+                return_type_param: Some("source".to_string()),
+                strategy: Some("future-strategy".to_string()),
+                observed_mappings: HashMap::new(),
+                allowed_types: Vec::new(),
+            }),
+            argument_ordering: None,
+            observed_return_types: Vec::new(),
+            reason: None,
+        };
+        assert_eq!(syntax_polymorphism_rule(&entry), None);
+    }
+
+    #[test]
+    fn parses_common_type_strings_for_syntax() {
+        assert_eq!(parse_value_type("series<int>").describe(), "int");
+        assert_eq!(parse_value_type("series int/float").describe(), "float");
+        assert_eq!(parse_value_type("array<float>").describe(), "array<float>");
+        assert_eq!(
+            parse_value_type("map<string, float>").describe(),
+            "map<string, float>"
+        );
+        assert_eq!(parse_value_type("chart.point").describe(), "chart.point");
     }
 
     #[test]

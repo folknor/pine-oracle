@@ -1,2 +1,0 @@
-var lengthInput = input.int(10)
-var stochastic = ta.stoch(close, high, low, lengthInput)

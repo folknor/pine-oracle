@@ -1,4 +1,0 @@
-close > open
-rsi < 30
-x == 5
-close[1] > close[2]

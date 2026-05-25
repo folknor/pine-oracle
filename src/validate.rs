@@ -1,9 +1,7 @@
 // Validator.
 //
-// Local tier: `check(code)` runs the lifted lexer + parser, surfaces the
-// first failure as a structured `Diagnostic`. Single-element today because
-// the lifted parser bails on the first error; multi-error recovery is
-// future work in src/syntax/parser.rs.
+// Local tier: `check(code)` runs piners-syntax's lex / parse / type /
+// semantic pipeline and returns every diagnostic it can recover.
 //
 // Strict tier: `strict(code)` POSTs the source to TradingView's
 // pine-lint endpoint and maps every error + warning back to a Diagnostic.
@@ -14,9 +12,10 @@
 use std::time::Duration;
 
 use anyhow::{anyhow, bail};
+use piners_syntax::line_col_from_breaks;
 use serde::{Deserialize, Serialize};
 
-use crate::syntax::{Lexer, LexerError, Parser, ParserError};
+use crate::behavior;
 
 const PINE_LINT_URL: &str =
     "https://pine-facade.tradingview.com/pine-facade/translate_light?user_name=admin&v=3";
@@ -45,6 +44,8 @@ pub enum Severity {
 pub enum Stage {
     Lex,
     Parse,
+    Type,
+    Semantic,
     Strict,
 }
 
@@ -52,6 +53,8 @@ pub enum Stage {
 pub struct Diagnostic {
     pub severity: Severity,
     pub stage: Stage,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
     pub message: String,
     pub line: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -64,68 +67,63 @@ pub struct Report {
     pub diagnostics: Vec<Diagnostic>,
 }
 
-/// Validate Pine v6 source. Returns a `Report` with an empty `diagnostics`
-/// vec on success, or a single-element vec describing the first lex/parse
-/// failure.
+/// Validate Pine v6 source. Empty source is invalid under the piners-syntax
+/// contract because a script header is required. Returns a `Report` with an
+/// empty `diagnostics` vec on success.
 pub fn check(code: &str) -> Report {
-    let mut lexer = Lexer::new(code);
-    let tokens = match lexer.tokenize() {
-        Ok(tokens) => tokens,
-        Err(e) => {
-            return Report {
-                ok: false,
-                diagnostics: vec![lex_diagnostic(&e)],
-            };
-        }
-    };
-
-    let mut parser = Parser::new(tokens);
-    if let Err(e) = parser.parse() {
-        return Report {
-            ok: false,
-            diagnostics: vec![parse_diagnostic(&e)],
-        };
-    }
-
-    Report {
-        ok: true,
-        diagnostics: Vec::new(),
-    }
+    let report = piners_syntax::validate(code, behavior::syntax_builtins());
+    let linebreaks = report
+        .ast
+        .as_ref()
+        .map_or_else(|| linebreaks(code), |ast| ast.linebreaks.clone());
+    let diagnostics = report
+        .diagnostics
+        .iter()
+        .map(|diagnostic| local_diagnostic(code, &linebreaks, diagnostic))
+        .collect::<Vec<_>>();
+    let ok = !diagnostics
+        .iter()
+        .any(|diagnostic| matches!(diagnostic.severity, Severity::Error));
+    Report { ok, diagnostics }
 }
 
-fn lex_diagnostic(e: &LexerError) -> Diagnostic {
-    let (line, column) = match e {
-        LexerError::UnterminatedString { line, column }
-        | LexerError::InvalidHexColor { line, column, .. }
-        | LexerError::UnexpectedCharacter { line, column, .. }
-        | LexerError::InvalidNumber { line, column, .. } => (*line, Some(*column)),
-        LexerError::IndentationError { line } => (*line, None),
+fn local_diagnostic(
+    code: &str,
+    linebreaks: &[u32],
+    diagnostic: &piners_syntax::Diagnostic,
+) -> Diagnostic {
+    let loc = line_col_from_breaks(linebreaks, diagnostic.span.start);
+    let column = if diagnostic.span.start as usize <= code.len() {
+        Some(loc.column as usize)
+    } else {
+        None
     };
     Diagnostic {
-        severity: Severity::Error,
-        stage: Stage::Lex,
-        message: e.to_string(),
-        line,
+        severity: match diagnostic.severity {
+            piners_syntax::Severity::Error => Severity::Error,
+            piners_syntax::Severity::Warning | piners_syntax::Severity::Hint => Severity::Warning,
+        },
+        stage: match diagnostic.stage {
+            piners_syntax::Stage::Lex => Stage::Lex,
+            piners_syntax::Stage::Parse => Stage::Parse,
+            piners_syntax::Stage::Type => Stage::Type,
+            piners_syntax::Stage::Semantic => Stage::Semantic,
+        },
+        code: diagnostic
+            .code
+            .as_ref()
+            .map(|code| code.as_str().to_string()),
+        message: diagnostic.message.clone(),
+        line: loc.line as usize,
         column,
     }
 }
 
-fn parse_diagnostic(e: &ParserError) -> Diagnostic {
-    let line = match e {
-        ParserError::UnexpectedToken(_, line)
-        | ParserError::ExpectedVariableName(line)
-        | ParserError::ExpectedParameterName(line)
-        | ParserError::InvalidCallTarget(line)
-        | ParserError::ExpectedIdentifierAfterDot(line)
-        | ParserError::ExpectedToken { line, .. } => *line,
-    };
-    Diagnostic {
-        severity: Severity::Error,
-        stage: Stage::Parse,
-        message: e.to_string(),
-        line,
-        column: None,
-    }
+fn linebreaks(code: &str) -> Vec<u32> {
+    code.bytes()
+        .enumerate()
+        .filter_map(|(idx, byte)| (byte == b'\n').then_some(idx as u32))
+        .collect()
 }
 
 // ---------- strict tier (TV pine-lint over HTTPS) ----------
@@ -217,6 +215,7 @@ fn parse_strict_response(body: &str) -> anyhow::Result<Report> {
         diagnostics.push(Diagnostic {
             severity: Severity::Error,
             stage: Stage::Strict,
+            code: None,
             message: e.message,
             line: e.start.line,
             column: Some(e.start.column),
@@ -226,6 +225,7 @@ fn parse_strict_response(body: &str) -> anyhow::Result<Report> {
         diagnostics.push(Diagnostic {
             severity: Severity::Warning,
             stage: Stage::Strict,
+            code: None,
             message: w.message,
             line: w.start.line,
             column: Some(w.start.column),
@@ -242,36 +242,64 @@ mod tests {
     use super::*;
 
     #[test]
-    fn empty_source_is_ok() {
+    fn empty_source_is_parse_error() {
         let r = check("");
-        assert!(r.ok);
-        assert!(r.diagnostics.is_empty());
+        assert!(!r.ok);
+        assert!(
+            r.diagnostics
+                .iter()
+                .any(|d| matches!(d.stage, Stage::Parse))
+        );
     }
 
     #[test]
-    fn simple_var_decl_is_ok() {
-        let r = check("x = 1\n");
+    fn simple_indicator_is_ok() {
+        let r = check("//@version=6\nindicator(\"x\")\nx = 1\n");
         assert!(r.ok, "expected ok, got {:?}", r.diagnostics);
     }
 
     #[test]
     fn unterminated_string_is_lex_error() {
-        let r = check("x = \"hello\n");
+        let r = check("//@version=6\nindicator(\"x\")\nx = \"hello\n");
         assert!(!r.ok);
-        assert_eq!(r.diagnostics.len(), 1);
-        let d = &r.diagnostics[0];
+        let d = r
+            .diagnostics
+            .iter()
+            .find(|d| matches!(d.stage, Stage::Lex))
+            .expect("lex diagnostic");
         assert!(matches!(d.stage, Stage::Lex));
         assert!(d.column.is_some(), "lex error should carry column");
     }
 
     #[test]
     fn unexpected_token_is_parse_error() {
-        let r = check("x = + +\n");
+        let r = check("//@version=6\nindicator(\"x\")\nx = + +\n");
         assert!(!r.ok);
-        assert_eq!(r.diagnostics.len(), 1);
-        let d = &r.diagnostics[0];
+        let d = r
+            .diagnostics
+            .iter()
+            .find(|d| matches!(d.stage, Stage::Parse))
+            .expect("parse diagnostic");
         assert!(matches!(d.stage, Stage::Parse));
         assert!(d.line >= 1);
+    }
+
+    #[test]
+    fn local_validation_includes_type_and_semantic_diagnostics() {
+        let r = check("//@version=6\nindicator(\"x\")\nint value = \"bad\"\nvalue == na\n");
+        assert!(!r.ok);
+        assert!(
+            r.diagnostics.iter().any(|d| matches!(d.stage, Stage::Type)),
+            "{:?}",
+            r.diagnostics
+        );
+        assert!(
+            r.diagnostics
+                .iter()
+                .any(|d| matches!(d.stage, Stage::Semantic)),
+            "{:?}",
+            r.diagnostics
+        );
     }
 
     #[test]

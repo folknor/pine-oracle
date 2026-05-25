@@ -39,6 +39,8 @@ pub(crate) fn run(code: &str, strict: bool, format: ResolvedFormat, style: Style
                         match d.stage {
                             validate::Stage::Lex => "lex",
                             validate::Stage::Parse => "parse",
+                            validate::Stage::Type => "type",
+                            validate::Stage::Semantic => "semantic",
                             validate::Stage::Strict => "strict",
                         }
                     ));
@@ -46,7 +48,10 @@ pub(crate) fn run(code: &str, strict: bool, format: ResolvedFormat, style: Style
                         Some(col) => format!("{}:{}", d.line, col),
                         None => format!("{}", d.line),
                     };
-                    println!("{sev}{stage} {}: {}", style.bold(&loc), d.message);
+                    let code = d.code.as_deref().map_or(String::new(), |code| {
+                        format!("{} ", style.dim(&format!("{code}:")))
+                    });
+                    println!("{sev}{stage} {}: {code}{}", style.bold(&loc), d.message);
                 }
                 if report.ok {
                     println!("{}", style.yellow("ok (warnings only)"));

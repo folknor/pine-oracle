@@ -1,5 +1,0 @@
-//@version=6
-
-// varip variable declaration
-varip int counter = 0
-counter := counter + 1

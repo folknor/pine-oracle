@@ -1,2 +1,0 @@
-var myValue = na
-var check = someCondition ? na : 100

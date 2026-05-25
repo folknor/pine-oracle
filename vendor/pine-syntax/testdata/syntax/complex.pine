@@ -1,4 +1,0 @@
-var lengthInput = 10
-var stochastic = stoch(close, high, low, lengthInput)
-sma(close, 14) > sma(close, 28)
-

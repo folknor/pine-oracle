@@ -1,4 +1,0 @@
-//@version=4
-
-var int x = -1
-var float y = 3.14

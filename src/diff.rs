@@ -29,9 +29,9 @@
 //      when the computed tier is below excellent, so a real fix isn't masked).
 //
 // V1 limitations (vs upstream):
-//   - No interior trim. OHLCV isn't baked into the binary today, so the
-//     trim_bars / warmup_bars trimming that needs ohlcv_first_ms / last_ms
-//     is skipped. The headline stats use the full trim_to_common_window.
+//   - No interior trim until OHLCV is baked into the binary. The trim_bars /
+//     warmup_bars trimming that needs ohlcv_first_ms / last_ms is skipped.
+//     The headline stats use the full trim_to_common_window.
 //
 // Threshold values mirror verify_corpus.py exactly; bumping them here
 // without bumping them upstream is a regression flag.
