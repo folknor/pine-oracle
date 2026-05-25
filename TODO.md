@@ -60,12 +60,6 @@ crates.io or pinned by git ref.
   (`: int`). When piners-syntax lands and exposes structured types,
   print qualifier + type kind separately.
 
-## Internal polish (medium)
-
-- Color output on `pine validate` + `pine search` text mode when stdout
-  is a TTY. Wire `--no-color` to suppress. Probably `anstream` or
-  `nu-ansi-term`.
-
 ## Internal polish (large / deferred)
 
 - Multi-error parser recovery in `src/syntax/parser.rs`. **Throwaway

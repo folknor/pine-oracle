@@ -135,7 +135,7 @@ pine version                    pine-data snapshot date + corpus revision + bina
 Global flags:
 
 - `--format json|text` (default: `text` for tty, `json` for pipes)
-- `--no-color`
+- `--no-color` (suppress ANSI styling in text mode; also auto-suppressed when `NO_COLOR=1` is set, when output is JSON, or when stdout isn't a tty - currently affects `pine search` + `pine validate` text output)
 - `--quiet` (suppress headers, just return the data)
 
 ## Output format

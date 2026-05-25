@@ -91,6 +91,49 @@ enum ResolvedFormat {
     Json,
 }
 
+/// ANSI styling for terminal text output. Disabled when `--no-color` is
+/// set, when the `NO_COLOR` env var is present (no-color.org convention),
+/// when the resolved output format is JSON, or when stdout is not a TTY
+/// (same probe `OutputFormat::Auto` uses to pick text vs json).
+#[derive(Clone, Copy)]
+struct Style {
+    enabled: bool,
+}
+
+impl Style {
+    fn resolve(no_color: bool, format: ResolvedFormat) -> Self {
+        let enabled = !no_color
+            && std::env::var_os("NO_COLOR").is_none()
+            && format == ResolvedFormat::Text
+            && std::io::stdout().is_terminal();
+        Style { enabled }
+    }
+
+    fn red(self, s: &str) -> String {
+        self.wrap(s, "31")
+    }
+    fn yellow(self, s: &str) -> String {
+        self.wrap(s, "33")
+    }
+    fn cyan(self, s: &str) -> String {
+        self.wrap(s, "36")
+    }
+    fn dim(self, s: &str) -> String {
+        self.wrap(s, "2")
+    }
+    fn bold(self, s: &str) -> String {
+        self.wrap(s, "1")
+    }
+
+    fn wrap(self, s: &str, code: &str) -> String {
+        if self.enabled {
+            format!("\x1b[{code}m{s}\x1b[0m")
+        } else {
+            s.to_string()
+        }
+    }
+}
+
 #[derive(Subcommand)]
 enum Command {
     /// Function / constant / variable details
@@ -156,13 +199,14 @@ enum Command {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let format = cli.format.resolve();
+    let style = Style::resolve(cli.no_color, format);
 
     match cli.command {
         Command::Lookup { name } => cmd_lookup(&name, format),
         Command::Search { query, limit, kind } => {
-            cmd_search(&query, limit, kind.as_deref(), format)
+            cmd_search(&query, limit, kind.as_deref(), format, style)
         }
-        Command::Validate { code, strict } => cmd_validate(&code, strict, format),
+        Command::Validate { code, strict } => cmd_validate(&code, strict, format, style),
         Command::Parse { code } => cmd_parse(&code, format),
         Command::Tokens { code } => cmd_tokens(&code, format),
         Command::Behavior { name } => cmd_behavior(&name, format),
@@ -222,6 +266,7 @@ fn cmd_search(
     limit: usize,
     kind_filter: Option<&str>,
     format: ResolvedFormat,
+    style: Style,
 ) -> Result<()> {
     // Over-fetch when filtering so the post-filter list still fills the limit.
     let raw_limit = if kind_filter.is_some() {
@@ -259,13 +304,14 @@ fn cmd_search(
                 return Ok(());
             }
             for h in &hits {
-                println!(
-                    "{:>6.2}  [{:<9}] {}  ({})",
-                    h.score, h.kind, h.name, h.category
-                );
+                let score = style.dim(&format!("{:>6.2}", h.score));
+                let kind = style.cyan(&format!("[{:<9}]", h.kind));
+                let name = style.bold(&h.name);
+                let category = style.dim(&format!("({})", h.category));
+                println!("{score}  {kind} {name}  {category}");
                 let snippet = snippet_first_line(&h.content, 120);
                 if !snippet.is_empty() {
-                    println!("        {snippet}");
+                    println!("        {}", style.dim(&snippet));
                 }
             }
         }
@@ -573,7 +619,7 @@ fn print_behavior_text(b: &behavior::Behavior) {
     }
 }
 
-fn cmd_validate(code: &str, strict: bool, format: ResolvedFormat) -> Result<()> {
+fn cmd_validate(code: &str, strict: bool, format: ResolvedFormat, style: Style) -> Result<()> {
     let report = if strict {
         validate::strict(code)?
     } else {
@@ -585,7 +631,7 @@ fn cmd_validate(code: &str, strict: bool, format: ResolvedFormat) -> Result<()> 
         }
         ResolvedFormat::Text => {
             if report.diagnostics.is_empty() {
-                println!("ok");
+                println!("{}", style.cyan("ok"));
             } else {
                 if strict {
                     eprintln!(
@@ -601,22 +647,25 @@ fn cmd_validate(code: &str, strict: bool, format: ResolvedFormat) -> Result<()> 
                 }
                 for d in &report.diagnostics {
                     let sev = match d.severity {
-                        validate::Severity::Error => "error",
-                        validate::Severity::Warning => "warning",
+                        validate::Severity::Error => style.red("error"),
+                        validate::Severity::Warning => style.yellow("warning"),
                     };
-                    let stage = match d.stage {
-                        validate::Stage::Lex => "lex",
-                        validate::Stage::Parse => "parse",
-                        validate::Stage::Strict => "strict",
-                    };
+                    let stage = style.dim(&format!(
+                        "[{}]",
+                        match d.stage {
+                            validate::Stage::Lex => "lex",
+                            validate::Stage::Parse => "parse",
+                            validate::Stage::Strict => "strict",
+                        }
+                    ));
                     let loc = match d.column {
                         Some(col) => format!("{}:{}", d.line, col),
                         None => format!("{}", d.line),
                     };
-                    println!("{sev}[{stage}] {loc}: {}", d.message);
+                    println!("{sev}{stage} {}: {}", style.bold(&loc), d.message);
                 }
                 if report.ok {
-                    println!("ok (warnings only)");
+                    println!("{}", style.yellow("ok (warnings only)"));
                 }
             }
         }
@@ -1114,5 +1163,39 @@ mod tests {
         assert!(out.contains("Binary Add"));
         assert!(out.contains("Number 5"));
         assert!(out.contains("Number 3"));
+    }
+
+    #[test]
+    fn style_disabled_returns_unwrapped_text() {
+        let s = Style { enabled: false };
+        assert_eq!(s.red("err"), "err");
+        assert_eq!(s.yellow("warn"), "warn");
+        assert_eq!(s.bold("name"), "name");
+        assert_eq!(s.dim("12"), "12");
+        assert_eq!(s.cyan("[reference]"), "[reference]");
+    }
+
+    #[test]
+    fn style_enabled_wraps_with_ansi_escape_codes() {
+        let s = Style { enabled: true };
+        assert_eq!(s.red("err"), "\x1b[31merr\x1b[0m");
+        assert_eq!(s.yellow("warn"), "\x1b[33mwarn\x1b[0m");
+        assert_eq!(s.bold("x"), "\x1b[1mx\x1b[0m");
+        assert_eq!(s.dim("12"), "\x1b[2m12\x1b[0m");
+    }
+
+    #[test]
+    fn style_resolve_disables_for_json_output() {
+        // Even if --no-color is unset and stdout were a tty, JSON output
+        // must never carry escape codes.
+        let s = Style::resolve(false, ResolvedFormat::Json);
+        assert!(!s.enabled);
+    }
+
+    #[test]
+    fn style_resolve_disables_with_no_color_flag() {
+        // Forcing --no-color overrides any TTY auto-detect.
+        let s = Style::resolve(true, ResolvedFormat::Text);
+        assert!(!s.enabled);
     }
 }
