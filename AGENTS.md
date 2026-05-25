@@ -12,7 +12,15 @@ Single crate at the repo root.
 
 - `pine-cli` (binary name `pine`). Modules grow as subcommands land.
 
-Modules currently in `src/`:
+### Layout
+
+The library crate (`src/lib.rs`, surface = `pine_cli::*`) owns the domain modules listed below: pure logic with no CLI concerns. The binary crate (`src/main.rs` + `src/output.rs` + `src/commands/*.rs`) owns the CLI surface:
+
+- `src/main.rs` - clap `Cli` + `Command` definitions, `OutputFormat::Auto/Text/Json` resolution, `main()` dispatch, `cmd_version` (the only subcommand that stays inline because it self-describes the binary it lives in).
+- `src/output.rs` - shared output primitives every subcommand uses: `ResolvedFormat`, `Style` (ANSI colour wrapper with TTY / `NO_COLOR` / `--no-color` resolution), `SCHEMA_VERSION`, `versioned_json`, `print_json`. All `pub(crate)` (the binary has no external API).
+- `src/commands/<name>.rs` - one file per `pine <subcommand>` (every command except `version`): `lookup`, `search`, `validate`, `parse`, `tokens`, `behavior`, `probe`, `probes`, `diff`. Each exposes `pub(crate) fn run(...)` taking parsed args + `ResolvedFormat` (+ `Style` when the command emits styled text). Subcommand-only helpers (AST pretty-printer, per-command text formatters) live in the same file as their consumer.
+
+### Domain modules (`src/`)
 
 - `reference`: in-process lookup + substring search over the vendored TradingView v6 reference (`vendor/pine-reference/spec/v6.md`, 941 entries). Cached behind `OnceLock`. MPL-2.0, lifted from pinecone.
 - `corpus`: in-binary PineForge validation corpus, embedded via `include_dir`. Exposes `load_probe(slug)` and `list_probes(grep)` over 239 probes (flat + nested under `symbol-specified/<SYMBOL>/`). `summary_for(slug)` collects every prose comment line from each `strategy.pine` header up to the first real code line (skipping license / SPDX / copyright / version-directive noise, collapsing blank `//` paragraph separators), cached behind a OnceLock; covers 100% of baked probes with multi-paragraph summaries (median ~650 chars) that join the slug-title line with the author's `Purpose:` / `Trade shape:` / `TV setup:` paragraphs. `list_probes(grep)` matches against slug OR summary text. The wrapping Rust code is MPL-2.0 (project umbrella); the vendored corpus data under `vendor/pineforge-corpus/` is Apache-2.0, attributing PineForge contributors.
