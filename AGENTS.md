@@ -4,7 +4,7 @@
 
 pine-oracle is a Rust crate producing the `pine` binary: a single-binary CLI that answers Pine v6 semantic questions across every Pine-adjacent project. Vendors TradingView's published v6 reference (via Pinecone's snapshot) plus the PineForge cross-validation corpus, exposes them as one-shot subcommands (`pine lookup`, `pine search`, `pine probe`, `pine diff`, etc.). Design doc: `docs/pine-oracle.md`.
 
-The oracle is not a Pine runtime substitute. It answers questions about Pine; it does not run Pine.
+The oracle is not a Pine runtime substitute. It answers questions about Pine; the narrow exception is baked indicator fixture replay for `pine indicator --strict`, which runs piners only to compare against a frozen baseline.
 
 ## Workspace
 
@@ -18,24 +18,24 @@ The library crate (`src/lib.rs`, surface = `pine_cli::*`) owns the domain module
 
 - `src/main.rs` - clap `Cli` + `Command` definitions, `OutputFormat::Auto/Text/Json` resolution, `main()` dispatch, `cmd_version` (the only subcommand that stays inline because it self-describes the binary it lives in).
 - `src/output.rs` - shared output primitives every subcommand uses: `ResolvedFormat`, `Style` (ANSI colour wrapper with TTY / `NO_COLOR` / `--no-color` resolution), `SCHEMA_VERSION`, `versioned_json`, `print_json`. All `pub(crate)` (the binary has no external API).
-- `src/commands/<name>.rs` - one file per `pine <subcommand>` (every command except `version`): `lookup`, `search`, `validate`, `parse`, `tokens`, `behavior`, `probe`, `probes`, `diff`. Each exposes `pub(crate) fn run(...)` taking parsed args + `ResolvedFormat` (+ `Style` when the command emits styled text). Subcommand-only helpers (AST pretty-printer, per-command text formatters) live in the same file as their consumer.
+- `src/commands/<name>.rs` - one file per `pine <subcommand>` (every command except `version`): `lookup`, `search`, `validate`, `parse`, `tokens`, `behavior`, `probe`, `probes`, `diff`, `indicator`. Each exposes `pub(crate) fn run(...)` taking parsed args + `ResolvedFormat` (+ `Style` when the command emits styled text). Subcommand-only helpers (AST pretty-printer, per-command text formatters) live in the same file as their consumer.
 
 ### Domain modules (`src/`)
 
 - `reference`: in-process lookup + substring search over the vendored TradingView v6 reference (`vendor/pine-reference/spec/v6.md`, 941 entries). Cached behind `OnceLock`. MPL-2.0, lifted from pinecone.
 - `corpus`: in-binary PineForge validation corpus, embedded via `include_dir`. Exposes `load_probe(slug)` and `list_probes(grep)` over 239 probes (flat + nested under `symbol-specified/<SYMBOL>/`). `summary_for(slug)` collects every prose comment line from each `strategy.pine` header up to the first real code line (skipping license / SPDX / copyright / version-directive noise, collapsing blank `//` paragraph separators), cached behind a OnceLock; covers 100% of baked probes with multi-paragraph summaries (median ~650 chars) that join the slug-title line with the author's `Purpose:` / `Trade shape:` / `TV setup:` paragraphs. `list_probes(grep)` matches against slug OR summary text. The wrapping Rust code is MPL-2.0 (project umbrella); the vendored corpus data under `vendor/pineforge-corpus/` is Apache-2.0, attributing PineForge contributors.
 - `search`: BM25 via tantivy over four sources: the v6 reference (941 entries), the baked PineForge corpus (239 probes), PineForge's Pine v6 audit doc (`pine_v6_audit_master.md`, H2/H3 sections - 38 critical + ~62 minor documented TV-vs-engine divergences), and PineForge's 18 narrative explainer pages (`pages/*.md`, H2/H3 sections - magnifier, mtf, timeframes, lifecycle, report-schema, etc.). RAM-backed Index built on first invocation (~10-15 ms), OnceLock-cached, ~1.2k docs total. Schema fields: `name`, `category`, `kind` ("reference" / "probe" / "audit" / "docs"), `content` (STORED for retrieval) + `content_search` (TEXT for ranking). `name` gets a 5x boost over `content_search`. Hits carry full body in `SearchHit.content`.
-- `syntax`: Pine v6 lexer + AST + parser lifted from pinecone (MPL-2.0). Three sub-modules (`ast`, `lexer`, `parser`) re-exported through `syntax::*`. Drives `pine parse` and `pine tokens`. Parser regression tests run across 72 vendored `.pine` fixtures with `_ast.json` goldens. **Temporary**: this lift is the v0 backing for `pine validate`. Replaced by piners-syntax (the analyzer piners builds for its runtime) the moment its 0.1 ships. The lifted pinecone parser stops at the first lex / parse error and has no type checker.
 - `validate`: two tiers, with inverted authority vs. an earlier draft of the design doc.
-  - **Local (`validate::check`)**: lex + parse via `syntax`, returns first failure as `Diagnostic { severity, stage, message, line, column }`. Today catches one error only; becomes an IDE-quality multi-error multi-stage validator the moment piners-syntax lands.
+  - **Local (`validate::check`)**: lex + parse + type + semantic analysis via piners-syntax, backed by piners-runtime builtins plus pine-data gap-fill. Returns every diagnostic piners-syntax can recover as `Diagnostic { severity, stage, code, message, line, column }`.
   - **Strict (`validate::strict`)**: POSTs the source as `multipart/form-data` to `pine-facade.tradingview.com/pine-facade/translate_light` via `ureq`, maps every error + warning the API returns into Diagnostics with `Stage::Strict`. **Yes / no oracle only - the diagnostic prose is non-actionable**. TV's pine-lint stops at the first error, breaks on trailing whitespace, and reports wrong line / column numbers; the `success` bit is the only trustworthy output. Use after the local tier reports clean, not for iterative debugging. No auth (endpoint is open), no on-disk cache, 10s timeout. Response decoding pinned by inline fixture tests; never hits the network in CI.
 - `behavior`: structured signature + polymorphism lookup over pine-tools' JSON exports (`vendor/pine-data/v6/{functions,variables,constants,keywords,function-behavior}.json`). Public API: `lookup(name) -> Option<Behavior>`, where `Behavior` is one of `Function` / `Variable` / `Constant` / `Keyword`. Function entries optionally carry a `RawBehaviorEntry` with polymorphism markers + argument-ordering. Lenient deserialization (serde defaults on optional fields) so pine-tools schema tweaks don't break the binary.
 - `diff`: trade-list parity scorer, port of PineForge's `scripts/verify_corpus.py`. Public API: `diff(probe_slug, user_csv, opts) -> DiffReport`. Parses both CSVs into entry / exit pairs (Trade # joined, TV's "Date and time" interpreted in the chart timezone with default Asia/Taipei +8), aligns by direction + 1h window + $3 entry-price gate, trims to common window, computes 4-dim p90 deltas, classifies as excellent / strong / moderate / weak / minimal. Honours `inputs.json::expected_tier` ("anomaly", "engine_only") and `validation_overrides.expect_tv_match`. Strict vs production profile is auto-detected from `trail_*` parameters in `strategy.pine` (or forced via `inputs.json::parity_profile`). Threshold values mirror `verify_corpus.py` exactly. `DiffOptions::show_diffs > 0` populates `pair_diffs` (worst-N matched pairs, ranked descending by per-pair `max(entry_delta, exit_delta, pnl_delta)`) + `tv_orphans` / `user_orphans` (all unmatched trades from the trimmed window); default 0 keeps the report headline-only. V1 does not implement interior trim (`trim_bars` / `warmup_bars`) since the OHLCV feed isn't baked.
+- `indicator`: per-bar indicator fixture replay. Fixtures live under `indicators/<slug>/` (`source.pine`, `bars.json`, `expect.json`, optional `metadata.json`) and are embedded with `include_dir`. Public API: `list_fixtures()` and `run_strict(slug) -> IndicatorReport`. Runs source through piners-runner, compares plot outputs against `expect.json` using the documented `__NaN__` / `__Infinity__` / `__-Infinity__` / `__undefined__` tokens, and reports output + bar-index mismatches. The code substrate is done; no real TV baselines are baked yet.
 
 Planned changes:
 
-- Swap the pinecone-lifted lexer / parser for piners-syntax once it lands. Same public subcommand surface for `pine parse` / `pine tokens` / `pine validate`, deeper diagnostics behind it. The current pinecone lift catches only the first lex / parse error and has no type checks.
-- `pine indicator --strict`: per-bar parity oracle. Requires piners' engine + OHLCV bake; not yet started.
+- Bake real TradingView indicator baselines under `indicators/` so `pine indicator --strict` has useful fixtures beyond the implemented runner/differ substrate.
+- Add OHLCV-backed interior trim for `pine diff` once the OHLCV feed is baked.
 
 Canonical homes (so cross-module duplicates collapse to one):
 
@@ -91,7 +91,7 @@ Current vendors:
 
 ### Testing rules
 
-- Tests are small and technical. Markdown parsing pinning, lookup-table sanity, JSON output shape, lexer/parser fixtures (when those modules land).
+- Tests are small and technical. Markdown parsing pinning, lookup-table sanity, JSON output shape, piners-syntax parse/token/validate behavior, indicator fixture diffing.
 - Do not add tests that hit live TradingView or any network. The `--strict` validator tier is exercised manually, not in CI.
 - Vendored data is the test fixture: pin behavior against `vendor/pine-reference/spec/v6.md`, not against a hand-crafted toy markdown.
 - When in doubt, write the smallest deterministic unit test that pins the behavior.
@@ -117,11 +117,12 @@ Single-crate workspace, so `-p` is unnecessary.
 | `pine search <query>` | done (tantivy BM25, 5x name boost; indexes v6 reference + corpus probes + PineForge audit doc + 18 narrative pages; hits carry `kind` = "reference" / "probe" / "audit" / "docs" and a content snippet; `--kind <kind>` narrows the result set) |
 | `pine probe <slug>` | done (baked corpus, flat + nested slugs) |
 | `pine probes [--grep TEXT] [--feature NAME]` | done (`--grep` matches against slug or extracted-from-source summary text; `--feature` restricts by Pine-feature usage detected from each `strategy.pine` source - `oca`, `trail`, `pyramiding`, `varip`, `mtf`, `magnifier`, `matrix`, `map`, `udt`, `method`, `process_orders_on_close`, `barstate_isfirst`; pass `?` to list the catalog) |
-| `pine parse` | done via the pinecone lift; will deepen when piners-syntax replaces it |
-| `pine tokens` | done via the pinecone lift; will deepen when piners-syntax replaces it |
-| `pine validate` | v0 only: first lex/parse error from the pinecone lift, no type checks. v1 = IDE-quality multi-error output backed by piners-syntax. |
+| `pine parse` | done via piners-syntax |
+| `pine tokens` | done via piners-syntax |
+| `pine validate` | done via piners-syntax lex / parse / type / semantic diagnostics, backed by piners-runtime builtins plus pine-data gap-fill |
 | `pine validate --strict` | done as a TV-broker yes/no oracle. POSTs as multipart/form-data; `success` is trustworthy, the diagnostic prose is non-actionable (first error only, breaks on trailing whitespace, wrong line/column). Use after the local tier reports clean - not for iterative debugging. |
 | `pine behavior <name>` | done (functions / variables / constants / keywords from baked pine-tools JSON) |
 | `pine diff <probe> <trades.csv>` | done v1 (verify_corpus port: align + p90 + tier; `--show-diffs N` emits worst-N matched pairs + every TV / user orphan; no interior trim until OHLCV bake) |
-| `pine version` | done (binary version + reference / corpus / pineforge-docs bake counts) |
-| `pine indicator --strict` | TODO (per-bar parity; needs piners' engine + OHLCV bake) |
+| `pine version` | done (binary version + reference / corpus / pineforge-docs / indicator fixture bake counts) |
+| `pine indicator --list` | done (lists baked strict fixtures; currently empty until real TV baselines land) |
+| `pine indicator --strict <slug>` | substrate done (fixture loader + piners-runner replay + per-bar diff); pending real TV baseline data under `indicators/` |

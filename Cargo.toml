@@ -68,6 +68,7 @@ clap = { version = "4", features = ["derive"] }
 comrak = "0.52"
 include_dir = { version = "0.7", features = ["glob"] }
 piners-runtime = { path = "../piners/crates/piners-runtime" }
+piners-runner = { path = "../piners/crates/piners-runner" }
 piners-syntax = { path = "../piners/crates/piners-syntax" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

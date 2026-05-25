@@ -5,6 +5,7 @@
 
 pub(crate) mod behavior;
 pub(crate) mod diff;
+pub(crate) mod indicator;
 pub(crate) mod lookup;
 pub(crate) mod parse;
 pub(crate) mod probe;

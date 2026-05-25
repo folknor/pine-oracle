@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
-use pine_cli::{corpus, reference, search};
+use pine_cli::{corpus, indicator, reference, search};
 use std::io::IsTerminal;
 
 mod commands;
@@ -105,6 +105,17 @@ enum Command {
         show_diffs: usize,
     },
 
+    /// Per-bar indicator parity against a baked baseline
+    Indicator {
+        slug: Option<String>,
+        /// Run strict per-bar parity for the named indicator fixture.
+        #[arg(long)]
+        strict: bool,
+        /// List baked indicator fixtures.
+        #[arg(long)]
+        list: bool,
+    },
+
     /// pine-data snapshot date + corpus revision + binary version
     Version,
 }
@@ -132,6 +143,9 @@ fn main() -> Result<()> {
             trades_csv,
             show_diffs,
         } => commands::diff::run(&probe, &trades_csv, show_diffs, format),
+        Command::Indicator { slug, strict, list } => {
+            commands::indicator::run(slug.as_deref(), strict, list, format)
+        }
         Command::Version => cmd_version(format),
     }
 }
@@ -145,6 +159,7 @@ fn cmd_version(format: ResolvedFormat) -> Result<()> {
         .map_or(0, |v| v.iter().filter(|p| p.summary.is_some()).count());
     let audit_sections = search::audit_section_count();
     let docs_sections = search::docs_section_count();
+    let indicator_fixture_count = indicator::list_fixtures().map_or(0, |v| v.len());
     match format {
         ResolvedFormat::Json => {
             print_json(&serde_json::json!({
@@ -161,6 +176,9 @@ fn cmd_version(format: ResolvedFormat) -> Result<()> {
                     "audit_sections": audit_sections,
                     "narrative_sections": docs_sections,
                 },
+                "indicator": {
+                    "fixture_count": indicator_fixture_count,
+                },
             }))?;
         }
         ResolvedFormat::Text => {
@@ -176,6 +194,7 @@ fn cmd_version(format: ResolvedFormat) -> Result<()> {
             println!(
                 "pineforge docs: {audit_sections} audit sections + {docs_sections} narrative sections"
             );
+            println!("indicator:     {indicator_fixture_count} strict fixtures");
         }
     }
     Ok(())

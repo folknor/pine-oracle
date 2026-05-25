@@ -72,7 +72,7 @@ Two tiers, in inverted authority order vs. an earlier draft of this doc:
 
 - **Local tier (`pine validate`)**. The workhorse. Uses **piners-syntax** for lexing, parsing, type checking, and semantic analysis, returning every diagnostic the pipeline can recover with correct line + column positions. The builtins table starts from **piners-runtime** so validation matches piners where the runtime has an implementation or stub, then pine-oracle fills any missing public symbols from the vendored pine-tools JSON.
 - **Strict tier (`pine validate --strict`)**. **Yes / no oracle only. Do not try to fix your script from its diagnostics.** TradingView's `pine-facade/translate_light` endpoint is profoundly bad as a validator: it stops at the first error, breaks on trailing whitespace (e.g. an extra space at end of line is "invalid"), and reports the wrong line / column for essentially every diagnostic. The diagnostic prose is non-actionable: it tells you *something* is wrong but not where or what in any reliable way. The only trustworthy output is the `success` bit (true / false). Use this exactly once, after you believe `pine validate` (local tier) reports clean: a final yes / no from TV's broker before you publish. Do not iterate against it; iterate against the local tier. No auth required, no on-disk cache.
-- **Indicator strict tier (`pine indicator --strict <probe>`)**. Different oracle: runs an indicator against fixture bars and diffs per-bar values against a vendored baseline using the PineTS-derived `.expect.json` schema (see "Strict-mode indicator test format" below). Corpus is trade-list parity; this is per-bar indicator parity.
+- **Indicator strict tier (`pine indicator --strict <slug>`)**. Different oracle: runs an indicator against fixture bars through **piners-runner** and diffs per-bar values against a baked baseline using the PineTS-derived `.expect.json` schema (see "Strict-mode indicator test format" below). Corpus is trade-list parity; this is per-bar indicator parity. The runner/differ/CLI substrate is implemented; real TV baselines are the remaining data gap.
 
 ## Vendoring inventory
 
@@ -91,12 +91,13 @@ What to pull from where, in priority order. The oracle's license is the natural 
 | 9 | 21 engine-internals probe summaries | `research/pineforge-engine/src/engine_*.cpp` + tests | Apache-2.0 | Per-probe BM25 substrate | **Superseded.** The harvested summaries were keyed to engine-internal probe identifiers that do not match the published-corpus slugs. `corpus::summary_for` collects every prose comment line from each baked `strategy.pine`'s header instead, covering 100% of the 239 baked probes with multi-paragraph summaries (median ~650 chars) without any LLM curation. |
 | 10 | `scripts/verify_corpus.py` (622 lines Python) | `research/pineforge-engine/` | Apache-2.0 | Trade-list alignment + tier classification | Port to `src/diff.rs`; add interior trim once OHLCV is baked |
 | 10a | piners runtime builtins | `../piners/crates/piners-runtime/` | MIT OR Apache-2.0 | Primary builtins table for local validation | Path dependency; augmented with pine-data gap-fill |
+| 10b | piners runner | `../piners/crates/piners-runner/` | MIT OR Apache-2.0 | Runs baked indicator fixtures for `pine indicator --strict` | Path dependency; command substrate implemented, pending real TV baseline data under `indicators/` |
 | 11 | `pineforge.h` doxygen blocks (~390 LOC) | `research/pineforge-engine/include/pineforge/` | Apache-2.0 | C ABI documentation | **Deferred.** Niche substrate (describes the C ABI consumers integrate against, not Pine semantics). Re-evaluate if `pine indicator --strict` needs it. |
 | 12 | 120 runtime golden fixtures | `research/pinecone/tests/testdata/` | MPL-2.0 | `pine behavior <feature>` per-feature substrate | **Deferred.** Lower yield once pine-tools JSON ships the structured signatures (item 5). |
 | 13 | Vendored TV docs scraper (50 LOC) | `research/pinecone/crates/pine-reference/src/lib.rs:9-58` | MPL-2.0 | Refresh v6.md snapshot when TV publishes updates | **Deferred.** pine-tools' scraper is the upstream of record now; pine-oracle re-vendors from pine-tools, not from TV directly. |
 | 14 | Seven Pine quirk patterns | `research/PineTS/src/namespaces/README.md` | AGPL paraphrase (clean-room) | BM25 substrate for "how does Pine handle X" | **Deferred.** PineForge narrative pages (item 8) cover most of the same ground without the AGPL paraphrase cost. |
 | 15 | Namespace enumeration (`KNOWN_NAMESPACES`, `FACTORY_METHODS`) | `research/PineTS/src/transpiler/settings.ts` | Not copyrightable (facts) | Structured data for `pine namespaces` / `pine factories` | **Deferred.** Subsumed by pine-tools' constants.json + keywords.json. |
-| 16 | `.pine.ts` + `.expect.json` compat-test format | `research/PineTS/tests/compatibility/` | Format only | Schema for `pine indicator --strict` | Adopt when `pine indicator --strict` lands |
+| 16 | `.pine.ts` + `.expect.json` compat-test format | `research/PineTS/tests/compatibility/` | Format only | Schema for `pine indicator --strict` | Adopted as the `indicators/<slug>/expect.json` value-token shape; implementation is clean-room Rust |
 
 ### What we don't pull from pine-tools
 
@@ -120,7 +121,7 @@ Phase 2 adds the `tantivy` BM25 index over all baked knowledge sources: the v6 r
 
 Phase 3 bakes the PineForge corpus and adds the probe, probe-listing, behavior, parser, token, validation, and trade-list diff commands.
 
-Phase 4 integrates piners' runtime pieces: piners-syntax and piners-runtime back deep local validation, and the engine + OHLCV bake unlock `pine indicator --strict`.
+Phase 4 integrates piners' runtime pieces: piners-syntax and piners-runtime back deep local validation, and piners-runner backs `pine indicator --strict`. The command substrate is in place; OHLCV and real TV baseline fixtures unlock useful strict coverage.
 
 ## Subcommands
 
@@ -138,8 +139,9 @@ pine probes --grep <text>       list probes whose slug or extracted summary matc
 pine probes --feature <name>    list probes whose strategy.pine uses the named Pine feature (`?` lists the catalog)
 pine diff <probe> <trades.csv>  tier-classify a piners trade list against the probe's tv_trades
 pine diff ... --show-diffs N    + worst-N matched pairs (ranked) + every TV/user orphan trade
+pine indicator --list           list baked indicator strict fixtures
 pine indicator --strict <slug>  per-bar indicator parity against a vendored TV baseline
-pine version                    pine-data snapshot date + corpus revision + binary version
+pine version                    pine-data snapshot date + bake counts + binary version
 ```
 
 Global flags:
@@ -217,6 +219,19 @@ indicators/<slug>/
   metadata.json      # which TV chart version was used to generate the baseline, snapshot date
 ```
 
+`bars.json` accepts either a bare array of OHLCV bars or the richer object form below. The object form is preferred because it pins chart context for time/session-sensitive scripts:
+
+```json
+{
+  "symbol": "BTCUSDC",
+  "timeframe": "1D",
+  "source": "tradingview",
+  "bars": [
+    { "timestamp": 1735689600, "open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0, "volume": 1.0 }
+  ]
+}
+```
+
 `expect.json` schema:
 
 ```json
@@ -244,7 +259,7 @@ Custom value tokens:
 | `"__-Infinity__"` | `-inf` |
 | `"__undefined__"` | unset / before warmup |
 
-`pine indicator --strict <slug>` runs `source.pine` through piners' engine against `bars.json`, serializes outputs with the same token convention, diffs against `expect.json`. Discrepancy report cites bar index + output name + expected vs actual.
+`pine indicator --strict <slug>` runs `source.pine` through piners-runner against `bars.json`, serializes outputs with the same token convention, diffs against `expect.json`, and exits non-zero on mismatch. Discrepancy report cites bar index + output name + expected vs actual. `pine indicator --list` lists baked fixtures; it is empty until real TV baselines are added under `indicators/`.
 
 Baselines are regenerated by running the indicator on TV (manual paste + log capture, similar to the PRNG fixture workflow in `docs/prng-parity.md`). `metadata.json` pins the TV version + date so regenerated baselines are reproducible.
 
@@ -334,7 +349,7 @@ Release cadence: pin to pine-tools' scrape cadence. When TV's docs change, refre
 
 ## Out of scope
 
-- **A piners runtime substitute.** `pine` does not run Pine; it answers questions about Pine. Running Pine to produce trades is piners' job.
+- **A piners runtime substitute.** `pine` does not run arbitrary Pine or produce trades. The narrow exception is `pine indicator --strict`, which replays baked indicator fixtures through piners-runner only to compare against a frozen baseline.
 - **Pine code generation.** `pine` does not write Pine; it explains and validates Pine.
 - **A general TV API client.** No charts, no symbols, no quotes. Strictly Pine semantics + the cross-validated corpus.
 - **PRNG fingerprinting automation.** `pine` does not run scripts on TV's broker. The TV-pasteable fixture in `docs/prng-parity.md` is a manual workflow; the oracle just consumes the resulting baseline once we have it.

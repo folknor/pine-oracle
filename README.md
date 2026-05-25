@@ -20,7 +20,9 @@ runtime configuration.
 | `pine probe <slug>` | Pull a baked PineForge corpus probe (strategy.pine + tv_trades.csv + author-extracted summary) |
 | `pine probes [--grep TEXT] [--feature NAME]` | List baked probes; `--grep` matches slug or summary substring, `--feature` restricts by detected Pine-feature usage (`oca`, `trail`, `pyramiding`, `mtf`, `varip`, `magnifier`, `matrix`, `map`, `udt`, `method`, `process_orders_on_close`, `barstate_isfirst`; pass `?` to list the catalog) |
 | `pine diff <probe> <trades.csv> [--show-diffs N]` | Tier-classify a user trade list against the probe's TV ground truth (port of PineForge's verify_corpus.py); `--show-diffs N` emits the worst-N matched pairs plus every TV / user orphan |
-| `pine version` | Binary version + bake counts (reference entries, corpus probes, audit + narrative sections) |
+| `pine indicator --list` | List baked indicator strict fixtures |
+| `pine indicator --strict <slug>` | Run a baked indicator fixture through piners-runner and diff per-bar outputs against `expect.json`; no real TV baselines are baked yet |
+| `pine version` | Binary version + bake counts (reference entries, corpus probes, audit + narrative sections, indicator fixtures) |
 
 All subcommands accept `--format json|text|auto`. JSON outputs carry
 `schema_version: 1`. Object payloads attach the version inline; arrays wrap
@@ -61,7 +63,8 @@ upstream. Top-level `NOTICE` consolidates the per-component attributions.
   MCP server.
 - **piners** (MIT OR Apache-2.0) - piners-syntax powers `pine parse`,
   `pine tokens`, and local `pine validate`; piners-runtime provides the
-  primary builtins table used by local validation.
+  primary builtins table used by local validation; piners-runner backs
+  indicator fixture replay for `pine indicator --strict`.
 - **TradingView** - source of the Pine v6 reference content vendored
   through Pinecone's snapshot. TradingView and PineScript are trademarks
   of their respective owners. This project is not affiliated with or
