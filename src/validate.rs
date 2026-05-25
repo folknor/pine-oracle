@@ -95,10 +95,10 @@ pub fn check(code: &str) -> Report {
 
 fn lex_diagnostic(e: &LexerError) -> Diagnostic {
     let (line, column) = match e {
-        LexerError::UnterminatedString { line, column } => (*line, Some(*column)),
-        LexerError::InvalidHexColor { line, column, .. } => (*line, Some(*column)),
-        LexerError::UnexpectedCharacter { line, column, .. } => (*line, Some(*column)),
-        LexerError::InvalidNumber { line, column, .. } => (*line, Some(*column)),
+        LexerError::UnterminatedString { line, column }
+        | LexerError::InvalidHexColor { line, column, .. }
+        | LexerError::UnexpectedCharacter { line, column, .. }
+        | LexerError::InvalidNumber { line, column, .. } => (*line, Some(*column)),
         LexerError::IndentationError { line } => (*line, None),
     };
     Diagnostic {
@@ -112,12 +112,12 @@ fn lex_diagnostic(e: &LexerError) -> Diagnostic {
 
 fn parse_diagnostic(e: &ParserError) -> Diagnostic {
     let line = match e {
-        ParserError::UnexpectedToken(_, line) => *line,
-        ParserError::ExpectedToken { line, .. } => *line,
-        ParserError::ExpectedVariableName(line) => *line,
-        ParserError::ExpectedParameterName(line) => *line,
-        ParserError::InvalidCallTarget(line) => *line,
-        ParserError::ExpectedIdentifierAfterDot(line) => *line,
+        ParserError::UnexpectedToken(_, line)
+        | ParserError::ExpectedVariableName(line)
+        | ParserError::ExpectedParameterName(line)
+        | ParserError::InvalidCallTarget(line)
+        | ParserError::ExpectedIdentifierAfterDot(line)
+        | ParserError::ExpectedToken { line, .. } => *line,
     };
     Diagnostic {
         severity: Severity::Error,
@@ -168,21 +168,23 @@ struct TvResponse {
 /// transport / parse failures (network, timeout, malformed JSON); script
 /// errors land in the `Report::diagnostics` vec.
 pub fn strict(code: &str) -> anyhow::Result<Report> {
-    let agent = ureq::AgentBuilder::new()
-        .timeout(Duration::from_secs(STRICT_TIMEOUT_SECS))
+    let config = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(STRICT_TIMEOUT_SECS)))
         .build();
+    let agent = ureq::Agent::new_with_config(config);
     let body = build_multipart_body(code);
     let content_type = format!("multipart/form-data; boundary={MULTIPART_BOUNDARY}");
-    let resp = agent
+    let mut response = agent
         .post(PINE_LINT_URL)
-        .set("Referer", "https://www.tradingview.com/")
-        .set("User-Agent", USER_AGENT)
-        .set("DNT", "1")
-        .set("Content-Type", &content_type)
-        .send_bytes(body.as_bytes())
+        .header("Referer", "https://www.tradingview.com/")
+        .header("User-Agent", USER_AGENT)
+        .header("DNT", "1")
+        .header("Content-Type", &content_type)
+        .send(body.as_bytes())
         .map_err(|e| anyhow!("pine-lint request failed: {e}"))?;
-    let response_body = resp
-        .into_string()
+    let response_body = response
+        .body_mut()
+        .read_to_string()
         .map_err(|e| anyhow!("reading pine-lint body: {e}"))?;
     parse_strict_response(&response_body)
 }

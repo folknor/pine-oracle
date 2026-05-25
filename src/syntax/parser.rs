@@ -2,6 +2,18 @@
 //
 // Lifted from pinecone (crates/pine-parser/src/lib.rs, MPL-2.0).
 // (c) Pinecone contributors. See vendor/pine-syntax/LICENSE.
+//
+// Lint allows: this file is vendored and gets swapped out the moment
+// piners-syntax 0.1 ships; touching upstream style is throwaway work.
+
+#![allow(
+    clippy::collapsible_if,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::redundant_closure_for_method_calls,
+    clippy::redundant_else,
+    clippy::uninlined_format_args
+)]
 
 pub use super::ast::{Argument, BinOp, Expr, Literal, Program, Stmt, UnOp};
 use super::lexer::{Token, TokenType};
@@ -142,7 +154,7 @@ impl Parser {
                         return Err(ParserError::UnexpectedToken(
                             p.peek().typ.clone(),
                             p.peek().line,
-                        ))
+                        ));
                     }
                 };
                 p.advance();
@@ -1059,7 +1071,7 @@ impl Parser {
             if self.check(&TokenType::Else) {
                 if let Some((else_if_condition, else_if_body)) = self.try_parse(|p| {
                     p.advance(); // consume 'else'
-                                 // Check if next token is 'if'
+                    // Check if next token is 'if'
                     if p.match_token(&[TokenType::If]) {
                         // This is an else if
                         let else_if_condition = p.expression()?;
@@ -1133,7 +1145,7 @@ impl Parser {
             if self.check(&TokenType::Else) {
                 if let Some((else_if_condition, else_if_expr)) = self.try_parse(|p| {
                     p.advance(); // consume 'else'
-                                 // Check if next token is 'if'
+                    // Check if next token is 'if'
                     if p.match_token(&[TokenType::If]) {
                         // This is an else if
                         let else_if_condition = p.expression()?;

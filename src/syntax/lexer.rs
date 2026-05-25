@@ -5,6 +5,11 @@
 //
 // Local mods: added `serde::Serialize` derives on `Token` and
 // `TokenType` so `pine tokens` can emit structured JSON.
+//
+// Lint allows: this file is vendored and gets swapped out the moment
+// piners-syntax 0.1 ships; touching upstream style is throwaway work.
+
+#![allow(clippy::uninlined_format_args, clippy::collapsible_if)]
 
 use serde::Serialize;
 use thiserror::Error;
@@ -640,7 +645,7 @@ impl Lexer {
                     ch,
                     line,
                     column: col,
-                })
+                });
             }
         };
 

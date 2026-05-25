@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
 use pine_cli::{behavior, corpus, diff, reference, search, syntax, validate};
 use serde::Serialize;
@@ -255,7 +255,7 @@ fn cmd_search(
 fn snippet_first_line(content: &str, max_chars: usize) -> String {
     let first = content
         .lines()
-        .map(|l| l.trim())
+        .map(str::trim)
         .find(|l| !l.is_empty())
         .unwrap_or("");
     let collected: String = first.chars().take(max_chars).collect();
@@ -280,7 +280,9 @@ fn cmd_probe(slug: &str, format: ResolvedFormat) -> Result<()> {
             }
             let trade_lines = probe.tv_trades_csv.lines().count();
             let trade_bytes = probe.tv_trades_csv.len();
-            println!("tv_trades.csv: {trade_lines} lines, {trade_bytes} bytes (use --format json for full content)");
+            println!(
+                "tv_trades.csv: {trade_lines} lines, {trade_bytes} bytes (use --format json for full content)"
+            );
             println!(
                 "inputs.json: {}",
                 if probe.inputs_json.is_some() {
@@ -911,10 +913,9 @@ fn cmd_version(format: ResolvedFormat) -> Result<()> {
     let binary = env!("CARGO_PKG_VERSION");
     let categories = reference::categories();
     let reference_entry_count = reference::all_entries().len();
-    let probe_count = corpus::list_probes(None).map(|v| v.len()).unwrap_or(0);
-    let probe_summary_count = corpus::list_probes(None)
-        .map(|v| v.iter().filter(|p| p.summary.is_some()).count())
-        .unwrap_or(0);
+    let probe_count = corpus::list_probes(None).map_or(0, |v| v.len());
+    let probe_summary_count =
+        corpus::list_probes(None).map_or(0, |v| v.iter().filter(|p| p.summary.is_some()).count());
     let audit_sections = search::audit_section_count();
     let docs_sections = search::docs_section_count();
     match format {

@@ -12,7 +12,7 @@
 
 use anyhow::Result;
 use comrak::nodes::{AstNode, NodeValue};
-use comrak::{parse_document, Arena, Options};
+use comrak::{Arena, Options, parse_document};
 use serde::Serialize;
 use std::sync::OnceLock;
 
@@ -72,7 +72,7 @@ fn parse_sections(markdown_content: &str) -> Result<Vec<Section>> {
         let content: Vec<String> = lines[*start_line..end_line]
             .iter()
             .skip(1)
-            .map(|s| s.to_string())
+            .map(|s| (*s).to_string())
             .collect();
 
         sections.push(Section {

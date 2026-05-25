@@ -19,8 +19,8 @@
 // still ships richer engine-internals prose for ~21 probes; that file is
 // not currently keyed to published slugs and so is not loaded here.
 
-use anyhow::{anyhow, bail, Result};
-use include_dir::{include_dir, Dir};
+use anyhow::{Result, anyhow, bail};
+use include_dir::{Dir, include_dir};
 use serde::Serialize;
 use std::sync::OnceLock;
 
@@ -62,7 +62,7 @@ pub fn load_probe(slug: &str) -> Result<Probe> {
 /// List every baked probe. `grep`, when present, filters by case-insensitive
 /// substring against the slug OR the extracted summary text.
 pub fn list_probes(grep: Option<&str>) -> Result<Vec<ProbeListing>> {
-    let needle = grep.map(|s| s.to_ascii_lowercase());
+    let needle = grep.map(str::to_ascii_lowercase);
     let entries = CORPUS
         .find("**/strategy.pine")
         .map_err(|e| anyhow!("walking corpus: {e}"))?;
@@ -75,9 +75,7 @@ pub fn list_probes(grep: Option<&str>) -> Result<Vec<ProbeListing>> {
             let summary = summary_for(&slug);
             if let Some(n) = &needle {
                 let slug_hit = slug.to_ascii_lowercase().contains(n);
-                let summary_hit = summary
-                    .map(|s| s.to_ascii_lowercase().contains(n))
-                    .unwrap_or(false);
+                let summary_hit = summary.is_some_and(|s| s.to_ascii_lowercase().contains(n));
                 if !slug_hit && !summary_hit {
                     return None;
                 }
@@ -291,8 +289,7 @@ mod tests {
             let slug_hit = p.slug.to_ascii_lowercase().contains("oca");
             let summary_hit = p
                 .summary
-                .map(|s| s.to_ascii_lowercase().contains("oca"))
-                .unwrap_or(false);
+                .is_some_and(|s| s.to_ascii_lowercase().contains("oca"));
             slug_hit || summary_hit
         }));
     }

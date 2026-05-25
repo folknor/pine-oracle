@@ -40,7 +40,7 @@
 
 use std::collections::HashSet;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use chrono::{FixedOffset, NaiveDateTime, TimeZone};
 use serde::Serialize;
 
@@ -543,7 +543,7 @@ fn parse_inputs_json(raw: Option<&'static str>) -> InputsMeta {
     let expect_tv_match = v
         .get("validation_overrides")
         .and_then(|o| o.get("expect_tv_match"))
-        .and_then(|b| b.as_bool());
+        .and_then(serde_json::Value::as_bool);
     InputsMeta {
         parity_profile,
         tv_trades_csv_tz,
@@ -559,7 +559,7 @@ fn tv_csv_tz_offset(meta: &InputsMeta) -> i32 {
         .map(str::to_ascii_lowercase)
         .as_deref()
     {
-        Some("utc_plus_8") | Some("asia_taipei") => 8,
+        Some("utc_plus_8" | "asia_taipei") => 8,
         Some("utc") => 0,
         _ => TV_CSV_TZ_OFFSET_HOURS_DEFAULT,
     }

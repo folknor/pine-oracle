@@ -14,13 +14,13 @@
 
 use anyhow::Result;
 use comrak::nodes::{AstNode, NodeValue};
-use comrak::{parse_document, Arena, Options};
-use include_dir::{include_dir, Dir};
+use comrak::{Arena, Options, parse_document};
+use include_dir::{Dir, include_dir};
 use serde::Serialize;
 use std::sync::OnceLock;
 use tantivy::collector::TopDocs;
 use tantivy::query::{BooleanQuery, BoostQuery, Query, QueryParser};
-use tantivy::schema::{Field, Schema, STORED, STRING, TEXT};
+use tantivy::schema::{Field, STORED, STRING, Schema, TEXT};
 use tantivy::{Index, IndexReader, ReloadPolicy, TantivyDocument};
 
 use crate::{corpus, reference};
@@ -161,12 +161,11 @@ pub fn query(q: &str, limit: usize) -> Result<Vec<SearchHit>> {
     let name_q = name_parser.parse_query(q)?;
     let content_q = content_parser.parse_query(q)?;
 
-    let combined: Box<dyn Query> = Box::new(BooleanQuery::union(vec![
-        Box::new(BoostQuery::new(name_q, 5.0)) as Box<dyn Query>,
-        content_q,
-    ]));
+    let boosted_name: Box<dyn Query> = Box::new(BoostQuery::new(name_q, 5.0));
+    let combined: Box<dyn Query> = Box::new(BooleanQuery::union(vec![boosted_name, content_q]));
 
-    let top = searcher.search(&combined, &TopDocs::with_limit(limit))?;
+    let collector = TopDocs::with_limit(limit).order_by_score();
+    let top = searcher.search(&combined, &collector)?;
 
     let mut hits = Vec::with_capacity(top.len());
     for (score, addr) in top {
@@ -189,7 +188,8 @@ pub fn query(q: &str, limit: usize) -> Result<Vec<SearchHit>> {
 fn first_text(doc: &TantivyDocument, field: Field) -> Option<String> {
     use tantivy::schema::Value;
     doc.get_first(field)
-        .and_then(|v| v.as_str().map(|s| s.to_string()))
+        .and_then(|v| v.as_str())
+        .map(String::from)
 }
 
 /// Count of indexed sections in the vendored audit doc. Cheap accessor for
@@ -213,17 +213,17 @@ fn parse_md_sections(markdown: &str) -> Vec<(String, String)> {
     let lines: Vec<&str> = markdown.lines().collect();
 
     fn collect<'a>(node: &'a AstNode<'a>, out: &mut Vec<(String, u8, usize)>) {
-        if let NodeValue::Heading(h) = &node.data.borrow().value {
-            if h.level == 2 || h.level == 3 {
-                let mut text = String::new();
-                for child in node.children() {
-                    if let NodeValue::Text(t) = &child.data.borrow().value {
-                        text.push_str(t);
-                    }
+        if let NodeValue::Heading(h) = &node.data.borrow().value
+            && (h.level == 2 || h.level == 3)
+        {
+            let mut text = String::new();
+            for child in node.children() {
+                if let NodeValue::Text(t) = &child.data.borrow().value {
+                    text.push_str(t);
                 }
-                let start = node.data.borrow().sourcepos.start.line;
-                out.push((text, h.level, start));
             }
+            let start = node.data.borrow().sourcepos.start.line;
+            out.push((text, h.level, start));
         }
         for child in node.children() {
             collect(child, out);

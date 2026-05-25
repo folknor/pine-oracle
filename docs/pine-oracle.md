@@ -68,10 +68,7 @@ When `pine indicator --strict` and `pine diff` v1 land, OHLCV gets added to the 
 
 Two tiers, in inverted authority order vs. an earlier draft of this doc:
 
-- **Local tier (`pine validate`)**. The workhorse. IDE-quality diagnostics: every lex / parse error, every type error, every semantic warning, with correct line + column positions, multi-error. This is what serious work uses. Three feasible implementations:
-  - **Use piners-syntax** once it stabilises. piners has to lex + parse + type-check Pine to execute it for backtesting; that analyzer is the natural Rust home and pine-oracle should depend on it.
-  - **Transpile pine-tools' TS analyzer to WASM** at build time. Brings the mature IDE validator along intact; preserves single-binary purity. Bridge option if piners-syntax isn't ready in time.
-  - **Today: the pinecone-lifted lexer + parser in `src/syntax/`**. v0 stand-in: catches the first lex / parse error and stops. No type checking. Replaced by one of the two options above when ready.
+- **Local tier (`pine validate`)**. The workhorse. IDE-quality diagnostics: every lex / parse error, every type error, every semantic warning, with correct line + column positions, multi-error. This is what serious work uses. Backed by **piners-syntax** once it stabilises (near-term): piners has to lex + parse + type-check Pine to execute it for backtesting; that analyzer is the natural Rust home and pine-oracle depends on it. The current pinecone-lifted lexer + parser in `src/syntax/` is a v0 stand-in that catches the first lex / parse error and has no type checking; it gets swapped out the moment piners-syntax ships 0.1.
 - **Strict tier (`pine validate --strict`)**. **Yes / no oracle only. Do not try to fix your script from its diagnostics.** TradingView's `pine-facade/translate_light` endpoint is profoundly bad as a validator: it stops at the first error, breaks on trailing whitespace (e.g. an extra space at end of line is "invalid"), and reports the wrong line / column for essentially every diagnostic. The diagnostic prose is non-actionable: it tells you *something* is wrong but not where or what in any reliable way. The only trustworthy output is the `success` bit (true / false). Use this exactly once, after you believe `pine validate` (local tier) reports clean: a final yes / no from TV's broker before you publish. Do not iterate against it; iterate against the local tier. No auth required, no on-disk cache.
 - **Indicator strict tier (`pine indicator --strict <probe>`)**. Different oracle: runs an indicator against fixture bars and diffs per-bar values against a vendored baseline using the PineTS-derived `.expect.json` schema (see "Strict-mode indicator test format" below). Corpus is trade-list parity; this is per-bar indicator parity.
 
@@ -309,11 +306,7 @@ Release cadence: pin to pine-tools' scrape cadence. When TV's docs change, refre
 
 ## Open questions
 
-1. **Validator backend.** **Partially resolved.** The local tier (`pine validate`) wants IDE-quality output: every lex / parse / type / semantic diagnostic with correct positions, not the shallow first-error stop the pinecone-lifted code does today. Three paths, in preference order:
-   - **Wait for piners-syntax.** piners has to lex + parse + type-check Pine to execute it for backtesting; that analyzer is the natural Rust home and the only path that keeps the binary pure-Rust without duplicating work. pine-oracle should depend on it once it stabilises.
-   - **WASM-bundle pine-tools' TS analyzer.** Bridge option: preserves single-binary purity, brings the mature IDE validator along intact. Use this if piners-syntax slips.
-   - **Today: pinecone lift in `src/syntax/`.** v0 stand-in. First-error-only, no type checks. Replaced by one of the two above when ready.
-   The "bundled Node runtime + pine-tools JS" option from an earlier draft is dropped: forces a 50 MB+ node payload into the binary, violates the zero-on-disk-scratch contract via npm cache assumptions.
+1. **Validator backend.** **Resolved.** The local tier (`pine validate`) is backed by **piners-syntax** - piners' own Rust analyzer, which has to lex + parse + type-check Pine for the runtime anyway. Today pine-oracle ships the pinecone lift in `src/syntax/` as a v0 stand-in (first-error-only, no type checks); the swap to piners-syntax happens the moment its 0.1 ships. The piners-syntax public API is specified in chat history with this session and (TBD) committed alongside its first release. The WASM-bundle-pine-tools bridge option from an earlier draft is dropped: piners-syntax is on a near-term horizon, so the bridge is dead weight. The "bundled Node runtime + pine-tools JS" option (also from an earlier draft) is dropped too: forces a 50 MB+ node payload into the binary and violates the zero-on-disk-scratch contract via npm cache assumptions.
 
 2. **Repo layout.** **Resolved:** new sibling Rust repo `pine-oracle/`. Not inside piners (would signal "piners helper", slow piners' build), not inside pine-tools (would force a Rust crate into a TS monorepo). pine-tools stays the upstream data source via `pnpm run export:json`.
 
@@ -334,11 +327,22 @@ Release cadence: pin to pine-tools' scrape cadence. When TV's docs change, refre
    - Don't redistribute; ship only the *index* (function names, BM25 tokens, no prose) and link out to live TV docs for full content.
    Resolution likely depends on whether the oracle is published publicly or internal-only.
 
-9. **TV v6.md redistribution.** **Outstanding.** Pinecone's vendored copy of `spec/v6.md` (918 KB) is TradingView copyright. Pinecone's redistribution under MPL-2.0 is precedent but not blanket legal cover. Two paths: vendor with a prominent "snapshot of TV docs as of <date>, all content (c) TradingView" disclaimer (relying on Pinecone's precedent), or don't redistribute and ship only the index (function names + BM25 tokens, no prose) with link-out for full content. Resolution likely depends on whether the oracle is published publicly or remains internal.
+9. **TV v6.md redistribution.** **Resolved:** vendor with disclaimer, consistent with the standing "bake everything into the binary" decision. `vendor/pine-reference/NOTICE` already calls out the file as a TV-docs snapshot with TradingView copyright. The top-level NOTICE adds the trademark disclaimer. Relies on Pinecone's MPL-2.0 redistribution precedent; if TV objects on a public release, the lift target is to switch to a stripped-reference shape (names + signatures only, no prose) without re-architecting the binary.
 
 10. **License umbrella for the oracle binary.** Vendoring decisions span MPL-2.0 (Pinecone), Apache-2.0 (PineForge), MIT (pine-tools, folknor-owned), and clean-room paraphrases of AGPL (PineTS, deferred). Cleanest umbrella: MPL-2.0 for files derived from Pinecone (file-level copyleft only), Apache-2.0 for everything else. Confirm before shipping publicly.
 
-11. **PineTS compat-test schema versioning.** **Deferred** until `pine indicator --strict` lands. Adopting the `.expect.json` format means committing to a token convention (`__NaN__`, `__Infinity__`, etc.). If TV changes a value's behavior across Pine versions, baselines need either migration or a Pine-version pin inside `expect.json`. Decide alongside the indicator subcommand work.
+11. **PineTS compat-test schema versioning.** **Resolved (filed for when the indicator subcommand lands).** Every `expect.json` carries `schema_version`, `pine_version` (grammar / runtime version that generated it), and `tv_snapshot` (when TV's broker state was captured). Engine-version mismatch errors instead of silently comparing; regenerations bump `tv_snapshot`. Concrete shape:
+
+    ```json
+    {
+      "schema_version": 1,
+      "indicator_slug": "ema-cross",
+      "pine_version": "6.0.0",
+      "tv_snapshot": "2026-05-20",
+      "outputs": { "ema_fast": [12.3, "__NaN__"], ... },
+      "test_range": { "start": "...", "end": "..." }
+    }
+    ```
 
 ## Out of scope
 
@@ -372,4 +376,4 @@ Secondary win: the same tool serves pine-tools' own dogfooding, future Pine proj
 | `pine version` | Done (self-describes bake counts) |
 | `pine indicator --strict` | **Pending** - needs piners' engine + OHLCV bake |
 
-Open Questions: 1 (validator backend, partially - piners-syntax pending), 9 (TV v6.md redistribution), 10 (license umbrella confirmation), 11 (PineTS expect.json schema) remain. 2 / 3 / 4 / 5 / 6 / 7 / 8 resolved.
+Open Questions: all resolved. 1 (validator backend - piners-syntax near-term), 2 (repo layout), 3 (corpus distribution), 4 (output schema), 5 (validate --strict auth), 6 (per-probe summaries), 7 (search corpus coverage), 8 (validate --strict cache), 9 (TV v6.md redistribution), 10 (license umbrella - MPL-2.0 only), 11 (PineTS expect.json schema).
