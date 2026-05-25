@@ -20,9 +20,9 @@ runtime configuration.
 | `pine probe <slug>` | Pull a baked PineForge corpus probe (strategy.pine + tv_trades.csv + author-extracted summary) |
 | `pine probes [--grep TEXT] [--feature NAME]` | List baked probes; `--grep` matches slug or summary substring, `--feature` restricts by detected Pine-feature usage (`oca`, `trail`, `pyramiding`, `mtf`, `varip`, `magnifier`, `matrix`, `map`, `udt`, `method`, `process_orders_on_close`, `barstate_isfirst`; pass `?` to list the catalog) |
 | `pine diff <probe> <trades.csv> [--show-diffs N]` | Tier-classify a user trade list against the probe's TV ground truth (port of PineForge's verify_corpus.py); `--show-diffs N` emits the worst-N matched pairs plus every TV / user orphan |
-| `pine indicator --list` | List baked indicator strict fixtures |
-| `pine indicator --strict <slug>` | Run a baked indicator fixture through piners-runner and diff per-bar outputs against `expect.json`; no real TV baselines are baked yet |
-| `pine version` | Binary version + bake counts (reference entries, corpus probes, audit + narrative sections, indicator fixtures) |
+| `pine indicator --list` | List baked indicator strict fixtures with smoke vs TV baseline kind |
+| `pine indicator --strict <slug>` | Run a baked indicator fixture through piners-runner and diff per-bar outputs against `expect.json`, including optional `test_range` windows; `smoke-*` fixtures are deterministic substrate checks, TV-captured baselines are still pending |
+| `pine version` | Binary version + bake counts (reference entries, corpus probes, audit + narrative sections, indicator fixtures split smoke vs TV) |
 
 All subcommands accept `--format json|text|auto`. JSON outputs carry
 `schema_version: 1`. Object payloads attach the version inline; arrays wrap

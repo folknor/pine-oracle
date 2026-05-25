@@ -159,7 +159,12 @@ fn cmd_version(format: ResolvedFormat) -> Result<()> {
         .map_or(0, |v| v.iter().filter(|p| p.summary.is_some()).count());
     let audit_sections = search::audit_section_count();
     let docs_sections = search::docs_section_count();
-    let indicator_fixture_count = indicator::list_fixtures().map_or(0, |v| v.len());
+    let indicator_counts =
+        indicator::fixture_counts().unwrap_or(indicator::IndicatorFixtureCounts {
+            total: 0,
+            smoke: 0,
+            tv: 0,
+        });
     match format {
         ResolvedFormat::Json => {
             print_json(&serde_json::json!({
@@ -177,7 +182,9 @@ fn cmd_version(format: ResolvedFormat) -> Result<()> {
                     "narrative_sections": docs_sections,
                 },
                 "indicator": {
-                    "fixture_count": indicator_fixture_count,
+                    "fixture_count": indicator_counts.total,
+                    "smoke_fixture_count": indicator_counts.smoke,
+                    "tv_fixture_count": indicator_counts.tv,
                 },
             }))?;
         }
@@ -194,7 +201,10 @@ fn cmd_version(format: ResolvedFormat) -> Result<()> {
             println!(
                 "pineforge docs: {audit_sections} audit sections + {docs_sections} narrative sections"
             );
-            println!("indicator:     {indicator_fixture_count} strict fixtures");
+            println!(
+                "indicator:     {} strict fixtures ({} smoke, {} tv)",
+                indicator_counts.total, indicator_counts.smoke, indicator_counts.tv
+            );
         }
     }
     Ok(())

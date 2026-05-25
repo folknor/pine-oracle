@@ -30,12 +30,17 @@ The library crate (`src/lib.rs`, surface = `pine_cli::*`) owns the domain module
   - **Strict (`validate::strict`)**: POSTs the source as `multipart/form-data` to `pine-facade.tradingview.com/pine-facade/translate_light` via `ureq`, maps every error + warning the API returns into Diagnostics with `Stage::Strict`. **Yes / no oracle only - the diagnostic prose is non-actionable**. TV's pine-lint stops at the first error, breaks on trailing whitespace, and reports wrong line / column numbers; the `success` bit is the only trustworthy output. Use after the local tier reports clean, not for iterative debugging. No auth (endpoint is open), no on-disk cache, 10s timeout. Response decoding pinned by inline fixture tests; never hits the network in CI.
 - `behavior`: structured signature + polymorphism lookup over pine-tools' JSON exports (`vendor/pine-data/v6/{functions,variables,constants,keywords,function-behavior}.json`). Public API: `lookup(name) -> Option<Behavior>`, where `Behavior` is one of `Function` / `Variable` / `Constant` / `Keyword`. Function entries optionally carry a `RawBehaviorEntry` with polymorphism markers + argument-ordering. Lenient deserialization (serde defaults on optional fields) so pine-tools schema tweaks don't break the binary.
 - `diff`: trade-list parity scorer, port of PineForge's `scripts/verify_corpus.py`. Public API: `diff(probe_slug, user_csv, opts) -> DiffReport`. Parses both CSVs into entry / exit pairs (Trade # joined, TV's "Date and time" interpreted in the chart timezone with default Asia/Taipei +8), aligns by direction + 1h window + $3 entry-price gate, trims to common window, computes 4-dim p90 deltas, classifies as excellent / strong / moderate / weak / minimal. Honours `inputs.json::expected_tier` ("anomaly", "engine_only") and `validation_overrides.expect_tv_match`. Strict vs production profile is auto-detected from `trail_*` parameters in `strategy.pine` (or forced via `inputs.json::parity_profile`). Threshold values mirror `verify_corpus.py` exactly. `DiffOptions::show_diffs > 0` populates `pair_diffs` (worst-N matched pairs, ranked descending by per-pair `max(entry_delta, exit_delta, pnl_delta)`) + `tv_orphans` / `user_orphans` (all unmatched trades from the trimmed window); default 0 keeps the report headline-only. V1 does not implement interior trim (`trim_bars` / `warmup_bars`) since the OHLCV feed isn't baked.
-- `indicator`: per-bar indicator fixture replay. Fixtures live under `indicators/<slug>/` (`source.pine`, `bars.json`, `expect.json`, optional `metadata.json`) and are embedded with `include_dir`. Public API: `list_fixtures()` and `run_strict(slug) -> IndicatorReport`. Runs source through piners-runner, compares plot outputs against `expect.json` using the documented `__NaN__` / `__Infinity__` / `__-Infinity__` / `__undefined__` tokens, and reports output + bar-index mismatches. The code substrate is done; no real TV baselines are baked yet.
+- `indicator`: per-bar indicator fixture replay. Fixtures live under `indicators/<slug>/` (`source.pine`, `bars.json`, `expect.json`, optional `metadata.json`) and are embedded with `include_dir`. Public API: `list_fixtures()` and `run_strict(slug) -> IndicatorReport`. Runs source through piners-runner, compares plot outputs against `expect.json` using the documented `__NaN__` / `__Infinity__` / `__-Infinity__` / `__undefined__` tokens, honors optional `test_range` windows, and reports output + bar-index mismatches. The `smoke-*` fixtures are deterministic substrate checks; real TV baselines are still pending.
 
 Planned changes:
 
 - Bake real TradingView indicator baselines under `indicators/` so `pine indicator --strict` has useful fixtures beyond the implemented runner/differ substrate.
 - Add OHLCV-backed interior trim for `pine diff` once the OHLCV feed is baked.
+
+Upstream `../piners` gaps blocking real TV indicator baselines:
+
+- `plotshape(close > open, ...)` signature support in piners-syntax's `plot*` builtin family - TV accepts a boolean series condition; the runner rejects it.
+- `request.security(...)` runner bridge compilation - the call shape compiles in piners-syntax but the runner has no bridge, so MTF indicators cannot replay.
 
 Canonical homes (so cross-module duplicates collapse to one):
 
@@ -124,5 +129,5 @@ Single-crate workspace, so `-p` is unnecessary.
 | `pine behavior <name>` | done (functions / variables / constants / keywords from baked pine-tools JSON) |
 | `pine diff <probe> <trades.csv>` | done v1 (verify_corpus port: align + p90 + tier; `--show-diffs N` emits worst-N matched pairs + every TV / user orphan; no interior trim until OHLCV bake) |
 | `pine version` | done (binary version + reference / corpus / pineforge-docs / indicator fixture bake counts) |
-| `pine indicator --list` | done (lists baked strict fixtures; currently empty until real TV baselines land) |
-| `pine indicator --strict <slug>` | substrate done (fixture loader + piners-runner replay + per-bar diff); pending real TV baseline data under `indicators/` |
+| `pine indicator --list` | done (lists baked strict fixtures, including deterministic `smoke-*` checks) |
+| `pine indicator --strict <slug>` | substrate done (fixture loader + piners-runner replay + per-bar diff); deterministic smoke fixtures baked, real TV baselines pending |

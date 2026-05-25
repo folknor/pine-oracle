@@ -38,7 +38,21 @@ fn print_fixture_list(format: ResolvedFormat) -> Result<()> {
                 println!("no indicator fixtures baked");
             } else {
                 for fixture in &fixtures {
-                    println!("{}", fixture.slug);
+                    match (&fixture.pine_version, &fixture.tv_snapshot) {
+                        (Some(pine), Some(snapshot)) => {
+                            println!(
+                                "{}  [{} pine={} tv={}]",
+                                fixture.slug, fixture.baseline, pine, snapshot
+                            );
+                        }
+                        (Some(pine), None) => {
+                            println!("{}  [{} pine={}]", fixture.slug, fixture.baseline, pine);
+                        }
+                        (None, Some(snapshot)) => {
+                            println!("{}  [{} tv={}]", fixture.slug, fixture.baseline, snapshot);
+                        }
+                        (None, None) => println!("{}  [{}]", fixture.slug, fixture.baseline),
+                    }
                 }
             }
         }
@@ -48,9 +62,16 @@ fn print_fixture_list(format: ResolvedFormat) -> Result<()> {
 
 fn print_report_text(report: &indicator::IndicatorReport) {
     println!("indicator:   {}", report.slug);
+    println!("baseline:    {}", report.baseline);
     println!("bars:        {}", report.bar_count);
+    if report.compared_bar_count != report.bar_count {
+        println!("compared:    {}", report.compared_bar_count);
+    }
     println!("outputs:     {}", report.output_count);
     println!("tolerance:   {}", report.tolerance);
+    if let Some(range) = &report.test_range {
+        println!("range:       {} .. {}", range.start, range.end);
+    }
     if let Some(pine_version) = &report.pine_version {
         println!("pine:        {pine_version}");
     }

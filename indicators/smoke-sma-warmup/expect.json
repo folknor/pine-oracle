@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "indicator_slug": "smoke-sma-warmup",
+  "pine_version": "6.0.0",
+  "tolerance": 0.0,
+  "outputs": {
+    "plot": ["__NaN__", "__NaN__", 11.0, 12.0, 13.0]
+  }
+}
