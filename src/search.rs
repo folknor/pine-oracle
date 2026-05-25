@@ -82,11 +82,11 @@ fn build() -> Result<Engine> {
         writer.add_document(doc)?;
     }
 
-    // Source 2: baked PineForge corpus probes (235 entries). Probes without
+    // Source 2: baked PineForge corpus probes (239 entries). Probes without
     // an extractable header summary fall back to the slug as content so they
     // remain discoverable by their slug tokens (`oca`, `multi`, `bracket`,
-    // ...). list_probes(None) is the same path `pine probes` uses.
-    if let Ok(probes) = corpus::list_probes(None) {
+    // ...). list_probes(None, None) is the same path `pine probes` uses.
+    if let Ok(probes) = corpus::list_probes(None, None) {
         for p in probes {
             let mut doc = TantivyDocument::default();
             doc.add_text(name_field, &p.slug);

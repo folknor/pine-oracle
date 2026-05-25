@@ -108,7 +108,7 @@ Single-crate workspace, so `-p` is unnecessary.
 | `pine lookup <name>` | done (cross-category exact, prefix fallback) |
 | `pine search <query>` | done (tantivy BM25, 5x name boost; indexes v6 reference + corpus probes + PineForge audit doc + 18 narrative pages; hits carry `kind` = "reference" / "probe" / "audit" / "docs" and a content snippet; `--kind <kind>` narrows the result set) |
 | `pine probe <slug>` | done (baked corpus, flat + nested slugs) |
-| `pine probes [--grep TEXT]` | done (matches against slug or extracted-from-source summary text) |
+| `pine probes [--grep TEXT] [--feature NAME]` | done (`--grep` matches against slug or extracted-from-source summary text; `--feature` restricts by Pine-feature usage detected from each `strategy.pine` source - `oca`, `trail`, `pyramiding`, `varip`, `mtf`, `magnifier`, `matrix`, `map`, `udt`, `method`, `process_orders_on_close`, `barstate_isfirst`; pass `?` to list the catalog) |
 | `pine parse` | done via the pinecone lift; will deepen when piners-syntax replaces it |
 | `pine tokens` | done via the pinecone lift; will deepen when piners-syntax replaces it |
 | `pine validate` | v0 only: first lex/parse error from the pinecone lift, no type checks. v1 = IDE-quality multi-error output backed by piners-syntax. |

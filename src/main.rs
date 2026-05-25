@@ -129,6 +129,12 @@ enum Command {
     Probes {
         #[arg(long)]
         grep: Option<String>,
+        /// Restrict to probes whose strategy.pine uses the named Pine
+        /// feature (e.g. `oca`, `trail`, `pyramiding`, `mtf`, `varip`,
+        /// `udt`). Pass `?` to list every catalog entry with its
+        /// description.
+        #[arg(long)]
+        feature: Option<String>,
     },
 
     /// Tier-classify a piners trade list against the probe's tv_trades
@@ -161,7 +167,9 @@ fn main() -> Result<()> {
         Command::Tokens { code } => cmd_tokens(&code, format),
         Command::Behavior { name } => cmd_behavior(&name, format),
         Command::Probe { slug } => cmd_probe(&slug, format),
-        Command::Probes { grep } => cmd_probes(grep.as_deref(), format),
+        Command::Probes { grep, feature } => {
+            cmd_probes(grep.as_deref(), feature.as_deref(), format)
+        }
         Command::Diff {
             probe,
             trades_csv,
@@ -310,8 +318,11 @@ fn cmd_probe(slug: &str, format: ResolvedFormat) -> Result<()> {
     Ok(())
 }
 
-fn cmd_probes(grep: Option<&str>, format: ResolvedFormat) -> Result<()> {
-    let probes = corpus::list_probes(grep)?;
+fn cmd_probes(grep: Option<&str>, feature: Option<&str>, format: ResolvedFormat) -> Result<()> {
+    if matches!(feature, Some("?")) {
+        return print_feature_catalog(format);
+    }
+    let probes = corpus::list_probes(grep, feature)?;
     match format {
         ResolvedFormat::Json => {
             print_json(&probes)?;
@@ -329,6 +340,25 @@ fn cmd_probes(grep: Option<&str>, format: ResolvedFormat) -> Result<()> {
                     }
                     None => println!("{}", p.slug),
                 }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn print_feature_catalog(format: ResolvedFormat) -> Result<()> {
+    let catalog = corpus::feature_catalog();
+    match format {
+        ResolvedFormat::Json => {
+            let items: Vec<_> = catalog
+                .iter()
+                .map(|(name, desc)| serde_json::json!({"name": name, "description": desc}))
+                .collect();
+            print_json(&items)?;
+        }
+        ResolvedFormat::Text => {
+            for (name, desc) in &catalog {
+                println!("{name:<28}  {desc}");
             }
         }
     }
@@ -991,9 +1021,9 @@ fn cmd_version(format: ResolvedFormat) -> Result<()> {
     let binary = env!("CARGO_PKG_VERSION");
     let categories = reference::categories();
     let reference_entry_count = reference::all_entries().len();
-    let probe_count = corpus::list_probes(None).map_or(0, |v| v.len());
-    let probe_summary_count =
-        corpus::list_probes(None).map_or(0, |v| v.iter().filter(|p| p.summary.is_some()).count());
+    let probe_count = corpus::list_probes(None, None).map_or(0, |v| v.len());
+    let probe_summary_count = corpus::list_probes(None, None)
+        .map_or(0, |v| v.iter().filter(|p| p.summary.is_some()).count());
     let audit_sections = search::audit_section_count();
     let docs_sections = search::docs_section_count();
     match format {

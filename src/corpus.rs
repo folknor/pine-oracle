@@ -60,9 +60,16 @@ pub fn load_probe(slug: &str) -> Result<Probe> {
 }
 
 /// List every baked probe. `grep`, when present, filters by case-insensitive
-/// substring against the slug OR the extracted summary text.
-pub fn list_probes(grep: Option<&str>) -> Result<Vec<ProbeListing>> {
+/// substring against the slug OR the extracted summary text. `feature`,
+/// when present, restricts to probes whose `strategy.pine` source uses
+/// the named Pine feature (see `FEATURE_CATALOG`); unknown feature names
+/// return an error with the catalog included.
+pub fn list_probes(grep: Option<&str>, feature: Option<&str>) -> Result<Vec<ProbeListing>> {
     let needle = grep.map(str::to_ascii_lowercase);
+    let feature_set = match feature {
+        Some(name) => Some(probes_with_feature(name)?),
+        None => None,
+    };
     let entries = CORPUS
         .find("**/strategy.pine")
         .map_err(|e| anyhow!("walking corpus: {e}"))?;
@@ -72,6 +79,11 @@ pub fn list_probes(grep: Option<&str>) -> Result<Vec<ProbeListing>> {
             let file = entry.as_file()?;
             let parent = file.path().parent()?;
             let slug = parent.to_str()?.to_string();
+            if let Some(set) = &feature_set
+                && !set.contains(&slug)
+            {
+                return None;
+            }
             let summary = summary_for(&slug);
             if let Some(n) = &needle {
                 let slug_hit = slug.to_ascii_lowercase().contains(n);
@@ -85,6 +97,216 @@ pub fn list_probes(grep: Option<&str>) -> Result<Vec<ProbeListing>> {
         .collect();
     out.sort_by(|a, b| a.slug.cmp(&b.slug));
     Ok(out)
+}
+
+/// One Pine feature `--feature <name>` can filter on. Each spec is
+/// resolved at first invocation against every baked `strategy.pine`
+/// (with line + block comments stripped, so false positives from
+/// commented-out code are avoided), and the slug -> features mapping
+/// is cached behind a OnceLock.
+struct FeatureSpec {
+    name: &'static str,
+    description: &'static str,
+    detector: fn(&str) -> bool,
+}
+
+const FEATURE_CATALOG: &[FeatureSpec] = &[
+    FeatureSpec {
+        name: "oca",
+        description: "Order Cancels Order brackets (oca_name= parameter)",
+        detector: |s| s.contains("oca_name"),
+    },
+    FeatureSpec {
+        name: "trail",
+        description: "Trailing-stop exits (trail_points / trail_offset / trail_price)",
+        detector: |s| {
+            s.contains("trail_points") || s.contains("trail_offset") || s.contains("trail_price")
+        },
+    },
+    FeatureSpec {
+        name: "pyramiding",
+        description: "Real pyramiding (strategy(..., pyramiding=N) with N >= 2)",
+        detector: detect_real_pyramiding,
+    },
+    FeatureSpec {
+        name: "varip",
+        description: "Intra-bar persistent state (varip keyword)",
+        detector: |s| has_word(s, "varip"),
+    },
+    FeatureSpec {
+        name: "mtf",
+        description: "Multi-timeframe data sourcing (request.security)",
+        detector: |s| s.contains("request.security"),
+    },
+    FeatureSpec {
+        name: "magnifier",
+        description: "Chart magnifier mode (magnifier=true / use_magnifier=)",
+        detector: |s| s.contains("magnifier"),
+    },
+    FeatureSpec {
+        name: "matrix",
+        description: "Matrix data structure (matrix.new / matrix.set / matrix.get)",
+        detector: |s| s.contains("matrix.new") || s.contains("matrix<"),
+    },
+    FeatureSpec {
+        name: "map",
+        description: "Map data structure (map.new / map.put / map.get)",
+        detector: |s| s.contains("map.new") || s.contains("map<"),
+    },
+    FeatureSpec {
+        name: "udt",
+        description: "User-defined types (top-level `type Name` declarations)",
+        detector: |s| has_line_start(s, "type "),
+    },
+    FeatureSpec {
+        name: "method",
+        description: "User-defined-type methods (top-level `method Name` declarations)",
+        detector: |s| has_line_start(s, "method "),
+    },
+    FeatureSpec {
+        name: "process_orders_on_close",
+        description: "Bar-close order processing (process_orders_on_close=true)",
+        detector: |s| {
+            s.contains("process_orders_on_close=true")
+                || s.contains("process_orders_on_close = true")
+        },
+    },
+    FeatureSpec {
+        name: "barstate_isfirst",
+        description: "First-bar initialization gate (barstate.isfirst)",
+        detector: |s| s.contains("barstate.isfirst"),
+    },
+];
+
+/// `(name, description)` for every feature `--feature` accepts.
+pub fn feature_catalog() -> Vec<(&'static str, &'static str)> {
+    FEATURE_CATALOG
+        .iter()
+        .map(|f| (f.name, f.description))
+        .collect()
+}
+
+/// Slugs of probes whose `strategy.pine` source uses the named feature.
+/// Errors if `name` isn't in the catalog (the error message lists every
+/// known feature).
+fn probes_with_feature(name: &str) -> Result<std::collections::HashSet<String>> {
+    let map = feature_index();
+    map.get(name).cloned().ok_or_else(|| {
+        let known: Vec<&str> = FEATURE_CATALOG.iter().map(|f| f.name).collect();
+        anyhow!(
+            "unknown feature `{name}`. Known features: {}",
+            known.join(", ")
+        )
+    })
+}
+
+fn feature_index() -> &'static std::collections::HashMap<String, std::collections::HashSet<String>>
+{
+    use std::collections::{HashMap, HashSet};
+    static IDX: OnceLock<HashMap<String, HashSet<String>>> = OnceLock::new();
+    IDX.get_or_init(|| {
+        let mut out: HashMap<String, HashSet<String>> = HashMap::new();
+        for spec in FEATURE_CATALOG {
+            out.insert(spec.name.to_string(), HashSet::new());
+        }
+        let Ok(entries) = CORPUS.find("**/strategy.pine") else {
+            return out;
+        };
+        for entry in entries {
+            let Some(file) = entry.as_file() else {
+                continue;
+            };
+            let Some(parent) = file.path().parent() else {
+                continue;
+            };
+            let Some(slug) = parent.to_str() else {
+                continue;
+            };
+            let Some(content) = file.contents_utf8() else {
+                continue;
+            };
+            let stripped = strip_pine_comments(content);
+            for spec in FEATURE_CATALOG {
+                if (spec.detector)(&stripped) {
+                    out.get_mut(spec.name)
+                        .expect("catalog entries pre-seeded above")
+                        .insert(slug.to_string());
+                }
+            }
+        }
+        out
+    })
+}
+
+/// Strip Pine line (`//`) and block (`/* */`) comments. Local copy of
+/// the same routine in `diff.rs::detect_profile_from_source`; not worth
+/// extracting a shared module for two callers.
+fn strip_pine_comments(src: &str) -> String {
+    let mut out = String::with_capacity(src.len());
+    let bytes = src.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'*' {
+            i += 2;
+            while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                i += 1;
+            }
+            i = (i + 2).min(bytes.len());
+        } else if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'/' {
+            while i < bytes.len() && bytes[i] != b'\n' {
+                i += 1;
+            }
+        } else {
+            out.push(bytes[i] as char);
+            i += 1;
+        }
+    }
+    out
+}
+
+fn detect_real_pyramiding(src: &str) -> bool {
+    let mut start = 0;
+    while let Some(pos) = src[start..].find("pyramiding") {
+        let abs = start + pos;
+        start = abs + "pyramiding".len();
+        let after = src[start..].trim_start();
+        let Some(after) = after.strip_prefix('=') else {
+            continue;
+        };
+        let digits: String = after
+            .trim_start()
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect();
+        if let Ok(n) = digits.parse::<u32>()
+            && n >= 2
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn has_word(src: &str, word: &str) -> bool {
+    let mut start = 0;
+    while let Some(pos) = src[start..].find(word) {
+        let abs = start + pos;
+        start = abs + word.len();
+        let before_ok = abs == 0 || !is_ident_char(src.as_bytes()[abs - 1]);
+        let after_ok = start >= src.len() || !is_ident_char(src.as_bytes()[start]);
+        if before_ok && after_ok {
+            return true;
+        }
+    }
+    false
+}
+
+fn has_line_start(src: &str, prefix: &str) -> bool {
+    src.lines().any(|l| l.starts_with(prefix))
+}
+
+fn is_ident_char(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
 }
 
 /// Pull the entire author-written header comment block out of a
@@ -283,7 +505,7 @@ mod tests {
 
     #[test]
     fn lists_every_probe_including_nested() {
-        let all = list_probes(None).expect("list must succeed");
+        let all = list_probes(None, None).expect("list must succeed");
         assert!(
             all.len() >= 200,
             "expected at least 200 baked probes, got {}",
@@ -295,7 +517,7 @@ mod tests {
 
     #[test]
     fn grep_filters_by_slug_or_summary_substring() {
-        let oca = list_probes(Some("oca")).expect("grep must succeed");
+        let oca = list_probes(Some("oca"), None).expect("grep must succeed");
         assert!(!oca.is_empty(), "expected some oca matches");
         assert!(oca.iter().all(|p| {
             let slug_hit = p.slug.to_ascii_lowercase().contains("oca");
@@ -390,7 +612,7 @@ mod tests {
         // non-empty summary. If a new probe is vendored without a header,
         // this test will catch it and the heuristic likely needs another
         // widening pass.
-        let listings = list_probes(None).expect("list");
+        let listings = list_probes(None, None).expect("list");
         let missing: Vec<&str> = listings
             .iter()
             .filter(|p| p.summary.is_none())
@@ -410,7 +632,7 @@ mod tests {
         // <40 chars and gave BM25 nothing to rank against. Post-fix the
         // multi-paragraph collection should put almost every summary
         // comfortably above that.
-        let listings = list_probes(None).expect("list");
+        let listings = list_probes(None, None).expect("list");
         let thin: Vec<(&str, &str)> = listings
             .iter()
             .filter_map(|p| p.summary.map(|s| (p.slug.as_str(), s)))
@@ -425,6 +647,114 @@ mod tests {
             "{} probe(s) with summaries shorter than 60 chars (cap {cap}): {:?}",
             thin.len(),
             thin.iter().take(10).collect::<Vec<_>>()
+        );
+    }
+
+    // ---------- feature index ----------
+
+    #[test]
+    fn feature_catalog_is_nonempty() {
+        let cat = feature_catalog();
+        assert!(cat.len() >= 10, "expected a substantive catalog");
+        assert!(cat.iter().any(|(n, _)| *n == "oca"));
+        assert!(cat.iter().any(|(n, _)| *n == "mtf"));
+        assert!(cat.iter().any(|(n, _)| *n == "trail"));
+    }
+
+    #[test]
+    fn unknown_feature_errors_with_catalog() {
+        let err = list_probes(None, Some("totallymadeup")).expect_err("unknown feature must error");
+        let msg = err.to_string();
+        assert!(msg.contains("unknown feature"));
+        assert!(
+            msg.contains("oca"),
+            "error must list known features, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn feature_filter_oca_returns_real_subset() {
+        let oca = list_probes(None, Some("oca")).expect("oca filter must succeed");
+        assert!(
+            !oca.is_empty(),
+            "expected at least one oca probe in the corpus"
+        );
+        // OCA is rare - typical corpus has ~5 probes. If it ever balloons,
+        // the catalog detector is probably false-positive.
+        assert!(
+            oca.len() < 50,
+            "oca filter returned {} probes - detector is probably too broad",
+            oca.len()
+        );
+    }
+
+    #[test]
+    fn feature_filter_combines_with_grep() {
+        // Every mtf-prefixed probe should also be in the `mtf` feature
+        // set (request.security is the defining signal for that family).
+        let mtf_by_feature = list_probes(None, Some("mtf")).expect("mtf");
+        let mtf_by_slug: Vec<&str> = mtf_by_feature
+            .iter()
+            .map(|p| p.slug.as_str())
+            .filter(|s| s.starts_with("mtf-"))
+            .collect();
+        assert!(
+            !mtf_by_slug.is_empty(),
+            "expected mtf-prefixed slugs in the mtf feature set"
+        );
+        // Now combine with grep: `mtf` feature AND `60` in slug should
+        // yield a strict subset of `mtf` feature.
+        let mtf_60 = list_probes(Some("60"), Some("mtf")).expect("mtf+grep");
+        assert!(mtf_60.len() <= mtf_by_feature.len());
+        assert!(mtf_60.iter().all(|p| {
+            p.slug.contains("60")
+                || p.summary
+                    .is_some_and(|s| s.to_ascii_lowercase().contains("60"))
+        }));
+    }
+
+    #[test]
+    fn strip_pine_comments_drops_line_and_block_comments() {
+        let src = "real // commented out\n/* block */more real\n// only comment\n";
+        let out = strip_pine_comments(src);
+        assert!(out.contains("real "));
+        assert!(out.contains("more real"));
+        assert!(!out.contains("commented out"));
+        assert!(!out.contains("block "));
+        assert!(!out.contains("only comment"));
+    }
+
+    #[test]
+    fn detect_real_pyramiding_requires_n_ge_two() {
+        assert!(!detect_real_pyramiding("pyramiding=1"));
+        assert!(!detect_real_pyramiding("pyramiding = 0"));
+        assert!(detect_real_pyramiding("pyramiding=2"));
+        assert!(detect_real_pyramiding("pyramiding = 10"));
+        assert!(detect_real_pyramiding(
+            "strategy(\"x\", pyramiding=5, slippage=0)"
+        ));
+        // No `=` after pyramiding: skip.
+        assert!(!detect_real_pyramiding("// pyramiding 2"));
+    }
+
+    #[test]
+    fn has_word_respects_identifier_boundaries() {
+        assert!(has_word("varip int x = 0", "varip"));
+        assert!(has_word("foo\nvarip int x", "varip"));
+        // No false positive on substring matches.
+        assert!(!has_word("myvarip x", "varip"));
+        assert!(!has_word("varipx x", "varip"));
+    }
+
+    #[test]
+    fn feature_filter_pyramiding_excludes_pyramiding_eq_one() {
+        // pyramiding=1 is the corpus-wide default (~95% of probes).
+        // The `pyramiding` feature is reserved for real (N>=2) usage.
+        let pyr = list_probes(None, Some("pyramiding")).expect("pyramiding");
+        assert!(
+            pyr.len() < 50,
+            "pyramiding feature returned {} probes - detector is matching pyramiding=1 noise",
+            pyr.len()
         );
     }
 }

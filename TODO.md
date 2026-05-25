@@ -65,10 +65,6 @@ crates.io or pinned by git ref.
 - Color output on `pine validate` + `pine search` text mode when stdout
   is a TTY. Wire `--no-color` to suppress. Probably `anstream` or
   `nu-ansi-term`.
-- `pine probes --kind <category>`: pre-built feature index over the
-  235 baked strategy.pine sources (regex for `pyramiding=`, `magnifier`,
-  `oca_name=`, `trail_*`, etc.) so the `--feature` flag from the
-  earlier design has a real implementation.
 
 ## Internal polish (large / deferred)
 
