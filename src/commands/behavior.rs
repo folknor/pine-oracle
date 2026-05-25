@@ -3,7 +3,26 @@ use pine_cli::behavior;
 
 use crate::output::{ResolvedFormat, print_json};
 
-pub(crate) fn run(name: &str, format: ResolvedFormat) -> Result<()> {
+pub(crate) fn run(
+    name: Option<&str>,
+    list: bool,
+    kind: Option<&str>,
+    grep: Option<&str>,
+    format: ResolvedFormat,
+) -> Result<()> {
+    if kind.is_some_and(behavior::is_kind_catalog_request) {
+        return print_kind_catalog(format);
+    }
+    if list {
+        let grep = resolve_list_grep(name, grep)?;
+        return print_behavior_list(kind, grep, format);
+    }
+    if kind.is_some() || grep.is_some() {
+        bail!("`pine behavior --kind/--grep` requires `--list`");
+    }
+    let Some(name) = name else {
+        bail!("`pine behavior` requires a name or `--list`");
+    };
     let Some(b) = behavior::lookup(name) else {
         bail!("no behavior data for `{name}`");
     };
@@ -12,6 +31,62 @@ pub(crate) fn run(name: &str, format: ResolvedFormat) -> Result<()> {
             print_json(&b)?;
         }
         ResolvedFormat::Text => print_behavior_text(&b),
+    }
+    Ok(())
+}
+
+fn resolve_list_grep<'a>(name: Option<&'a str>, grep: Option<&'a str>) -> Result<Option<&'a str>> {
+    match (name, grep) {
+        (Some(_), Some(_)) => bail!("`pine behavior <name> --list` cannot combine with `--grep`"),
+        (Some(name), None) => Ok(Some(name)),
+        (None, grep) => Ok(grep),
+    }
+}
+
+fn print_kind_catalog(format: ResolvedFormat) -> Result<()> {
+    let kinds = behavior::kind_catalog();
+    match format {
+        ResolvedFormat::Json => {
+            print_json(&serde_json::json!({
+                "kinds": kinds,
+            }))?;
+        }
+        ResolvedFormat::Text => {
+            for kind in &kinds {
+                println!("{:<9} {:>5}  {}", kind.kind, kind.count, kind.description);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn print_behavior_list(
+    kind: Option<&str>,
+    grep: Option<&str>,
+    format: ResolvedFormat,
+) -> Result<()> {
+    let entries = behavior::list(kind, grep)?;
+    match format {
+        ResolvedFormat::Json => {
+            print_json(&entries)?;
+        }
+        ResolvedFormat::Text => {
+            if entries.is_empty() {
+                println!("no behavior entries");
+            } else {
+                for entry in &entries {
+                    let marker = if entry.polymorphic { " poly" } else { "" };
+                    if entry.detail.is_empty() {
+                        println!("{:<9} {}{}", entry.kind, entry.name, marker);
+                    } else {
+                        println!(
+                            "{:<9} {}{}  {}",
+                            entry.kind, entry.name, marker, entry.detail
+                        );
+                    }
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -100,5 +175,24 @@ fn print_behavior_text(b: &behavior::Behavior) {
         behavior::Behavior::Keyword(k) => {
             println!("keyword {}", k.name);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn list_name_becomes_implicit_grep() {
+        assert_eq!(
+            resolve_list_grep(Some("plotshape"), None).expect("valid"),
+            Some("plotshape")
+        );
+    }
+
+    #[test]
+    fn list_rejects_name_and_explicit_grep() {
+        let err = resolve_list_grep(Some("plotshape"), Some("plot")).expect_err("must reject");
+        assert!(err.to_string().contains("cannot combine"));
     }
 }

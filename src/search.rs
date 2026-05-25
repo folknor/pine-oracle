@@ -12,7 +12,7 @@
 // available) as `content`. A query like `pine search oca` surfaces both
 // the reference's `oca_name=` parameter docs and the corpus's OCA probes.
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use comrak::nodes::{AstNode, NodeValue};
 use comrak::{Arena, Options, parse_document};
 use include_dir::{Dir, include_dir};
@@ -27,6 +27,19 @@ use crate::{behavior, corpus, reference};
 
 const AUDIT_MARKDOWN: &str = include_str!("../vendor/pineforge-docs/pine_v6_audit_master.md");
 static DOCS_PAGES: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/vendor/pineforge-docs/pages");
+const KIND_REFERENCE: &str = "reference";
+const KIND_PROBE: &str = "probe";
+const KIND_AUDIT: &str = "audit";
+const KIND_DOCS: &str = "docs";
+const KIND_BEHAVIOR: &str = "behavior";
+const KIND_CATALOG_MARKER: &str = "?";
+const SEARCH_KIND_NAMES: [&str; 5] = [
+    KIND_REFERENCE,
+    KIND_PROBE,
+    KIND_AUDIT,
+    KIND_DOCS,
+    KIND_BEHAVIOR,
+];
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SearchHit {
@@ -38,6 +51,14 @@ pub struct SearchHit {
     /// body, narrative-page section body). Tantivy stores it alongside the
     /// tokenised form so consumers don't need a follow-up lookup.
     pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SearchKindInfo {
+    pub kind: &'static str,
+    pub category: &'static str,
+    pub description: &'static str,
+    pub document_count: usize,
 }
 
 struct Engine {
@@ -76,7 +97,7 @@ fn build() -> Result<Engine> {
         let mut doc = TantivyDocument::default();
         doc.add_text(name_field, &entry.name);
         doc.add_text(category_field, &entry.category);
-        doc.add_text(kind_field, "reference");
+        doc.add_text(kind_field, KIND_REFERENCE);
         doc.add_text(content_field, &entry.content);
         doc.add_text(content_query_field, &entry.content);
         writer.add_document(doc)?;
@@ -91,7 +112,7 @@ fn build() -> Result<Engine> {
             let mut doc = TantivyDocument::default();
             doc.add_text(name_field, &p.slug);
             doc.add_text(category_field, "Corpus");
-            doc.add_text(kind_field, "probe");
+            doc.add_text(kind_field, KIND_PROBE);
             let content = p.summary.unwrap_or(&p.slug);
             doc.add_text(content_field, content);
             doc.add_text(content_query_field, content);
@@ -110,7 +131,7 @@ fn build() -> Result<Engine> {
         let mut doc = TantivyDocument::default();
         doc.add_text(name_field, &title);
         doc.add_text(category_field, "Audit");
-        doc.add_text(kind_field, "audit");
+        doc.add_text(kind_field, KIND_AUDIT);
         doc.add_text(content_field, &body);
         doc.add_text(content_query_field, &body);
         writer.add_document(doc)?;
@@ -124,7 +145,7 @@ fn build() -> Result<Engine> {
         let mut doc = TantivyDocument::default();
         doc.add_text(name_field, &title);
         doc.add_text(category_field, "Docs");
-        doc.add_text(kind_field, "docs");
+        doc.add_text(kind_field, KIND_DOCS);
         doc.add_text(content_field, &body);
         doc.add_text(content_query_field, &body);
         writer.add_document(doc)?;
@@ -138,7 +159,7 @@ fn build() -> Result<Engine> {
         let mut doc = TantivyDocument::default();
         doc.add_text(name_field, &entry.name);
         doc.add_text(category_field, entry.category);
-        doc.add_text(kind_field, "behavior");
+        doc.add_text(kind_field, KIND_BEHAVIOR);
         doc.add_text(content_field, &entry.content);
         doc.add_text(content_query_field, &entry.content);
         writer.add_document(doc)?;
@@ -165,6 +186,11 @@ fn build() -> Result<Engine> {
 pub fn query(q: &str, limit: usize, kind_filter: Option<&str>) -> Result<Vec<SearchHit>> {
     if q.trim().is_empty() {
         return Ok(Vec::new());
+    }
+    let kind_filter = kind_filter.map(str::to_ascii_lowercase);
+    let kind_filter = kind_filter.as_deref();
+    if let Some(kind) = kind_filter {
+        validate_kind(kind)?;
     }
     let e = engine();
     let searcher = e.reader.searcher();
@@ -206,7 +232,7 @@ pub fn query(q: &str, limit: usize, kind_filter: Option<&str>) -> Result<Vec<Sea
         let category = first_text(&doc, e.category_field).unwrap_or_default();
         let kind = first_text(&doc, e.kind_field).unwrap_or_default();
         let content = first_text(&doc, e.content_field).unwrap_or_default();
-        let score = if kind_filter.is_none() && kind == "behavior" {
+        let score = if kind_filter.is_none() && kind == KIND_BEHAVIOR {
             score * 0.65
         } else {
             score
@@ -228,6 +254,55 @@ pub fn query(q: &str, limit: usize, kind_filter: Option<&str>) -> Result<Vec<Sea
         hits.truncate(limit);
     }
     Ok(hits)
+}
+
+pub fn kind_catalog() -> Vec<SearchKindInfo> {
+    vec![
+        SearchKindInfo {
+            kind: KIND_REFERENCE,
+            category: "Reference",
+            description: "TradingView v6 reference entries",
+            document_count: reference::all_entries().len(),
+        },
+        SearchKindInfo {
+            kind: KIND_PROBE,
+            category: "Corpus",
+            description: "Baked PineForge validation probes",
+            document_count: corpus::list_probes(None, None).map_or(0, |items| items.len()),
+        },
+        SearchKindInfo {
+            kind: KIND_AUDIT,
+            category: "Audit",
+            description: "PineForge TV-vs-engine divergence sections",
+            document_count: audit_section_count(),
+        },
+        SearchKindInfo {
+            kind: KIND_DOCS,
+            category: "Docs",
+            description: "PineForge narrative documentation sections",
+            document_count: docs_section_count(),
+        },
+        SearchKindInfo {
+            kind: KIND_BEHAVIOR,
+            category: "Behavior",
+            description: "pine-data signatures, params, examples, and polymorphism notes",
+            document_count: behavior_doc_count(),
+        },
+    ]
+}
+
+pub fn is_kind_catalog_request(kind: &str) -> bool {
+    kind == KIND_CATALOG_MARKER
+}
+
+fn validate_kind(kind: &str) -> Result<()> {
+    if SEARCH_KIND_NAMES.contains(&kind) {
+        return Ok(());
+    }
+    bail!(
+        "unknown search kind `{kind}`; expected one of: {}",
+        SEARCH_KIND_NAMES.join(", ")
+    )
 }
 
 fn first_text(doc: &TantivyDocument, field: Field) -> Option<String> {
@@ -464,6 +539,29 @@ mod tests {
                 .map(|h| (h.kind.as_str(), h.name.as_str()))
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn kind_filter_is_case_insensitive() {
+        let hits = query("rsi", 10, Some("REFERENCE")).expect("search must succeed");
+        assert!(!hits.is_empty(), "expected reference-kind hits for `rsi`");
+        assert!(hits.iter().all(|h| h.kind == "reference"));
+    }
+
+    #[test]
+    fn kind_catalog_lists_all_supported_kinds_with_counts() {
+        let kinds = kind_catalog();
+        assert_eq!(
+            kinds.iter().map(|kind| kind.kind).collect::<Vec<_>>(),
+            vec!["reference", "probe", "audit", "docs", "behavior"]
+        );
+        assert!(kinds.iter().all(|kind| kind.document_count > 0));
+    }
+
+    #[test]
+    fn invalid_kind_filter_errors() {
+        let err = query("rsi", 10, Some("behaviour")).expect_err("must reject unknown kind");
+        assert!(err.to_string().contains("unknown search kind"));
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
-use pine_cli::{corpus, indicator, reference, search};
+use pine_cli::{behavior, corpus, indicator, reference, search};
 use std::io::IsTerminal;
 
 mod commands;
@@ -57,7 +57,7 @@ enum Command {
         query: String,
         #[arg(long, default_value_t = 25)]
         limit: usize,
-        /// Restrict hits to one source: reference, probe, audit, docs, or behavior.
+        /// Restrict hits to one source. Pass `?` to list source kinds.
         #[arg(long)]
         kind: Option<String>,
     },
@@ -76,7 +76,19 @@ enum Command {
     Tokens { code: String },
 
     /// Polymorphism, side-effects, series-vs-simple, na-propagation
-    Behavior { name: String },
+    Behavior {
+        name: Option<String>,
+        /// List behavior catalog entries instead of looking up one name.
+        #[arg(long)]
+        list: bool,
+        /// Restrict `--list` to function, variable, constant, or keyword.
+        /// Pass `?` to list the behavior-kind catalog.
+        #[arg(long)]
+        kind: Option<String>,
+        /// Restrict `--list` entries by name, namespace, or detail text.
+        #[arg(long)]
+        grep: Option<String>,
+    },
 
     /// Probe contents: strategy.pine + tv_trades.csv + summary
     Probe { slug: String },
@@ -133,7 +145,18 @@ fn main() -> Result<()> {
         Command::Validate { code, strict } => commands::validate::run(&code, strict, format, style),
         Command::Parse { code } => commands::parse::run(&code, format),
         Command::Tokens { code } => commands::tokens::run(&code, format),
-        Command::Behavior { name } => commands::behavior::run(&name, format),
+        Command::Behavior {
+            name,
+            list,
+            kind,
+            grep,
+        } => commands::behavior::run(
+            name.as_deref(),
+            list,
+            kind.as_deref(),
+            grep.as_deref(),
+            format,
+        ),
         Command::Probe { slug } => commands::probe::run(&slug, format),
         Command::Probes { grep, feature } => {
             commands::probes::run(grep.as_deref(), feature.as_deref(), format)
@@ -160,6 +183,7 @@ fn cmd_version(format: ResolvedFormat) -> Result<()> {
     let audit_sections = search::audit_section_count();
     let docs_sections = search::docs_section_count();
     let behavior_docs = search::behavior_doc_count();
+    let pine_data = behavior::snapshot();
     let indicator_counts =
         indicator::fixture_counts().unwrap_or(indicator::IndicatorFixtureCounts {
             total: 0,
@@ -183,6 +207,13 @@ fn cmd_version(format: ResolvedFormat) -> Result<()> {
                     "narrative_sections": docs_sections,
                 },
                 "behavior": {
+                    "pine_data_version": pine_data.version,
+                    "generated_at": pine_data.generated_at,
+                    "function_count": pine_data.function_count,
+                    "variable_count": pine_data.variable_count,
+                    "constant_count": pine_data.constant_count,
+                    "keyword_count": pine_data.keyword_count,
+                    "function_behavior_count": pine_data.function_behavior_count,
                     "search_doc_count": behavior_docs,
                 },
                 "indicator": {
@@ -205,7 +236,18 @@ fn cmd_version(format: ResolvedFormat) -> Result<()> {
             println!(
                 "pineforge docs: {audit_sections} audit sections + {docs_sections} narrative sections"
             );
-            println!("behavior:      {behavior_docs} searchable pine-data docs");
+            println!(
+                "pine-data:     v{} generated {}",
+                pine_data.version, pine_data.generated_at
+            );
+            println!(
+                "behavior:      {} functions, {} variables, {} constants, {} keywords, {} behavior entries, {behavior_docs} searchable docs",
+                pine_data.function_count,
+                pine_data.variable_count,
+                pine_data.constant_count,
+                pine_data.keyword_count,
+                pine_data.function_behavior_count
+            );
             println!(
                 "indicator:     {} strict fixtures ({} smoke, {} tv)",
                 indicator_counts.total, indicator_counts.smoke, indicator_counts.tv
@@ -213,4 +255,74 @@ fn cmd_version(format: ResolvedFormat) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn behavior_list_parses_without_name() {
+        let cli = Cli::try_parse_from([
+            "pine",
+            "behavior",
+            "--list",
+            "--kind",
+            "function",
+            "--grep",
+            "plotshape",
+        ])
+        .expect("behavior list args should parse");
+
+        match cli.command {
+            Command::Behavior {
+                name,
+                list,
+                kind,
+                grep,
+            } => {
+                assert_eq!(name, None);
+                assert!(list);
+                assert_eq!(kind.as_deref(), Some("function"));
+                assert_eq!(grep.as_deref(), Some("plotshape"));
+            }
+            _ => panic!("expected behavior command"),
+        }
+    }
+
+    #[test]
+    fn behavior_kind_catalog_parses_without_name() {
+        let cli = Cli::try_parse_from(["pine", "behavior", "--kind", "?"])
+            .expect("behavior kind catalog args should parse");
+
+        match cli.command {
+            Command::Behavior {
+                name,
+                list,
+                kind,
+                grep,
+            } => {
+                assert_eq!(name, None);
+                assert!(!list);
+                assert_eq!(kind.as_deref(), Some("?"));
+                assert_eq!(grep, None);
+            }
+            _ => panic!("expected behavior command"),
+        }
+    }
+
+    #[test]
+    fn search_kind_catalog_parses_literal_question_mark() {
+        let cli = Cli::try_parse_from(["pine", "search", "x", "--kind", "?"])
+            .expect("search kind catalog args should parse");
+
+        match cli.command {
+            Command::Search { query, limit, kind } => {
+                assert_eq!(query, "x");
+                assert_eq!(limit, 25);
+                assert_eq!(kind.as_deref(), Some("?"));
+            }
+            _ => panic!("expected search command"),
+        }
+    }
 }

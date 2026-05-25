@@ -53,7 +53,7 @@ Five sources, all baked into the binary as source markdown / extracted-at-runtim
 - **PineForge narrative pages**: `vendor/pineforge-docs/pages/*.md`, 18 explainer docs (magnifier, mtf, timeframes, lifecycle, report-schema, abi-stability, examples, tutorials), section-sliced on H2 / H3, indexed as `kind: "docs"`.
 - **pine-data behavior entries**: function / variable / constant / keyword exports from `vendor/pine-data/v6/*.json`, indexed as `kind: "behavior"` with signatures, parameter prose, examples, and polymorphism notes.
 
-Total: a few thousand compact documents. Index is a `tantivy` RAM directory rebuilt on first query (~10-15 ms one-shot cost, then sub-millisecond per query), cached behind a `OnceLock`. Schema: `name` (TEXT|STORED, 5x boost), `category` (STRING|STORED), `kind` (STRING|STORED), `content` (STORED for retrieval) + `content_search` (TEXT, drives ranking). Hits carry the full content body in `SearchHit.content` so consumers don't need a follow-up lookup. `pine search --kind <kind>` narrows by source.
+Total: a few thousand compact documents. Index is a `tantivy` RAM directory rebuilt on first query (~10-15 ms one-shot cost, then sub-millisecond per query), cached behind a `OnceLock`. Schema: `name` (TEXT|STORED, 5x boost), `category` (STRING|STORED), `kind` (STRING|STORED), `content` (STORED for retrieval) + `content_search` (TEXT, drives ranking). Hits carry the full content body in `SearchHit.content` so consumers don't need a follow-up lookup. `pine search --kind <kind>` narrows by source case-insensitively; `--kind ?` lists the source catalog and document counts.
 
 Per-probe summaries are extracted live at runtime from each `strategy.pine`'s header by `corpus::summary_for`: every prose comment line up to the first real code line, with license / SPDX / copyright / version-directive noise filtered and blank `//` paragraph separators collapsed. Covers 100% of the 239 baked probes with multi-paragraph summaries (median ~650 chars) - no LLM-curation pass required.
 
@@ -133,7 +133,9 @@ pine validate --strict <code>   TV-broker yes/no oracle; error messages are not 
 pine parse <code>               AST as JSON
 pine tokens <code>              lexer tokens with line/indent
 pine search <query>             BM25 across all sources, ranked
+pine search <query> --kind ?    list searchable source kinds + document counts
 pine behavior <name>            polymorphism, side-effects, series-vs-simple, na-propagation
+pine behavior [text] --list     list baked behavior entries; add --kind / --grep to narrow
 pine probe <slug>               probe contents: strategy.pine + tv_trades.csv + summary
 pine probes                     list all baked probes
 pine probes --grep <text>       list probes whose slug or extracted summary matches text
@@ -142,7 +144,7 @@ pine diff <probe> <trades.csv>  tier-classify a piners trade list against the pr
 pine diff ... --show-diffs N    + worst-N matched pairs (ranked) + every TV/user orphan trade
 pine indicator --list           list baked indicator strict fixtures
 pine indicator --strict <slug>  per-bar indicator parity against a vendored TV baseline
-pine version                    pine-data snapshot date + bake counts + binary version
+pine version                    pine-data snapshot metadata + bake counts + binary version
 ```
 
 Global flags:

@@ -10,6 +10,9 @@ pub(crate) fn run(
     format: ResolvedFormat,
     style: Style,
 ) -> Result<()> {
+    if kind_filter.is_some_and(search::is_kind_catalog_request) {
+        return print_kind_catalog(format);
+    }
     let hits = search::query(query, limit, kind_filter)?;
     match format {
         ResolvedFormat::Json => {
@@ -45,6 +48,26 @@ pub(crate) fn run(
                 if !snippet.is_empty() {
                     println!("        {}", style.dim(&snippet));
                 }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn print_kind_catalog(format: ResolvedFormat) -> Result<()> {
+    let kinds = search::kind_catalog();
+    match format {
+        ResolvedFormat::Json => {
+            print_json(&serde_json::json!({
+                "kinds": kinds,
+            }))?;
+        }
+        ResolvedFormat::Text => {
+            for kind in &kinds {
+                println!(
+                    "{:<9} {:<9} {:>5}  {}",
+                    kind.kind, kind.category, kind.document_count, kind.description
+                );
             }
         }
     }

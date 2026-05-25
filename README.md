@@ -11,8 +11,8 @@ runtime configuration.
 | Command | Output |
 |---|---|
 | `pine lookup <name>` | Function / constant / variable details from TradingView's v6 reference |
-| `pine search <query> [--kind reference\|probe\|audit\|docs\|behavior]` | BM25 across v6 reference, baked corpus, PineForge audit/doc pages, and structured pine-data behavior |
-| `pine behavior <name>` | Structured signature + polymorphism + argument ordering from pine-tools' JSON exports |
+| `pine search <query> [--kind reference\|probe\|audit\|docs\|behavior]` | BM25 across v6 reference, baked corpus, PineForge audit/doc pages, and structured pine-data behavior; `--kind` is case-insensitive, and `--kind ?` lists source kinds |
+| `pine behavior <name>` / `pine behavior [TEXT] --list [--kind function\|variable\|constant\|keyword] [--grep TEXT]` | Structured signature + polymorphism + argument ordering from pine-tools' JSON exports; list-mode `TEXT` acts as grep, `--kind` is case-insensitive, and `--kind ?` lists behavior kinds |
 | `pine parse <code>` | piners-syntax AST tree |
 | `pine tokens <code>` | piners-syntax lexer token stream |
 | `pine validate <code>` | Local lex + parse + type + semantic diagnostics from piners-syntax, backed by piners-runtime builtins plus pine-data gap-fill |
@@ -22,7 +22,7 @@ runtime configuration.
 | `pine diff <probe> <trades.csv> [--show-diffs N]` | Tier-classify a user trade list against the probe's TV ground truth (port of PineForge's verify_corpus.py); `--show-diffs N` emits the worst-N matched pairs plus every TV / user orphan |
 | `pine indicator --list` | List baked indicator strict fixtures with smoke vs TV baseline kind |
 | `pine indicator --strict <slug>` | Run a baked indicator fixture through piners-runner and diff per-bar outputs against `expect.json`, including optional `test_range` windows; `smoke-*` fixtures are deterministic substrate checks, TV-captured baselines are still pending |
-| `pine version` | Binary version + bake counts (reference entries, corpus probes, audit + narrative + behavior docs, indicator fixtures split smoke vs TV) |
+| `pine version` | Binary version + bake counts and pinned snapshot metadata (reference, corpus, PineForge docs, pine-data, indicator fixtures split smoke vs TV) |
 
 All subcommands accept `--format json|text|auto`. JSON outputs carry
 `schema_version: 1`. Object payloads attach the version inline; arrays wrap

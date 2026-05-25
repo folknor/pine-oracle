@@ -17,12 +17,14 @@
 // (serde ignores unknown fields by default, plus serde(default) on
 // optional fields) so a schema tweak upstream doesn't break the binary.
 
+use anyhow::{Result, bail};
 use piners_syntax::{
     BuiltinsTable, FunctionParameter as SyntaxFunctionParameter, FunctionSignature,
     PolymorphismRule, ValueType,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::OnceLock;
 
 const FUNCTIONS_JSON: &str = include_str!("../vendor/pine-data/v6/functions.json");
@@ -30,6 +32,7 @@ const VARIABLES_JSON: &str = include_str!("../vendor/pine-data/v6/variables.json
 const CONSTANTS_JSON: &str = include_str!("../vendor/pine-data/v6/constants.json");
 const KEYWORDS_JSON: &str = include_str!("../vendor/pine-data/v6/keywords.json");
 const BEHAVIOR_JSON: &str = include_str!("../vendor/pine-data/v6/function-behavior.json");
+const KIND_CATALOG_MARKER: &str = "?";
 
 // ---------- raw types (mirror the JSON 1:1) ----------
 
@@ -194,11 +197,75 @@ pub struct KeywordBehavior {
     pub name: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BehaviorKind {
+    Function,
+    Variable,
+    Constant,
+    Keyword,
+}
+
+impl BehaviorKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Function => "function",
+            Self::Variable => "variable",
+            Self::Constant => "constant",
+            Self::Keyword => "keyword",
+        }
+    }
+
+    fn description(self) -> &'static str {
+        match self {
+            Self::Function => "Built-in functions with signatures and behavior metadata",
+            Self::Variable => "Built-in variables such as OHLCV series",
+            Self::Constant => "Typed named constants and enum-like values",
+            Self::Keyword => "Reserved Pine keywords",
+        }
+    }
+}
+
+impl fmt::Display for BehaviorKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BehaviorListing {
+    pub kind: BehaviorKind,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub detail: String,
+    pub polymorphic: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BehaviorKindInfo {
+    pub kind: BehaviorKind,
+    pub description: &'static str,
+    pub count: usize,
+}
+
 #[derive(Debug, Clone)]
 pub struct BehaviorSearchEntry {
     pub category: &'static str,
     pub name: String,
     pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PineDataSnapshot {
+    pub version: String,
+    pub generated_at: String,
+    pub function_count: usize,
+    pub variable_count: usize,
+    pub constant_count: usize,
+    pub keyword_count: usize,
+    pub function_behavior_count: usize,
 }
 
 // ---------- indexed lookup ----------
@@ -209,6 +276,8 @@ struct BehaviorIndex {
     constants: HashMap<String, RawConstant>,
     keywords: Vec<String>,
     function_behaviors: HashMap<String, RawBehaviorEntry>,
+    behavior_version: String,
+    behavior_generated_at: String,
 }
 
 fn index() -> &'static BehaviorIndex {
@@ -222,8 +291,8 @@ fn build_index() -> anyhow::Result<BehaviorIndex> {
     let constants: Vec<RawConstant> = serde_json::from_str(CONSTANTS_JSON)?;
     let keywords: Vec<String> = serde_json::from_str(KEYWORDS_JSON)?;
     let behavior_file: RawBehaviorFile = serde_json::from_str(BEHAVIOR_JSON)?;
-    // Track upstream snapshot metadata as eprintln-debuggable but otherwise unused.
-    let _ = (&behavior_file.version, &behavior_file.generated_at);
+    let behavior_version = behavior_file.version;
+    let behavior_generated_at = behavior_file.generated_at;
 
     Ok(BehaviorIndex {
         functions: functions.into_iter().map(|f| (f.name.clone(), f)).collect(),
@@ -231,6 +300,8 @@ fn build_index() -> anyhow::Result<BehaviorIndex> {
         constants: constants.into_iter().map(|c| (c.name.clone(), c)).collect(),
         keywords,
         function_behaviors: behavior_file.functions,
+        behavior_version,
+        behavior_generated_at,
     })
 }
 
@@ -274,6 +345,139 @@ pub fn lookup(name: &str) -> Option<Behavior> {
         }));
     }
     None
+}
+
+pub fn snapshot() -> PineDataSnapshot {
+    let idx = index();
+    PineDataSnapshot {
+        version: idx.behavior_version.clone(),
+        generated_at: idx.behavior_generated_at.clone(),
+        function_count: idx.functions.len(),
+        variable_count: idx.variables.len(),
+        constant_count: idx.constants.len(),
+        keyword_count: idx.keywords.len(),
+        function_behavior_count: idx.function_behaviors.len(),
+    }
+}
+
+pub fn kind_catalog() -> Vec<BehaviorKindInfo> {
+    let snapshot = snapshot();
+    vec![
+        BehaviorKindInfo {
+            kind: BehaviorKind::Function,
+            description: BehaviorKind::Function.description(),
+            count: snapshot.function_count,
+        },
+        BehaviorKindInfo {
+            kind: BehaviorKind::Variable,
+            description: BehaviorKind::Variable.description(),
+            count: snapshot.variable_count,
+        },
+        BehaviorKindInfo {
+            kind: BehaviorKind::Constant,
+            description: BehaviorKind::Constant.description(),
+            count: snapshot.constant_count,
+        },
+        BehaviorKindInfo {
+            kind: BehaviorKind::Keyword,
+            description: BehaviorKind::Keyword.description(),
+            count: snapshot.keyword_count,
+        },
+    ]
+}
+
+pub fn is_kind_catalog_request(kind: &str) -> bool {
+    kind == KIND_CATALOG_MARKER
+}
+
+pub fn list(kind_filter: Option<&str>, grep: Option<&str>) -> Result<Vec<BehaviorListing>> {
+    let filter = kind_filter.map(parse_behavior_kind).transpose()?;
+    let needle = grep.map(str::to_ascii_lowercase);
+    let idx = index();
+    let mut out = Vec::new();
+
+    if filter.is_none_or(|kind| kind == BehaviorKind::Function) {
+        for function in idx.functions.values() {
+            out.push(BehaviorListing {
+                kind: BehaviorKind::Function,
+                name: function.name.clone(),
+                namespace: function.namespace.clone(),
+                detail: function.syntax.clone(),
+                polymorphic: idx
+                    .function_behaviors
+                    .get(&function.name)
+                    .is_some_and(|behavior| behavior.polymorphic.is_polymorphic()),
+            });
+        }
+    }
+    if filter.is_none_or(|kind| kind == BehaviorKind::Variable) {
+        for variable in idx.variables.values() {
+            out.push(BehaviorListing {
+                kind: BehaviorKind::Variable,
+                name: variable.name.clone(),
+                namespace: None,
+                detail: type_detail(&variable.ty, &variable.qualifier),
+                polymorphic: false,
+            });
+        }
+    }
+    if filter.is_none_or(|kind| kind == BehaviorKind::Constant) {
+        for constant in idx.constants.values() {
+            out.push(BehaviorListing {
+                kind: BehaviorKind::Constant,
+                name: constant.name.clone(),
+                namespace: constant.namespace.clone(),
+                detail: constant.ty.clone(),
+                polymorphic: false,
+            });
+        }
+    }
+    if filter.is_none_or(|kind| kind == BehaviorKind::Keyword) {
+        for keyword in &idx.keywords {
+            out.push(BehaviorListing {
+                kind: BehaviorKind::Keyword,
+                name: keyword.clone(),
+                namespace: None,
+                detail: String::new(),
+                polymorphic: false,
+            });
+        }
+    }
+
+    if let Some(needle) = needle {
+        out.retain(|entry| behavior_listing_matches(entry, &needle));
+    }
+    out.sort_by(|a, b| a.kind.cmp(&b.kind).then_with(|| a.name.cmp(&b.name)));
+    Ok(out)
+}
+
+fn type_detail(ty: &str, qualifier: &str) -> String {
+    if qualifier.is_empty() {
+        ty.to_string()
+    } else {
+        format!("{qualifier} {ty}")
+    }
+}
+
+fn behavior_listing_matches(entry: &BehaviorListing, needle: &str) -> bool {
+    entry.name.to_ascii_lowercase().contains(needle)
+        || entry
+            .namespace
+            .as_ref()
+            .is_some_and(|namespace| namespace.to_ascii_lowercase().contains(needle))
+        || entry.detail.to_ascii_lowercase().contains(needle)
+}
+
+fn parse_behavior_kind(raw: &str) -> Result<BehaviorKind> {
+    match raw.to_ascii_lowercase().as_str() {
+        "function" | "functions" => Ok(BehaviorKind::Function),
+        "variable" | "variables" => Ok(BehaviorKind::Variable),
+        "constant" | "constants" => Ok(BehaviorKind::Constant),
+        "keyword" | "keywords" => Ok(BehaviorKind::Keyword),
+        _ => bail!(
+            "unknown behavior kind `{raw}`; expected one of: function, variable, constant, keyword"
+        ),
+    }
 }
 
 pub fn search_entries() -> Vec<BehaviorSearchEntry> {
@@ -678,6 +882,75 @@ mod tests {
     fn keyword_lookup_works() {
         let b = lookup("var").expect("var keyword must exist");
         assert!(matches!(b, Behavior::Keyword(_)));
+    }
+
+    #[test]
+    fn snapshot_reports_vendored_pine_data_metadata() {
+        let snapshot = snapshot();
+        assert_eq!(snapshot.version, "6");
+        chrono::DateTime::parse_from_rfc3339(&snapshot.generated_at)
+            .expect("generated_at must be RFC3339");
+        assert_eq!(snapshot.function_count, 475);
+        assert!(snapshot.variable_count > 0);
+        assert!(snapshot.constant_count > 0);
+        assert!(snapshot.keyword_count > 0);
+        assert!(snapshot.function_behavior_count > 0);
+    }
+
+    #[test]
+    fn behavior_list_filters_by_kind_and_grep() {
+        let entries = list(Some("function"), Some("plotshape")).expect("list");
+        assert!(entries.iter().any(|entry| entry.name == "plotshape"
+            && entry.kind == BehaviorKind::Function
+            && entry.detail.contains("plotshape(")));
+        assert!(
+            entries
+                .iter()
+                .all(|entry| entry.kind == BehaviorKind::Function)
+        );
+    }
+
+    #[test]
+    fn behavior_grep_does_not_match_kind_names() {
+        let entries = list(None, Some("variable")).expect("list");
+        assert!(
+            !entries
+                .iter()
+                .any(|entry| entry.kind == BehaviorKind::Variable && entry.name == "close"),
+            "grep should not match every variable entry by kind name"
+        );
+    }
+
+    #[test]
+    fn behavior_kind_filter_is_case_insensitive() {
+        let entries = list(Some("Function"), Some("plotshape")).expect("list");
+        assert!(entries.iter().any(|entry| entry.name == "plotshape"));
+        assert!(
+            entries
+                .iter()
+                .all(|entry| entry.kind == BehaviorKind::Function)
+        );
+    }
+
+    #[test]
+    fn behavior_kind_catalog_reports_all_kinds() {
+        let kinds = kind_catalog();
+        assert_eq!(
+            kinds.iter().map(|kind| kind.kind).collect::<Vec<_>>(),
+            vec![
+                BehaviorKind::Function,
+                BehaviorKind::Variable,
+                BehaviorKind::Constant,
+                BehaviorKind::Keyword
+            ]
+        );
+        assert!(kinds.iter().all(|kind| kind.count > 0));
+    }
+
+    #[test]
+    fn invalid_behavior_kind_errors() {
+        let err = list(Some("functionsish"), None).expect_err("must reject");
+        assert!(err.to_string().contains("unknown behavior kind"));
     }
 
     #[test]
