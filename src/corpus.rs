@@ -15,9 +15,7 @@
 // directive, takes the first prose comment block, and stops at the first
 // blank `//` or non-comment line after prose begins. Cached behind a
 // OnceLock so repeat lookups are cheap. >=80% of the 235 baked probes
-// have author-written summaries that this picks up. docs/probe-summaries.md
-// still ships richer engine-internals prose for ~21 probes; that file is
-// not currently keyed to published slugs and so is not loaded here.
+// have author-written summaries that this picks up.
 
 use anyhow::{Result, anyhow, bail};
 use include_dir::{Dir, include_dir};
