@@ -1,0 +1,64 @@
+pine-oracle
+===========
+
+Copyright pine-oracle contributors.
+
+This project is licensed under the Mozilla Public License Version 2.0
+(see LICENSE in this directory). MPL-2.0 has file-level copyleft: source
+files that originate in this project must remain MPL-2.0; modifications to
+those files must be released under MPL-2.0. Files vendored from upstream
+projects retain their own licenses, listed below.
+
+Vendored components
+-------------------
+
+vendor/pine-reference/
+  Pine v6 reference markdown snapshot from pinecone.
+  License: Mozilla Public License Version 2.0.
+  Copyright (c) Pinecone contributors.
+  See vendor/pine-reference/LICENSE and vendor/pine-reference/NOTICE.
+
+vendor/pine-syntax/
+  Pine v6 lexer + AST + parser lifted from pinecone, plus 72 parser
+  golden fixtures.
+  License: Mozilla Public License Version 2.0.
+  Copyright (c) Pinecone contributors.
+  See vendor/pine-syntax/LICENSE and vendor/pine-syntax/NOTICE.
+
+vendor/pine-data/v6/
+  Pine v6 structured signatures + polymorphism markers from pine-tools.
+  License: MIT License.
+  Copyright (c) folknor.
+  See vendor/pine-data/v6/NOTICE; the MIT text is the pine-tools repo's
+  LICENSE at https://github.com/folknor/pine-tools.
+
+vendor/pineforge-corpus/
+  PineForge validation corpus: 235 Pine v6 strategies cross-validated
+  against TradingView's broker emulator.
+  License: Apache License Version 2.0.
+  Copyright (c) PineForge contributors.
+  See vendor/pineforge-corpus/LICENSE, vendor/pineforge-corpus/NOTICE,
+  and vendor/pineforge-corpus/VENDORING_NOTES.md.
+
+vendor/pineforge-docs/
+  PineForge's Pine v6 audit doc (pine_v6_audit_master.md) and 18
+  narrative explainer pages (pages/*.md).
+  License: Apache License Version 2.0.
+  Copyright (c) PineForge contributors.
+  See vendor/pineforge-docs/LICENSE and vendor/pineforge-docs/NOTICE.
+
+Per-file SPDX identifiers
+-------------------------
+
+Each lifted source file carries an SPDX-License-Identifier comment in its
+header pointing back to the upstream's license. Files that port logic from
+an Apache-2.0 source (e.g. src/diff.rs, a port of PineForge's
+scripts/verify_corpus.py) declare `SPDX-License-Identifier: Apache-2.0 OR
+MPL-2.0` to maintain compatibility with both the upstream license and the
+project umbrella.
+
+Trademarks
+----------
+
+TradingView and PineScript are trademarks of their respective owners.
+This project is not affiliated with or endorsed by TradingView.

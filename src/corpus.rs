@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0 OR MPL-2.0
+// SPDX-License-Identifier: MPL-2.0
 //
 // Baked PineForge validation corpus.
 //

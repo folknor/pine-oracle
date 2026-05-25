@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+//
 // Structured behaviour lookup for the public Pine v6 surface.
 //
 // Inputs are pine-tools' JSON exports under vendor/pine-data/v6/:

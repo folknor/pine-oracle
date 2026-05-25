@@ -1,4 +1,8 @@
+// SPDX-License-Identifier: Apache-2.0 OR MPL-2.0
+//
 // Trade-list diff: pine-oracle's port of PineForge's verify_corpus.py.
+// `verify_corpus.py` is Apache-2.0, copyright PineForge contributors. This
+// port retains the upstream license + adds the project's MPL-2.0 umbrella.
 //
 // `diff(probe_slug, user_csv)` aligns a user-supplied trade list against the
 // probe's baked tv_trades.csv (the TradingView ground truth) and classifies
