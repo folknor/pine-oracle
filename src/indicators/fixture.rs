@@ -14,7 +14,6 @@ use super::types::{
 };
 
 pub(super) static INDICATORS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/indicators");
-const BASELINE_CATALOG_MARKER: &str = "?";
 const MAX_EXPECT_TOLERANCE: f64 = 1e-3;
 const DAILY_TIMEFRAME_TOLERANCE_SECONDS: i64 = 60 * 60;
 const CALENDAR_MONTH_MIN_SPACING_SECONDS: i64 = 27 * 24 * 60 * 60;
@@ -183,8 +182,11 @@ pub fn baseline_catalog() -> Result<Vec<IndicatorBaselineInfo>> {
     ])
 }
 
+/// Returns `true` when `baseline` is the catalog sentinel `"?"`.
+/// Thin delegate kept for library consumers that import `pine_cli::indicator`
+/// directly; the binary uses `output::is_catalog_request` instead.
 pub fn is_baseline_catalog_request(baseline: &str) -> bool {
-    baseline == BASELINE_CATALOG_MARKER
+    baseline == "?"
 }
 
 // Lenient listing: malformed metadata, bars.json, or expect.json downgrades to

@@ -1,7 +1,7 @@
 use anyhow::{Result, bail};
 use pine_cli::indicator;
 
-use crate::output::{ResolvedFormat, print_json};
+use crate::output::{ResolvedFormat, is_catalog_request, print_catalog, print_json};
 
 pub(crate) struct Args<'a> {
     pub(crate) slug: Option<&'a str>,
@@ -16,10 +16,7 @@ pub(crate) struct Args<'a> {
 }
 
 pub(crate) fn run(args: &Args<'_>, format: ResolvedFormat) -> Result<()> {
-    if args
-        .baseline
-        .is_some_and(indicator::is_baseline_catalog_request)
-    {
+    if is_catalog_request(args.baseline) {
         return print_baseline_catalog(format, args.quiet);
     }
     if args.list {
@@ -117,26 +114,14 @@ fn resolve_list_grep<'a>(slug: Option<&'a str>, grep: Option<&'a str>) -> Result
 
 fn print_baseline_catalog(format: ResolvedFormat, quiet: bool) -> Result<()> {
     let baselines = indicator::baseline_catalog()?;
-    match format {
-        ResolvedFormat::Json => {
-            print_json(&serde_json::json!({
-                "baselines": baselines,
-            }))?;
-        }
-        ResolvedFormat::Text => {
-            for baseline in &baselines {
-                if quiet {
-                    println!("{}", baseline.baseline);
-                } else {
-                    println!(
-                        "{:<6} {:>5}  {}",
-                        baseline.baseline, baseline.count, baseline.description
-                    );
-                }
-            }
-        }
-    }
-    Ok(())
+    print_catalog(
+        "baselines",
+        &baselines,
+        |b| format!("{:<6} {:>5}  {}", b.baseline, b.count, b.description),
+        |b| b.baseline.to_string(),
+        format,
+        quiet,
+    )
 }
 
 fn print_fixture_list(

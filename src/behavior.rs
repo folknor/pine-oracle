@@ -32,7 +32,6 @@ const VARIABLES_JSON: &str = include_str!("../vendor/pine-data/v6/variables.json
 const CONSTANTS_JSON: &str = include_str!("../vendor/pine-data/v6/constants.json");
 const KEYWORDS_JSON: &str = include_str!("../vendor/pine-data/v6/keywords.json");
 const BEHAVIOR_JSON: &str = include_str!("../vendor/pine-data/v6/function-behavior.json");
-const KIND_CATALOG_MARKER: &str = "?";
 
 // ---------- raw types (mirror the JSON 1:1) ----------
 
@@ -417,8 +416,11 @@ pub fn kind_catalog() -> Vec<BehaviorKindInfo> {
     ]
 }
 
+/// Returns `true` when `kind` is the catalog sentinel `"?"`.
+/// Thin delegate kept for library consumers that import `pine_cli::behavior`
+/// directly; the binary uses `output::is_catalog_request` instead.
 pub fn is_kind_catalog_request(kind: &str) -> bool {
-    kind == KIND_CATALOG_MARKER
+    kind == "?"
 }
 
 pub fn list(kind_filter: Option<&str>, grep: Option<&str>) -> Result<Vec<BehaviorListing>> {

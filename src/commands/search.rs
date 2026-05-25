@@ -1,7 +1,7 @@
 use anyhow::Result;
 use pine_cli::search;
 
-use crate::output::{ResolvedFormat, Style, print_json};
+use crate::output::{ResolvedFormat, Style, is_catalog_request, print_catalog, print_json};
 
 pub(crate) fn run(
     query: &str,
@@ -11,7 +11,7 @@ pub(crate) fn run(
     style: Style,
     quiet: bool,
 ) -> Result<()> {
-    if kind_filter.is_some_and(search::is_kind_catalog_request) {
+    if is_catalog_request(kind_filter) {
         return print_kind_catalog(format, quiet);
     }
     let hits = search::query(query, limit, kind_filter)?;
@@ -61,26 +61,19 @@ pub(crate) fn run(
 
 fn print_kind_catalog(format: ResolvedFormat, quiet: bool) -> Result<()> {
     let kinds = search::kind_catalog();
-    match format {
-        ResolvedFormat::Json => {
-            print_json(&serde_json::json!({
-                "kinds": kinds,
-            }))?;
-        }
-        ResolvedFormat::Text => {
-            for kind in &kinds {
-                if quiet {
-                    println!("{}", kind.kind);
-                } else {
-                    println!(
-                        "{:<9} {:<9} {:>5}  {}",
-                        kind.kind, kind.category, kind.document_count, kind.description
-                    );
-                }
-            }
-        }
-    }
-    Ok(())
+    print_catalog(
+        "kinds",
+        &kinds,
+        |k| {
+            format!(
+                "{:<9} {:<9} {:>5}  {}",
+                k.kind, k.category, k.count, k.description
+            )
+        },
+        |k| k.kind.to_string(),
+        format,
+        quiet,
+    )
 }
 
 fn snippet_first_line(content: &str, max_chars: usize) -> String {

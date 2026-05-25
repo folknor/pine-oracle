@@ -1,7 +1,7 @@
 use anyhow::Result;
 use pine_cli::corpus;
 
-use crate::output::{ResolvedFormat, print_json};
+use crate::output::{ResolvedFormat, is_catalog_request, print_catalog, print_json};
 
 pub(crate) fn run(
     grep: Option<&str>,
@@ -9,7 +9,7 @@ pub(crate) fn run(
     format: ResolvedFormat,
     quiet: bool,
 ) -> Result<()> {
-    if matches!(feature, Some("?")) {
+    if is_catalog_request(feature) {
         return print_feature_catalog(format, quiet);
     }
     let probes = corpus::list_probes(grep, feature)?;
@@ -43,24 +43,25 @@ pub(crate) fn run(
 }
 
 fn print_feature_catalog(format: ResolvedFormat, quiet: bool) -> Result<()> {
-    let catalog = corpus::feature_catalog();
-    match format {
-        ResolvedFormat::Json => {
-            let items: Vec<_> = catalog
-                .iter()
-                .map(|(name, desc)| serde_json::json!({"name": name, "description": desc}))
-                .collect();
-            print_json(&items)?;
-        }
-        ResolvedFormat::Text => {
-            for (name, desc) in &catalog {
-                if quiet {
-                    println!("{name}");
-                } else {
-                    println!("{name:<28}  {desc}");
-                }
-            }
-        }
+    use serde::Serialize;
+
+    #[derive(Serialize)]
+    struct FeatureInfo {
+        name: &'static str,
+        description: &'static str,
     }
-    Ok(())
+
+    let catalog: Vec<FeatureInfo> = corpus::feature_catalog()
+        .into_iter()
+        .map(|(name, description)| FeatureInfo { name, description })
+        .collect();
+
+    print_catalog(
+        "features",
+        &catalog,
+        |f| format!("{:<28}  {}", f.name, f.description),
+        |f| f.name.to_string(),
+        format,
+        quiet,
+    )
 }

@@ -32,7 +32,6 @@ const KIND_PROBE: &str = "probe";
 const KIND_AUDIT: &str = "audit";
 const KIND_DOCS: &str = "docs";
 const KIND_BEHAVIOR: &str = "behavior";
-const KIND_CATALOG_MARKER: &str = "?";
 const SEARCH_KIND_NAMES: [&str; 5] = [
     KIND_REFERENCE,
     KIND_PROBE,
@@ -58,7 +57,10 @@ pub struct SearchKindInfo {
     pub kind: &'static str,
     pub category: &'static str,
     pub description: &'static str,
-    pub document_count: usize,
+    /// Number of documents of this kind indexed in the BM25 engine.
+    /// Previously named `document_count`; renamed to `count` in schema v1
+    /// to match the field name used by all other catalog types.
+    pub count: usize,
 }
 
 struct Engine {
@@ -262,37 +264,41 @@ pub fn kind_catalog() -> Vec<SearchKindInfo> {
             kind: KIND_REFERENCE,
             category: "Reference",
             description: "TradingView v6 reference entries",
-            document_count: reference::all_entries().len(),
+            count: reference::all_entries().len(),
         },
         SearchKindInfo {
             kind: KIND_PROBE,
             category: "Corpus",
             description: "Baked PineForge validation probes",
-            document_count: corpus::list_probes(None, None).map_or(0, |items| items.len()),
+            count: corpus::list_probes(None, None).map_or(0, |items| items.len()),
         },
         SearchKindInfo {
             kind: KIND_AUDIT,
             category: "Audit",
             description: "PineForge TV-vs-engine divergence sections",
-            document_count: audit_section_count(),
+            count: audit_section_count(),
         },
         SearchKindInfo {
             kind: KIND_DOCS,
             category: "Docs",
             description: "PineForge narrative documentation sections",
-            document_count: docs_section_count(),
+            count: docs_section_count(),
         },
         SearchKindInfo {
             kind: KIND_BEHAVIOR,
             category: "Behavior",
             description: "pine-data signatures, params, examples, and polymorphism notes",
-            document_count: behavior_doc_count(),
+            count: behavior_doc_count(),
         },
     ]
 }
 
+/// Returns `true` when `kind` is the catalog sentinel `"?"`.
+/// Thin delegate to the binary's `output::CATALOG_MARKER`; kept here so
+/// library consumers that depend on the `pine_cli::search` surface don't
+/// need to import the binary-internal `output` module.
 pub fn is_kind_catalog_request(kind: &str) -> bool {
-    kind == KIND_CATALOG_MARKER
+    kind == "?"
 }
 
 fn validate_kind(kind: &str) -> Result<()> {
@@ -572,7 +578,7 @@ mod tests {
             kinds.iter().map(|kind| kind.kind).collect::<Vec<_>>(),
             vec!["reference", "probe", "audit", "docs", "behavior"]
         );
-        assert!(kinds.iter().all(|kind| kind.document_count > 0));
+        assert!(kinds.iter().all(|kind| kind.count > 0));
     }
 
     #[test]

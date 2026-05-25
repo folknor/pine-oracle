@@ -1,7 +1,7 @@
 use anyhow::{Result, bail};
 use pine_cli::behavior;
 
-use crate::output::{ResolvedFormat, print_json};
+use crate::output::{ResolvedFormat, is_catalog_request, print_catalog, print_json};
 
 pub(crate) fn run(
     name: Option<&str>,
@@ -11,7 +11,7 @@ pub(crate) fn run(
     format: ResolvedFormat,
     quiet: bool,
 ) -> Result<()> {
-    if kind.is_some_and(behavior::is_kind_catalog_request) {
+    if is_catalog_request(kind) {
         return print_kind_catalog(format, quiet);
     }
     if list {
@@ -46,23 +46,14 @@ fn resolve_list_grep<'a>(name: Option<&'a str>, grep: Option<&'a str>) -> Result
 
 fn print_kind_catalog(format: ResolvedFormat, quiet: bool) -> Result<()> {
     let kinds = behavior::kind_catalog();
-    match format {
-        ResolvedFormat::Json => {
-            print_json(&serde_json::json!({
-                "kinds": kinds,
-            }))?;
-        }
-        ResolvedFormat::Text => {
-            for kind in &kinds {
-                if quiet {
-                    println!("{}", kind.kind);
-                } else {
-                    println!("{:<9} {:>5}  {}", kind.kind, kind.count, kind.description);
-                }
-            }
-        }
-    }
-    Ok(())
+    print_catalog(
+        "kinds",
+        &kinds,
+        |k| format!("{:<9} {:>5}  {}", k.kind, k.count, k.description),
+        |k| k.kind.to_string(),
+        format,
+        quiet,
+    )
 }
 
 fn print_behavior_list(

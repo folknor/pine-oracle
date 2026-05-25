@@ -4,6 +4,10 @@
 //     the `NO_COLOR` env var is present, or stdout isn't a TTY.
 //   - SCHEMA_VERSION + versioned_json + print_json: every JSON payload
 //     gets wrapped in the same `schema_version`-bearing envelope.
+//   - CATALOG_MARKER + is_catalog_request: unified sentinel check for
+//     `--kind ?`, `--baseline ?`, `--feature ?` catalog-listing requests.
+//   - print_catalog: unified JSON-vs-text + quiet dispatch for all four
+//     catalog surfaces (search kinds, behavior kinds, baselines, features).
 
 use anyhow::Result;
 use serde::Serialize;
@@ -11,6 +15,52 @@ use serde::Serialize;
 /// JSON output schema version. Bumped on any breaking shape change to a
 /// subcommand's JSON output. Documented in `docs/pine-oracle.md`.
 pub(crate) const SCHEMA_VERSION: u32 = 1;
+
+/// The sentinel value a user passes to request a catalog listing instead of
+/// a real filter. Every `--kind ?`, `--baseline ?`, `--feature ?` gate checks
+/// against this constant via `is_catalog_request`.
+pub(crate) const CATALOG_MARKER: &str = "?";
+
+/// Returns `true` when the optional filter string is the catalog sentinel `?`.
+/// Replaces the per-module `is_kind_catalog_request` / `is_baseline_catalog_request`
+/// helpers that previously duplicated this one-liner.
+pub(crate) fn is_catalog_request(s: Option<&str>) -> bool {
+    s == Some(CATALOG_MARKER)
+}
+
+/// Unified catalog printer. Handles JSON-vs-text dispatch and `--quiet` short
+/// rows for all four catalog surfaces (`--kind`, `--baseline`, `--feature`).
+///
+/// Parameters:
+/// - `json_key`: top-level key wrapping `items` in the JSON object
+///   (`"kinds"`, `"baselines"`, `"features"`).
+/// - `items`: the catalog slice; items must implement `Serialize`.
+/// - `text_row`: full row formatter (name + count + description columns).
+/// - `text_row_quiet`: quiet row formatter (name column only).
+/// - `format`: resolved output format.
+/// - `quiet`: when true, use `text_row_quiet` instead of `text_row`.
+pub(crate) fn print_catalog<T: Serialize>(
+    json_key: &str,
+    items: &[T],
+    text_row: impl Fn(&T) -> String,
+    text_row_quiet: impl Fn(&T) -> String,
+    format: ResolvedFormat,
+    quiet: bool,
+) -> Result<()> {
+    match format {
+        ResolvedFormat::Json => print_json(&serde_json::json!({ json_key: items })),
+        ResolvedFormat::Text => {
+            for item in items {
+                if quiet {
+                    println!("{}", text_row_quiet(item));
+                } else {
+                    println!("{}", text_row(item));
+                }
+            }
+            Ok(())
+        }
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ResolvedFormat {
@@ -190,5 +240,37 @@ mod tests {
         assert!(!Style::resolve(true, ResolvedFormat::Text, true).enabled);
         // (stdout_is_tty=true, no_color=false) + Json -> disabled (machine output)
         assert!(!Style::resolve(false, ResolvedFormat::Json, true).enabled);
+    }
+
+    #[test]
+    fn is_catalog_request_matches_only_question_mark() {
+        assert!(is_catalog_request(Some("?")));
+        assert!(!is_catalog_request(Some("function")));
+        assert!(!is_catalog_request(Some("reference")));
+        assert!(!is_catalog_request(None));
+    }
+
+    #[test]
+    fn print_catalog_does_not_panic_on_empty_slice() {
+        // Smoke: empty catalog renders without panic in both formats.
+        let items: Vec<&str> = vec![];
+        print_catalog(
+            "kinds",
+            &items,
+            |_| unreachable!(),
+            |_| unreachable!(),
+            ResolvedFormat::Text,
+            false,
+        )
+        .expect("empty text catalog must not error");
+        print_catalog(
+            "kinds",
+            &items,
+            |_| unreachable!(),
+            |_| unreachable!(),
+            ResolvedFormat::Json,
+            false,
+        )
+        .expect("empty json catalog must not error");
     }
 }
