@@ -9,9 +9,10 @@ pub(crate) fn run(
     kind: Option<&str>,
     grep: Option<&str>,
     format: ResolvedFormat,
+    quiet: bool,
 ) -> Result<()> {
     if kind.is_some_and(behavior::is_kind_catalog_request) {
-        return print_kind_catalog(format);
+        return print_kind_catalog(format, quiet);
     }
     if list {
         let grep = resolve_list_grep(name, grep)?;
@@ -43,7 +44,7 @@ fn resolve_list_grep<'a>(name: Option<&'a str>, grep: Option<&'a str>) -> Result
     }
 }
 
-fn print_kind_catalog(format: ResolvedFormat) -> Result<()> {
+fn print_kind_catalog(format: ResolvedFormat, quiet: bool) -> Result<()> {
     let kinds = behavior::kind_catalog();
     match format {
         ResolvedFormat::Json => {
@@ -53,7 +54,11 @@ fn print_kind_catalog(format: ResolvedFormat) -> Result<()> {
         }
         ResolvedFormat::Text => {
             for kind in &kinds {
-                println!("{:<9} {:>5}  {}", kind.kind, kind.count, kind.description);
+                if quiet {
+                    println!("{}", kind.kind);
+                } else {
+                    println!("{:<9} {:>5}  {}", kind.kind, kind.count, kind.description);
+                }
             }
         }
     }

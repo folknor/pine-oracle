@@ -3,14 +3,16 @@ use pine_cli::reference;
 
 use crate::output::{ResolvedFormat, print_json};
 
-pub(crate) fn run(name: &str, format: ResolvedFormat) -> Result<()> {
+pub(crate) fn run(name: &str, format: ResolvedFormat, quiet: bool) -> Result<()> {
     if let Some(entry) = reference::lookup(name) {
         match format {
             ResolvedFormat::Json => {
                 print_json(&entry)?;
             }
             ResolvedFormat::Text => {
-                println!("{} ({})\n", entry.name, entry.category);
+                if !quiet {
+                    println!("{} ({})\n", entry.name, entry.category);
+                }
                 println!("{}", entry.content);
             }
         }
@@ -32,7 +34,9 @@ pub(crate) fn run(name: &str, format: ResolvedFormat) -> Result<()> {
             }))?;
         }
         ResolvedFormat::Text => {
-            eprintln!("no exact match; {} prefix hit(s):", prefix_hits.len());
+            if !quiet {
+                eprintln!("no exact match; {} prefix hit(s):", prefix_hits.len());
+            }
             for e in &prefix_hits {
                 println!("{}  ({})", e.name, e.category);
             }

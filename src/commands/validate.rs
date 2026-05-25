@@ -3,11 +3,17 @@ use pine_cli::validate;
 
 use crate::output::{ResolvedFormat, Style, print_json};
 
-pub(crate) fn run(code: &str, strict: bool, format: ResolvedFormat, style: Style) -> Result<()> {
+pub(crate) fn run(
+    source: &str,
+    strict: bool,
+    format: ResolvedFormat,
+    style: Style,
+    quiet: bool,
+) -> Result<()> {
     let report = if strict {
-        validate::strict(code)?
+        validate::strict(source)?
     } else {
-        validate::check(code)
+        validate::check(source)
     };
     match format {
         ResolvedFormat::Json => {
@@ -15,9 +21,11 @@ pub(crate) fn run(code: &str, strict: bool, format: ResolvedFormat, style: Style
         }
         ResolvedFormat::Text => {
             if report.diagnostics.is_empty() {
-                println!("{}", style.cyan("ok"));
+                if !quiet {
+                    println!("{}", style.cyan("ok"));
+                }
             } else {
-                if strict {
+                if strict && !quiet {
                     eprintln!(
                         "note: TV's pine-lint diagnostics are non-actionable - first error only,"
                     );
@@ -48,12 +56,19 @@ pub(crate) fn run(code: &str, strict: bool, format: ResolvedFormat, style: Style
                         Some(col) => format!("{}:{}", d.line, col),
                         None => format!("{}", d.line),
                     };
-                    let code = d.code.as_deref().map_or(String::new(), |code| {
+                    let diag_code = d.code.as_deref().map_or(String::new(), |code| {
                         format!("{} ", style.dim(&format!("{code}:")))
                     });
-                    println!("{sev}{stage} {}: {code}{}", style.bold(&loc), d.message);
+                    println!(
+                        "{sev}{stage} {}: {diag_code}{}",
+                        style.bold(&loc),
+                        d.message
+                    );
+                    if let Some(frame) = diagnostic_frame(source, d) {
+                        print_diagnostic_frame(&frame, style);
+                    }
                 }
-                if report.ok {
+                if report.ok && !quiet {
                     println!("{}", style.yellow("ok (warnings only)"));
                 }
             }
@@ -63,4 +78,109 @@ pub(crate) fn run(code: &str, strict: bool, format: ResolvedFormat, style: Style
         std::process::exit(1);
     }
     Ok(())
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct DiagnosticFrame {
+    line: usize,
+    text: String,
+    marker: String,
+}
+
+fn diagnostic_frame(code: &str, diagnostic: &validate::Diagnostic) -> Option<DiagnosticFrame> {
+    let column = diagnostic.column?;
+    let text = code.lines().nth(diagnostic.line.checked_sub(1)?)?;
+    let marker = caret_marker(text, column);
+    Some(DiagnosticFrame {
+        line: diagnostic.line,
+        text: text.to_string(),
+        marker,
+    })
+}
+
+fn caret_marker(line: &str, column: usize) -> String {
+    // piners-syntax reports one-based byte columns (spans are byte offsets).
+    // Convert the byte prefix back to chars before building the visual marker.
+    let byte_index = column.max(1).saturating_sub(1).min(line.len());
+    let boundary = if line.is_char_boundary(byte_index) {
+        byte_index
+    } else {
+        (0..byte_index)
+            .rev()
+            .find(|index| line.is_char_boundary(*index))
+            .unwrap_or(0)
+    };
+    let prefix = line[..boundary].chars();
+    let mut marker = String::new();
+    for ch in prefix {
+        if ch == '\t' {
+            marker.push('\t');
+        } else {
+            marker.push(' ');
+        }
+    }
+    marker.push('^');
+    marker
+}
+
+fn print_diagnostic_frame(frame: &DiagnosticFrame, style: Style) {
+    let width = frame.line.to_string().len();
+    println!("  {:>width$} | {}", frame.line, frame.text, width = width);
+    println!(
+        "  {:>width$} | {}",
+        "",
+        style.red(&frame.marker),
+        width = width
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn diagnostic_frame_marks_one_based_column() {
+        let diagnostic = validate::Diagnostic {
+            severity: validate::Severity::Error,
+            stage: validate::Stage::Parse,
+            code: None,
+            message: "bad".to_string(),
+            line: 2,
+            column: Some(5),
+        };
+        assert_eq!(
+            diagnostic_frame("one\ntwo = 1\n", &diagnostic),
+            Some(DiagnosticFrame {
+                line: 2,
+                text: "two = 1".to_string(),
+                marker: "    ^".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn diagnostic_frame_omits_unknown_column() {
+        let diagnostic = validate::Diagnostic {
+            severity: validate::Severity::Error,
+            stage: validate::Stage::Parse,
+            code: None,
+            message: "bad".to_string(),
+            line: 1,
+            column: None,
+        };
+        assert_eq!(diagnostic_frame("one\n", &diagnostic), None);
+    }
+
+    #[test]
+    fn diagnostic_frame_clamps_column_to_first_character() {
+        assert_eq!(caret_marker("abc", 0), "^");
+        assert_eq!(caret_marker("abc", 1), "^");
+        assert_eq!(caret_marker("abc", 3), "  ^");
+    }
+
+    #[test]
+    fn diagnostic_frame_treats_columns_as_byte_offsets() {
+        assert_eq!(caret_marker("éx", 3), " ^");
+        assert_eq!(caret_marker("éx", 2), "^");
+    }
 }

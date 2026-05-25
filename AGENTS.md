@@ -16,7 +16,7 @@ Single crate at the repo root.
 
 The library crate (`src/lib.rs`, surface = `pine_cli::*`) owns the domain modules listed below: pure logic with no CLI concerns. The binary crate (`src/main.rs` + `src/output.rs` + `src/commands/*.rs`) owns the CLI surface:
 
-- `src/main.rs` - clap `Cli` + `Command` definitions, `OutputFormat::Auto/Text/Json` resolution, `main()` dispatch, `cmd_version` (the only subcommand that stays inline because it self-describes the binary it lives in).
+- `src/main.rs` - clap `Cli` + `Command` definitions, shared Pine source input resolution (`CODE_OR_FILE`, `--code`, `--file`, `-`/stdin) for source-driven commands, `OutputFormat::Auto/Text/Json` resolution, `main()` dispatch, `cmd_version` (the only subcommand that stays inline because it self-describes the binary it lives in).
 - `src/output.rs` - shared output primitives every subcommand uses: `ResolvedFormat`, `Style` (ANSI colour wrapper with TTY / `NO_COLOR` / `--no-color` resolution), `SCHEMA_VERSION`, `versioned_json`, `print_json`. All `pub(crate)` (the binary has no external API).
 - `src/commands/<name>.rs` - one file per `pine <subcommand>` (every command except `version`): `lookup`, `search`, `validate`, `parse`, `tokens`, `behavior`, `probe`, `probes`, `diff`, `indicator`. Each exposes `pub(crate) fn run(...)` taking parsed args + `ResolvedFormat` (+ `Style` when the command emits styled text). Subcommand-only helpers (AST pretty-printer, per-command text formatters) live in the same file as their consumer.
 
@@ -126,9 +126,9 @@ Current Pine lint source of truth:
 | `pine search <query>` | done (tantivy BM25, 5x name boost; indexes v6 reference + corpus probes + PineForge audit doc + 18 narrative pages + pine-data behavior entries; hits carry `kind` = "reference" / "probe" / "audit" / "docs" / "behavior" and a content snippet; case-insensitive `--kind <kind>` narrows the result set, pass `--kind ?` to list the catalog) |
 | `pine probe <slug>` | done (baked corpus, flat + nested slugs) |
 | `pine probes [--grep TEXT] [--feature NAME]` | done (`--grep` matches against slug or extracted-from-source summary text; `--feature` restricts by Pine-feature usage detected from each `strategy.pine` source - `oca`, `trail`, `pyramiding`, `varip`, `mtf`, `magnifier`, `matrix`, `map`, `udt`, `method`, `process_orders_on_close`, `barstate_isfirst`; pass `?` to list the catalog) |
-| `pine parse` | done via piners-syntax |
-| `pine tokens` | done via piners-syntax |
-| `pine validate` | done via piners-syntax lex / parse / type / semantic diagnostics, backed by piners-runtime builtins plus pine-data gap-fill |
+| `pine parse` | done via piners-syntax; source input can be inline positional, existing file path, `--code CODE`, `--file PATH`, or `-`/stdin |
+| `pine tokens` | done via piners-syntax; source input can be inline positional, existing file path, `--code CODE`, `--file PATH`, or `-`/stdin |
+| `pine validate` | done via piners-syntax lex / parse / type / semantic diagnostics, backed by piners-runtime builtins plus pine-data gap-fill; source input can be inline positional, existing file path, `--code CODE`, `--file PATH`, or `-`/stdin; text diagnostics include source-line caret frames |
 | `pine validate --strict` | done as a TV-broker yes/no oracle. POSTs as multipart/form-data; `success` is trustworthy, the diagnostic prose is non-actionable (first error only, breaks on trailing whitespace, wrong line/column). Use after the local tier reports clean - not for iterative debugging. |
 | `pine behavior <name>` | done (exact lookup plus `--list`, case-insensitive `--kind`, and `--grep` over functions / variables / constants / keywords from baked pine-tools JSON; `pine behavior TEXT --list` treats `TEXT` as an implicit grep) |
 | `pine diff <probe> <trades.csv>` | done v1 (verify_corpus port: align + p90 + tier; `--show-diffs N` emits worst-N matched pairs + every TV / user orphan; no interior trim until OHLCV bake) |

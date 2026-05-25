@@ -3,9 +3,14 @@ use pine_cli::corpus;
 
 use crate::output::{ResolvedFormat, print_json};
 
-pub(crate) fn run(grep: Option<&str>, feature: Option<&str>, format: ResolvedFormat) -> Result<()> {
+pub(crate) fn run(
+    grep: Option<&str>,
+    feature: Option<&str>,
+    format: ResolvedFormat,
+    quiet: bool,
+) -> Result<()> {
     if matches!(feature, Some("?")) {
-        return print_feature_catalog(format);
+        return print_feature_catalog(format, quiet);
     }
     let probes = corpus::list_probes(grep, feature)?;
     match format {
@@ -14,16 +19,22 @@ pub(crate) fn run(grep: Option<&str>, feature: Option<&str>, format: ResolvedFor
         }
         ResolvedFormat::Text => {
             if probes.is_empty() {
-                eprintln!("no probes matched");
+                if !quiet {
+                    eprintln!("no probes matched");
+                }
                 return Ok(());
             }
             for p in &probes {
-                match &p.summary {
-                    Some(s) => {
-                        let snippet: String = s.chars().take(80).collect();
-                        println!("{}  -  {snippet}", p.slug);
+                if quiet {
+                    println!("{}", p.slug);
+                } else {
+                    match &p.summary {
+                        Some(s) => {
+                            let snippet: String = s.chars().take(80).collect();
+                            println!("{}  -  {snippet}", p.slug);
+                        }
+                        None => println!("{}", p.slug),
                     }
-                    None => println!("{}", p.slug),
                 }
             }
         }
@@ -31,7 +42,7 @@ pub(crate) fn run(grep: Option<&str>, feature: Option<&str>, format: ResolvedFor
     Ok(())
 }
 
-fn print_feature_catalog(format: ResolvedFormat) -> Result<()> {
+fn print_feature_catalog(format: ResolvedFormat, quiet: bool) -> Result<()> {
     let catalog = corpus::feature_catalog();
     match format {
         ResolvedFormat::Json => {
@@ -43,7 +54,11 @@ fn print_feature_catalog(format: ResolvedFormat) -> Result<()> {
         }
         ResolvedFormat::Text => {
             for (name, desc) in &catalog {
-                println!("{name:<28}  {desc}");
+                if quiet {
+                    println!("{name}");
+                } else {
+                    println!("{name:<28}  {desc}");
+                }
             }
         }
     }

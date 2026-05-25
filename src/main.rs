@@ -1,7 +1,8 @@
-use anyhow::Result;
-use clap::{Parser, Subcommand, ValueEnum};
+use anyhow::{Result, bail};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use pine_cli::{behavior, corpus, indicator, reference, search};
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Read};
+use std::path::{Path, PathBuf};
 
 mod commands;
 mod output;
@@ -47,6 +48,75 @@ impl OutputFormat {
     }
 }
 
+#[derive(Args)]
+struct PineSourceArgs {
+    /// Inline Pine source, a Pine file path, or `-` to read stdin.
+    #[arg(value_name = "CODE_OR_FILE")]
+    input: Option<String>,
+    /// Use the given inline Pine source instead of a file.
+    #[arg(short, long)]
+    code: Option<String>,
+    /// Read Pine source from a file path.
+    #[arg(short, long)]
+    file: Option<PathBuf>,
+}
+
+impl PineSourceArgs {
+    fn read(&self) -> Result<String> {
+        match (&self.input, &self.code, &self.file) {
+            (Some(_), Some(_), _) => bail!("positional input cannot combine with `--code`"),
+            (Some(_), _, Some(_)) => bail!("positional input cannot combine with `--file`"),
+            (_, Some(_), Some(_)) => bail!("`--code` cannot combine with `--file`"),
+            (_, Some(code), None) => Ok(code.clone()),
+            (_, None, Some(path)) => read_source_file(path),
+            (Some(input), None, None) if input == "-" => read_source_stdin(),
+            (Some(input), None, None) => {
+                let path = Path::new(input);
+                if path.is_file() || looks_like_source_path(input) {
+                    read_source_file(path)
+                } else {
+                    Ok(input.clone())
+                }
+            }
+            (None, None, None) => {
+                if std::io::stdin().is_terminal() {
+                    bail!("Pine source required: pass CODE_OR_FILE, `--code`, `--file`, or `-`")
+                }
+                read_source_stdin()
+            }
+        }
+    }
+}
+
+fn read_source_file(path: &Path) -> Result<String> {
+    std::fs::read_to_string(path)
+        .map_err(|err| anyhow::anyhow!("reading Pine source {}: {err}", path.display()))
+}
+
+fn looks_like_source_path(input: &str) -> bool {
+    let path = Path::new(input);
+    path.extension().is_some_and(|ext| ext == "pine")
+        || ((input.contains('/') || input.contains('\\')) && !looks_like_inline_source(input))
+}
+
+fn looks_like_inline_source(input: &str) -> bool {
+    input.contains('\n')
+        || input.contains('(')
+        || input.contains(')')
+        || input.contains('=')
+        || input.contains('"')
+        || input.contains('\'')
+        || input.contains(' ')
+}
+
+fn read_source_stdin() -> Result<String> {
+    let mut code = String::new();
+    std::io::stdin()
+        .read_to_string(&mut code)
+        .map_err(|err| anyhow::anyhow!("reading Pine source from stdin: {err}"))?;
+    Ok(code)
+}
+
 #[derive(Subcommand)]
 enum Command {
     /// Function / constant / variable details
@@ -64,16 +134,23 @@ enum Command {
 
     /// Type errors, syntax errors, behavior warnings
     Validate {
-        code: String,
+        #[command(flatten)]
+        source: PineSourceArgs,
         #[arg(long)]
         strict: bool,
     },
 
     /// AST as JSON
-    Parse { code: String },
+    Parse {
+        #[command(flatten)]
+        source: PineSourceArgs,
+    },
 
     /// Lexer tokens with line / indent
-    Tokens { code: String },
+    Tokens {
+        #[command(flatten)]
+        source: PineSourceArgs,
+    },
 
     /// Polymorphism, side-effects, series-vs-simple, na-propagation
     Behavior {
@@ -155,13 +232,22 @@ fn main() -> Result<()> {
     let style = Style::resolve(cli.no_color, format);
 
     match cli.command {
-        Command::Lookup { name } => commands::lookup::run(&name, format),
+        Command::Lookup { name } => commands::lookup::run(&name, format, cli.quiet),
         Command::Search { query, limit, kind } => {
-            commands::search::run(&query, limit, kind.as_deref(), format, style)
+            commands::search::run(&query, limit, kind.as_deref(), format, style, cli.quiet)
         }
-        Command::Validate { code, strict } => commands::validate::run(&code, strict, format, style),
-        Command::Parse { code } => commands::parse::run(&code, format),
-        Command::Tokens { code } => commands::tokens::run(&code, format),
+        Command::Validate { source, strict } => {
+            let code = source.read()?;
+            commands::validate::run(&code, strict, format, style, cli.quiet)
+        }
+        Command::Parse { source } => {
+            let code = source.read()?;
+            commands::parse::run(&code, format)
+        }
+        Command::Tokens { source } => {
+            let code = source.read()?;
+            commands::tokens::run(&code, format)
+        }
         Command::Behavior {
             name,
             list,
@@ -173,10 +259,11 @@ fn main() -> Result<()> {
             kind.as_deref(),
             grep.as_deref(),
             format,
+            cli.quiet,
         ),
-        Command::Probe { slug } => commands::probe::run(&slug, format),
+        Command::Probe { slug } => commands::probe::run(&slug, format, cli.quiet),
         Command::Probes { grep, feature } => {
-            commands::probes::run(grep.as_deref(), feature.as_deref(), format)
+            commands::probes::run(grep.as_deref(), feature.as_deref(), format, cli.quiet)
         }
         Command::Diff {
             probe,
@@ -200,16 +287,17 @@ fn main() -> Result<()> {
                 all,
                 actual,
                 metadata_only,
+                quiet: cli.quiet,
                 grep: grep.as_deref(),
                 baseline: baseline.as_deref(),
             },
             format,
         ),
-        Command::Version => cmd_version(format),
+        Command::Version => cmd_version(format, cli.quiet),
     }
 }
 
-fn cmd_version(format: ResolvedFormat) -> Result<()> {
+fn cmd_version(format: ResolvedFormat, quiet: bool) -> Result<()> {
     let binary = env!("CARGO_PKG_VERSION");
     let categories = reference::categories();
     let reference_entry_count = reference::all_entries().len();
@@ -261,6 +349,9 @@ fn cmd_version(format: ResolvedFormat) -> Result<()> {
         }
         ResolvedFormat::Text => {
             println!("pine-cli {binary}");
+            if quiet {
+                return Ok(());
+            }
             println!(
                 "v6 reference:   {reference_entry_count} entries across {} categories ({})",
                 categories.len(),
@@ -359,6 +450,117 @@ mod tests {
                 assert_eq!(kind.as_deref(), Some("?"));
             }
             _ => panic!("expected search command"),
+        }
+    }
+
+    #[test]
+    fn validate_accepts_inline_positional_source() {
+        let cli = Cli::try_parse_from(["pine", "validate", "indicator(\"x\")"])
+            .expect("validate inline source should parse");
+
+        match cli.command {
+            Command::Validate { source, strict } => {
+                assert!(!strict);
+                assert_eq!(source.read().expect("source"), "indicator(\"x\")");
+            }
+            _ => panic!("expected validate command"),
+        }
+    }
+
+    #[test]
+    fn validate_accepts_code_flag_source() {
+        let cli = Cli::try_parse_from(["pine", "validate", "--code", "indicator(\"x\")"])
+            .expect("validate --code source should parse");
+
+        match cli.command {
+            Command::Validate { source, strict } => {
+                assert!(!strict);
+                assert_eq!(source.read().expect("source"), "indicator(\"x\")");
+            }
+            _ => panic!("expected validate command"),
+        }
+    }
+
+    #[test]
+    fn parse_accepts_file_flag_source() {
+        let cli = Cli::try_parse_from([
+            "pine",
+            "parse",
+            "--file",
+            "indicators/smoke-close/source.pine",
+        ])
+        .expect("parse --file source should parse");
+
+        match cli.command {
+            Command::Parse { source } => {
+                let code = source.read().expect("source file");
+                assert!(code.contains("Smoke close"));
+                assert!(code.contains("plot(close)"));
+            }
+            _ => panic!("expected parse command"),
+        }
+    }
+
+    #[test]
+    fn tokens_accepts_positional_file_source() {
+        let cli = Cli::try_parse_from(["pine", "tokens", "indicators/smoke-close/source.pine"])
+            .expect("tokens path source should parse");
+
+        match cli.command {
+            Command::Tokens { source } => {
+                let code = source.read().expect("source file");
+                assert!(code.contains("Smoke close"));
+                assert!(code.contains("plot(close)"));
+            }
+            _ => panic!("expected tokens command"),
+        }
+    }
+
+    #[test]
+    fn source_rejects_positional_and_code_flag() {
+        let cli = Cli::try_parse_from([
+            "pine",
+            "validate",
+            "indicator(\"x\")",
+            "--code",
+            "indicator(\"y\")",
+        ])
+        .expect("source conflict is resolved after parsing");
+
+        match cli.command {
+            Command::Validate { source, strict: _ } => {
+                let err = source.read().expect_err("must reject conflicting sources");
+                assert!(err.to_string().contains("cannot combine"));
+            }
+            _ => panic!("expected validate command"),
+        }
+    }
+
+    #[test]
+    fn source_rejects_missing_pine_path() {
+        let cli = Cli::try_parse_from(["pine", "validate", "does-not-exist.pine"])
+            .expect("missing path should parse");
+
+        match cli.command {
+            Command::Validate { source, strict: _ } => {
+                let err = source.read().expect_err("must reject missing .pine file");
+                assert!(err.to_string().contains("reading Pine source"));
+                assert!(err.to_string().contains("does-not-exist.pine"));
+            }
+            _ => panic!("expected validate command"),
+        }
+    }
+
+    #[test]
+    fn inline_source_containing_operator_slash_stays_inline() {
+        let cli = Cli::try_parse_from(["pine", "validate", "plot(close / 2)"])
+            .expect("inline source should parse");
+
+        match cli.command {
+            Command::Validate { source, strict: _ } => {
+                assert_eq!(source.read().expect("source"), "plot(close / 2)");
+            }
+            _ => panic!("expected validate command"),
         }
     }
 

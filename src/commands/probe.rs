@@ -3,13 +3,17 @@ use pine_cli::corpus;
 
 use crate::output::{ResolvedFormat, print_json};
 
-pub(crate) fn run(slug: &str, format: ResolvedFormat) -> Result<()> {
+pub(crate) fn run(slug: &str, format: ResolvedFormat, quiet: bool) -> Result<()> {
     let probe = corpus::load_probe(slug)?;
     match format {
         ResolvedFormat::Json => {
             print_json(&probe)?;
         }
         ResolvedFormat::Text => {
+            if quiet {
+                println!("{}", probe.strategy_pine);
+                return Ok(());
+            }
             println!("slug: {}", probe.slug);
             match probe.summary {
                 Some(summary) => println!("summary: {summary}"),

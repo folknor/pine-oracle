@@ -13,10 +13,10 @@ runtime configuration.
 | `pine lookup <name>` | Function / constant / variable details from TradingView's v6 reference |
 | `pine search <query> [--kind reference\|probe\|audit\|docs\|behavior]` | BM25 across v6 reference, baked corpus, PineForge audit/doc pages, and structured pine-data behavior; `--kind` is case-insensitive, and `--kind ?` lists source kinds |
 | `pine behavior <name>` / `pine behavior [TEXT] --list [--kind function\|variable\|constant\|keyword] [--grep TEXT]` | Structured signature + polymorphism + argument ordering from pine-tools' JSON exports; list-mode `TEXT` acts as grep, `--kind` is case-insensitive, and `--kind ?` lists behavior kinds |
-| `pine parse <code>` | piners-syntax AST tree |
-| `pine tokens <code>` | piners-syntax lexer token stream |
-| `pine validate <code>` | Local lex + parse + type + semantic diagnostics from piners-syntax, backed by piners-runtime builtins plus pine-data gap-fill |
-| `pine validate --strict <code>` | POST to TradingView's pine-lint endpoint. Yes/no oracle; diagnostic prose is non-actionable |
+| `pine parse <code-or-file>` / `--code CODE` / `--file PATH` / `-` | piners-syntax AST tree |
+| `pine tokens <code-or-file>` / `--code CODE` / `--file PATH` / `-` | piners-syntax lexer token stream |
+| `pine validate <code-or-file>` / `--code CODE` / `--file PATH` / `-` | Local lex + parse + type + semantic diagnostics from piners-syntax, backed by piners-runtime builtins plus pine-data gap-fill; text diagnostics include source-line caret frames |
+| `pine validate --strict <code-or-file>` | POST to TradingView's pine-lint endpoint. Yes/no oracle; diagnostic prose is non-actionable |
 | `pine probe <slug>` | Pull a baked PineForge corpus probe (strategy.pine + tv_trades.csv + author-extracted summary) |
 | `pine probes [--grep TEXT] [--feature NAME]` | List baked probes; `--grep` matches slug or summary substring, `--feature` restricts by detected Pine-feature usage (`oca`, `trail`, `pyramiding`, `mtf`, `varip`, `magnifier`, `matrix`, `map`, `udt`, `method`, `process_orders_on_close`, `barstate_isfirst`; pass `?` to list the catalog) |
 | `pine diff <probe> <trades.csv> [--show-diffs N]` | Tier-classify a user trade list against the probe's TV ground truth (port of PineForge's verify_corpus.py); `--show-diffs N` emits the worst-N matched pairs plus every TV / user orphan |
@@ -28,7 +28,9 @@ runtime configuration.
 
 All subcommands accept `--format json|text|auto`. JSON outputs carry
 `schema_version: 1`. Object payloads attach the version inline; arrays wrap
-as `{schema_version, items}`. Bump rules in `docs/pine-oracle.md`.
+as `{schema_version, items}`. Text output accepts `--quiet` to suppress
+non-data headers, snippets, status lines, and validation notes where a command
+emits them. Bump rules live in `docs/pine-oracle.md`.
 
 ## Install
 

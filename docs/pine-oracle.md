@@ -128,10 +128,10 @@ Phase 4 integrates piners' runtime pieces: piners-syntax and piners-runtime back
 
 ```
 pine lookup <name>              function/constant/var details
-pine validate <code>            local validator: every lex / parse / type / semantic diagnostic
-pine validate --strict <code>   TV-broker yes/no oracle; error messages are not actionable
-pine parse <code>               AST as JSON
-pine tokens <code>              lexer tokens with line/indent
+pine validate <code-or-file>    local validator; also --code CODE, --file PATH, or -
+pine validate --strict <input>  TV-broker yes/no oracle; diagnostics are not actionable
+pine parse <code-or-file>       AST as JSON; also --code CODE, --file PATH, or -
+pine tokens <code-or-file>      lexer tokens with line/indent; also --code CODE, --file PATH, or -
 pine search <query>             BM25 across all sources, ranked
 pine search <query> --kind ?    list searchable source kinds + document counts
 pine behavior <name>            polymorphism, side-effects, series-vs-simple, na-propagation
@@ -157,11 +157,11 @@ Global flags:
 
 - `--format json|text` (default: `text` for tty, `json` for pipes)
 - `--no-color` (suppress ANSI styling in text mode; also auto-suppressed when `NO_COLOR=1` is set, when output is JSON, or when stdout isn't a tty; applies to styled text emitters such as `pine search` and `pine validate`)
-- `--quiet` (suppress headers, just return the data)
+- `--quiet` (suppress non-data status/note text where a text-mode command emits it; JSON output is unchanged)
 
 ## Output format
 
-Every subcommand emits stable JSON under `--format json`. Agents parse in one read.
+Every subcommand emits stable JSON under `--format json`. Agents parse in one read. Human-oriented `pine validate` text includes source-line caret frames; JSON diagnostics remain compact and location-bearing.
 
 ### Schema versioning
 

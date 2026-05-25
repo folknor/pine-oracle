@@ -10,6 +10,7 @@ pub(crate) struct Args<'a> {
     pub(crate) all: bool,
     pub(crate) actual: bool,
     pub(crate) metadata_only: bool,
+    pub(crate) quiet: bool,
     pub(crate) grep: Option<&'a str>,
     pub(crate) baseline: Option<&'a str>,
 }
@@ -19,7 +20,7 @@ pub(crate) fn run(args: &Args<'_>, format: ResolvedFormat) -> Result<()> {
         .baseline
         .is_some_and(indicator::is_baseline_catalog_request)
     {
-        return print_baseline_catalog(format);
+        return print_baseline_catalog(format, args.quiet);
     }
     if args.list {
         if args.strict {
@@ -35,7 +36,7 @@ pub(crate) fn run(args: &Args<'_>, format: ResolvedFormat) -> Result<()> {
         if args.all {
             bail!("`pine indicator --list` cannot combine with `--all`");
         }
-        return print_fixture_list(grep, args.baseline, format);
+        return print_fixture_list(grep, args.baseline, format, args.quiet);
     }
     if args.all {
         if args.slug.is_some() {
@@ -114,7 +115,7 @@ fn resolve_list_grep<'a>(slug: Option<&'a str>, grep: Option<&'a str>) -> Result
     }
 }
 
-fn print_baseline_catalog(format: ResolvedFormat) -> Result<()> {
+fn print_baseline_catalog(format: ResolvedFormat, quiet: bool) -> Result<()> {
     let baselines = indicator::baseline_catalog()?;
     match format {
         ResolvedFormat::Json => {
@@ -124,10 +125,14 @@ fn print_baseline_catalog(format: ResolvedFormat) -> Result<()> {
         }
         ResolvedFormat::Text => {
             for baseline in &baselines {
-                println!(
-                    "{:<6} {:>5}  {}",
-                    baseline.baseline, baseline.count, baseline.description
-                );
+                if quiet {
+                    println!("{}", baseline.baseline);
+                } else {
+                    println!(
+                        "{:<6} {:>5}  {}",
+                        baseline.baseline, baseline.count, baseline.description
+                    );
+                }
             }
         }
     }
@@ -138,20 +143,27 @@ fn print_fixture_list(
     grep: Option<&str>,
     baseline: Option<&str>,
     format: ResolvedFormat,
+    quiet: bool,
 ) -> Result<()> {
     let fixtures = indicator::list_fixtures_filtered(grep, baseline)?;
     match format {
         ResolvedFormat::Json => print_json(&fixtures)?,
         ResolvedFormat::Text => {
             if fixtures.is_empty() {
-                if grep.is_some() || baseline.is_some() {
-                    println!("no indicator fixtures matched");
-                } else {
-                    println!("no indicator fixtures baked");
+                if !quiet {
+                    if grep.is_some() || baseline.is_some() {
+                        println!("no indicator fixtures matched");
+                    } else {
+                        println!("no indicator fixtures baked");
+                    }
                 }
             } else {
                 for fixture in &fixtures {
-                    println!("{}", fixture_list_line(fixture));
+                    if quiet {
+                        println!("{}", fixture.slug);
+                    } else {
+                        println!("{}", fixture_list_line(fixture));
+                    }
                 }
             }
         }
@@ -499,6 +511,7 @@ mod tests {
                 all: false,
                 actual: false,
                 metadata_only: false,
+                quiet: false,
                 grep: None,
                 baseline: None,
             },
@@ -531,6 +544,7 @@ mod tests {
                 all: false,
                 actual: true,
                 metadata_only: false,
+                quiet: false,
                 grep: None,
                 baseline: None,
             },
@@ -550,6 +564,7 @@ mod tests {
                 all: false,
                 actual: true,
                 metadata_only: true,
+                quiet: false,
                 grep: None,
                 baseline: None,
             },
@@ -569,6 +584,7 @@ mod tests {
                 all: false,
                 actual: false,
                 metadata_only: true,
+                quiet: false,
                 grep: None,
                 baseline: None,
             },

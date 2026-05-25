@@ -9,9 +9,10 @@ pub(crate) fn run(
     kind_filter: Option<&str>,
     format: ResolvedFormat,
     style: Style,
+    quiet: bool,
 ) -> Result<()> {
     if kind_filter.is_some_and(search::is_kind_catalog_request) {
-        return print_kind_catalog(format);
+        return print_kind_catalog(format, quiet);
     }
     let hits = search::query(query, limit, kind_filter)?;
     match format {
@@ -35,7 +36,9 @@ pub(crate) fn run(
         }
         ResolvedFormat::Text => {
             if hits.is_empty() {
-                eprintln!("no matches");
+                if !quiet {
+                    eprintln!("no matches");
+                }
                 return Ok(());
             }
             for h in &hits {
@@ -44,9 +47,11 @@ pub(crate) fn run(
                 let name = style.bold(&h.name);
                 let category = style.dim(&format!("({})", h.category));
                 println!("{score}  {kind} {name}  {category}");
-                let snippet = snippet_first_line(&h.content, 120);
-                if !snippet.is_empty() {
-                    println!("        {}", style.dim(&snippet));
+                if !quiet {
+                    let snippet = snippet_first_line(&h.content, 120);
+                    if !snippet.is_empty() {
+                        println!("        {}", style.dim(&snippet));
+                    }
                 }
             }
         }
@@ -54,7 +59,7 @@ pub(crate) fn run(
     Ok(())
 }
 
-fn print_kind_catalog(format: ResolvedFormat) -> Result<()> {
+fn print_kind_catalog(format: ResolvedFormat, quiet: bool) -> Result<()> {
     let kinds = search::kind_catalog();
     match format {
         ResolvedFormat::Json => {
@@ -64,10 +69,14 @@ fn print_kind_catalog(format: ResolvedFormat) -> Result<()> {
         }
         ResolvedFormat::Text => {
             for kind in &kinds {
-                println!(
-                    "{:<9} {:<9} {:>5}  {}",
-                    kind.kind, kind.category, kind.document_count, kind.description
-                );
+                if quiet {
+                    println!("{}", kind.kind);
+                } else {
+                    println!(
+                        "{:<9} {:<9} {:>5}  {}",
+                        kind.kind, kind.category, kind.document_count, kind.description
+                    );
+                }
             }
         }
     }
