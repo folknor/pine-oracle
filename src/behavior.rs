@@ -49,8 +49,21 @@ pub struct FunctionParameter {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct FunctionFlags {
-    #[serde(default)]
+    #[serde(rename = "topLevelOnly", default)]
     pub top_level_only: bool,
+    /// True when the function accepts a variable number of trailing arguments
+    /// (e.g. `array.from`). Upstream key: `variadic`.
+    #[serde(default)]
+    pub variadic: bool,
+    /// Minimum number of arguments required for variadic functions.
+    /// Upstream key: `minArgs`.
+    #[serde(rename = "minArgs", default)]
+    pub min_args: Option<u32>,
+    /// Polymorphism hint from the functions.json flags object. Distinct from
+    /// the richer `RawBehaviorEntry::polymorphic` field in function-behavior.json.
+    /// Example values: `"element"`. Upstream key: `polymorphic`.
+    #[serde(default)]
+    pub polymorphic: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -305,12 +318,27 @@ fn build_index() -> anyhow::Result<BehaviorIndex> {
     })
 }
 
+/// Case-insensitive scan over a `HashMap<String, V>`. Returns the first
+/// value whose key matches `name` under ASCII case folding.
+fn map_get_ci<'a, V>(map: &'a HashMap<String, V>, name: &str) -> Option<&'a V> {
+    // Fast path: exact key hit (the common case for correctly-cased input).
+    if let Some(v) = map.get(name) {
+        return Some(v);
+    }
+    // Slow path: linear scan for a case-insensitive match.
+    let lower = name.to_ascii_lowercase();
+    map.iter()
+        .find(|(k, _)| k.to_ascii_lowercase() == lower)
+        .map(|(_, v)| v)
+}
+
 /// First-hit lookup across functions, variables, constants, keywords.
+/// Case-insensitive: `lookup("CLOSE")` and `lookup("close")` both work.
 pub fn lookup(name: &str) -> Option<Behavior> {
     let idx = index();
 
-    if let Some(f) = idx.functions.get(name) {
-        let behavior = idx.function_behaviors.get(name).cloned();
+    if let Some(f) = map_get_ci(&idx.functions, name) {
+        let behavior = map_get_ci(&idx.function_behaviors, &f.name).cloned();
         return Some(Behavior::Function(FunctionBehavior {
             name: f.name.clone(),
             namespace: f.namespace.clone(),
@@ -320,18 +348,21 @@ pub fn lookup(name: &str) -> Option<Behavior> {
             examples: f.examples.clone(),
             flags: f.flags.clone().unwrap_or(FunctionFlags {
                 top_level_only: false,
+                variadic: false,
+                min_args: None,
+                polymorphic: None,
             }),
             behavior,
         }));
     }
-    if let Some(v) = idx.variables.get(name) {
+    if let Some(v) = map_get_ci(&idx.variables, name) {
         return Some(Behavior::Variable(VariableBehavior {
             name: v.name.clone(),
             ty: v.ty.clone(),
             qualifier: v.qualifier.clone(),
         }));
     }
-    if let Some(c) = idx.constants.get(name) {
+    if let Some(c) = map_get_ci(&idx.constants, name) {
         return Some(Behavior::Constant(ConstantBehavior {
             name: c.name.clone(),
             namespace: c.namespace.clone(),
@@ -339,7 +370,7 @@ pub fn lookup(name: &str) -> Option<Behavior> {
             ty: c.ty.clone(),
         }));
     }
-    if idx.keywords.iter().any(|k| k == name) {
+    if idx.keywords.iter().any(|k| k.eq_ignore_ascii_case(name)) {
         return Some(Behavior::Keyword(KeywordBehavior {
             name: name.to_string(),
         }));
@@ -539,12 +570,20 @@ fn function_search_content(function: &RawFunction, behavior: Option<&RawBehavior
         }
         parts.push(line);
     }
-    if function
-        .flags
-        .as_ref()
-        .is_some_and(|flags| flags.top_level_only)
-    {
-        parts.push("Top-level only.".to_string());
+    if let Some(flags) = function.flags.as_ref() {
+        if flags.top_level_only {
+            parts.push("Top-level only.".to_string());
+        }
+        if flags.variadic {
+            let min = flags
+                .min_args
+                .map(|n| format!(" (minimum {n} argument(s))"))
+                .unwrap_or_default();
+            parts.push(format!("Variadic{min}."));
+        }
+        if let Some(poly_hint) = &flags.polymorphic {
+            parts.push(format!("Flags polymorphic: {poly_hint}."));
+        }
     }
     if let Some(behavior) = behavior {
         if let Some(detail) = behavior.polymorphic.detail() {
@@ -1027,5 +1066,63 @@ mod tests {
     #[test]
     fn unknown_name_is_none() {
         assert!(lookup("definitely-not-a-pine-symbol").is_none());
+    }
+
+    #[test]
+    fn alertcondition_top_level_only_flag_is_parsed() {
+        // alertcondition is one of the 14 functions with topLevelOnly:true in
+        // functions.json. The serde rename must fire or this returns false.
+        let b = lookup("alertcondition").expect("alertcondition must exist");
+        match b {
+            Behavior::Function(f) => {
+                assert!(
+                    f.flags.top_level_only,
+                    "alertcondition should have top_level_only=true (topLevelOnly in JSON)"
+                );
+            }
+            other => panic!("expected Function, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn array_from_variadic_flags_are_parsed() {
+        // array.from has variadic:true and minArgs:1 in functions.json.
+        let b = lookup("array.from").expect("array.from must exist");
+        match b {
+            Behavior::Function(f) => {
+                assert!(f.flags.variadic, "array.from should be variadic");
+                assert_eq!(f.flags.min_args, Some(1), "array.from minArgs should be 1");
+            }
+            other => panic!("expected Function, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn lookup_is_case_insensitive() {
+        // Variables are stored with their original casing (e.g. "close").
+        // Querying with "CLOSE" must return the same entry.
+        let lower = lookup("close").expect("close must exist");
+        let upper = lookup("CLOSE").expect("CLOSE must return same entry");
+        match (lower, upper) {
+            (Behavior::Variable(a), Behavior::Variable(b)) => {
+                assert_eq!(
+                    a.name, b.name,
+                    "both lookups must resolve to the same symbol"
+                );
+            }
+            other => panic!("expected two Variables, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn lookup_case_insensitive_function() {
+        let lower = lookup("plot").expect("plot must exist");
+        let mixed = lookup("PLOT").expect("PLOT case-insensitive lookup must work");
+        match (lower, mixed) {
+            (Behavior::Function(a), Behavior::Function(b)) => {
+                assert_eq!(a.name, b.name);
+            }
+            other => panic!("expected two Functions, got {other:?}"),
+        }
     }
 }

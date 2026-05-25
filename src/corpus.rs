@@ -18,6 +18,11 @@
 // full multi-paragraph header (typically a slug-title line plus a
 // `Purpose:` block plus a `Trade shape:` block) gives BM25 something
 // substantive to rank against rather than just a slug echo.
+//
+// Some probes override the default trade CSV filename via the
+// `tv_trades_csv` key in their `inputs.json`; `load_probe` honours this
+// override so probes with non-standard filenames (e.g. multi-mode probes
+// that ship several CSVs) load the correct one.
 
 use anyhow::{Result, anyhow, bail};
 use include_dir::{Dir, include_dir};
@@ -43,12 +48,31 @@ pub struct ProbeListing {
 
 /// Load one probe by its published-corpus slug. Accepts an optional
 /// `validation/` prefix for convenience.
+///
+/// The trade CSV filename defaults to `tv_trades.csv` but can be overridden
+/// per-probe by setting `"tv_trades_csv": "<filename>"` in `inputs.json`.
+/// If `inputs.json` is present but not valid JSON, the function fails with
+/// a clear error pointing at the slug.
 pub fn load_probe(slug: &str) -> Result<Probe> {
     let slug = sanitise_slug(slug)?;
 
     let strategy_pine = require_utf8(slug, "strategy.pine")?;
-    let tv_trades_csv = require_utf8(slug, "tv_trades.csv")?;
     let inputs_json = optional_utf8(slug, "inputs.json")?;
+
+    // Derive the trade CSV filename: honour `tv_trades_csv` in inputs.json
+    // if present; fall back to the corpus-wide default `tv_trades.csv`.
+    let csv_filename = if let Some(raw) = inputs_json {
+        let parsed: serde_json::Value = serde_json::from_str(raw)
+            .map_err(|e| anyhow!("probe `{slug}` has malformed inputs.json: {e}"))?;
+        match parsed.get("tv_trades_csv").and_then(|v| v.as_str()) {
+            Some(name) => name.to_string(),
+            None => "tv_trades.csv".to_string(),
+        }
+    } else {
+        "tv_trades.csv".to_string()
+    };
+
+    let tv_trades_csv = require_utf8(slug, &csv_filename)?;
 
     Ok(Probe {
         slug: slug.to_string(),
@@ -476,6 +500,26 @@ mod tests {
         assert_eq!(probe.slug, NESTED_SLUG);
         assert!(!probe.strategy_pine.is_empty());
         assert!(!probe.tv_trades_csv.is_empty());
+    }
+
+    #[test]
+    fn loads_probe_with_inputs_json_csv_override() {
+        // analyzer-self-test-multi-mode-01 ships no tv_trades.csv; its
+        // inputs.json declares `"tv_trades_csv": "trades-htf_d_high1.csv"`.
+        // load_probe must honour that override instead of erroring.
+        const SLUG: &str = "analyzer-self-test-multi-mode-01";
+        let probe = load_probe(SLUG).expect("probe with csv override must load");
+        assert_eq!(probe.slug, SLUG);
+        assert!(!probe.strategy_pine.is_empty());
+        // The resolved CSV must be non-empty and begin with a CSV header.
+        assert!(!probe.tv_trades_csv.is_empty());
+        let first_line = probe.tv_trades_csv.lines().next().unwrap_or("");
+        assert!(
+            first_line.contains("Trade #"),
+            "expected a CSV header with 'Trade #', got: {first_line:?}"
+        );
+        // inputs_json must be populated.
+        assert!(probe.inputs_json.is_some());
     }
 
     #[test]

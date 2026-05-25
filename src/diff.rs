@@ -727,15 +727,19 @@ fn apply_overrides(computed: Tier, meta: &InputsMeta) -> Tier {
     if computed == Tier::Excellent {
         return computed;
     }
+    // expect_tv_match=false takes precedence over expected_tier: if the author
+    // explicitly disabled TV-match validation, the result is always EngineOnly
+    // regardless of any expected_tier annotation. This matches upstream
+    // verify_corpus.py where the expect_tv_match check happens first.
+    if matches!(meta.expect_tv_match, Some(false)) {
+        return Tier::EngineOnly;
+    }
     if let Some(expected) = meta.expected_tier.as_deref() {
         match expected.to_ascii_lowercase().as_str() {
             "anomaly" => return Tier::Anomaly,
             "engine_only" => return Tier::EngineOnly,
             _ => {}
         }
-    }
-    if matches!(meta.expect_tv_match, Some(false)) {
-        return Tier::EngineOnly;
     }
     computed
 }
@@ -901,9 +905,50 @@ mod tests {
     }
 
     #[test]
-    fn expected_tier_engine_only_wins_over_anomaly_when_both_set() {
-        // Override precedence: expected_tier checked first; expect_tv_match
-        // only fires when no expected_tier override matched.
+    fn expect_tv_match_false_beats_expected_tier_anomaly() {
+        // expect_tv_match=false takes precedence over expected_tier="anomaly":
+        // if the author disabled TV-match validation the result is EngineOnly,
+        // not Anomaly. This matches upstream verify_corpus.py behaviour.
+        let meta = InputsMeta {
+            expected_tier: Some("anomaly".into()),
+            expect_tv_match: Some(false),
+            ..InputsMeta::default()
+        };
+        assert_eq!(apply_overrides(Tier::Weak, &meta), Tier::EngineOnly);
+    }
+
+    #[test]
+    fn expected_tier_anomaly_alone_yields_anomaly() {
+        let meta = InputsMeta {
+            expected_tier: Some("anomaly".into()),
+            ..InputsMeta::default()
+        };
+        assert_eq!(apply_overrides(Tier::Weak, &meta), Tier::Anomaly);
+    }
+
+    #[test]
+    fn expect_tv_match_false_alone_yields_engine_only_below_excellent() {
+        let meta = InputsMeta {
+            expect_tv_match: Some(false),
+            ..InputsMeta::default()
+        };
+        assert_eq!(apply_overrides(Tier::Weak, &meta), Tier::EngineOnly);
+        // Excellent is always preserved regardless of overrides.
+        assert_eq!(apply_overrides(Tier::Excellent, &meta), Tier::Excellent);
+    }
+
+    #[test]
+    fn no_overrides_passes_computed_through() {
+        let meta = InputsMeta::default();
+        for tier in [Tier::Strong, Tier::Moderate, Tier::Weak, Tier::Minimal] {
+            assert_eq!(apply_overrides(tier, &meta), tier);
+        }
+    }
+
+    #[test]
+    fn expected_tier_engine_only_with_expect_tv_match_false_still_engine_only() {
+        // Both flags point to EngineOnly; expect_tv_match fires first in the
+        // new ordering but the result is the same.
         let meta = InputsMeta {
             expected_tier: Some("engine_only".into()),
             expect_tv_match: Some(false),

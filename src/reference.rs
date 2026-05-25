@@ -39,18 +39,33 @@ fn parse_sections(markdown_content: &str) -> Result<Vec<Section>> {
 
     let lines: Vec<&str> = markdown_content.lines().collect();
 
+    // Depth-first walk that concatenates all Text and Code literals that are
+    // descendants of `node`. Recurses into Emph, Strong, Link, etc. so that
+    // inline markup inside headings (e.g. backtick code spans) is not dropped.
+    fn inline_text<'a>(node: &'a AstNode<'a>) -> String {
+        let mut out = String::new();
+        for child in node.children() {
+            match &child.data.borrow().value {
+                NodeValue::Text(t) => out.push_str(t),
+                NodeValue::Code(code) => out.push_str(&code.literal),
+                _ => out.push_str(&inline_text(child)),
+            }
+        }
+        out
+    }
+
+    // Each entry stores (title, level, heading_end_0) where heading_end_0 is
+    // the 0-based index of the heading's last source line (comrak sourcepos is
+    // 1-based, so heading_end_0 = sourcepos.end.line - 1). The body of a
+    // section starts at heading_end_0 + 1. For single-line headings (the
+    // normal case in v6.md) heading_end_0 == sourcepos.start.line - 1.
     fn collect_headings<'a>(node: &'a AstNode<'a>, headings: &mut Vec<(String, u8, usize)>) {
         if let NodeValue::Heading(heading) = &node.data.borrow().value {
             let level = heading.level;
             if level == 2 || level == 3 {
-                let mut heading_text = String::new();
-                for child in node.children() {
-                    if let NodeValue::Text(text) = &child.data.borrow().value {
-                        heading_text.push_str(text);
-                    }
-                }
-                let line_num = node.data.borrow().sourcepos.start.line;
-                headings.push((canonicalize_title(&heading_text), level, line_num));
+                let heading_text = inline_text(node);
+                let heading_end_0 = node.data.borrow().sourcepos.end.line - 1;
+                headings.push((canonicalize_title(&heading_text), level, heading_end_0));
             }
         }
         for child in node.children() {
@@ -62,16 +77,20 @@ fn parse_sections(markdown_content: &str) -> Result<Vec<Section>> {
     collect_headings(root, &mut headings);
 
     let mut sections = Vec::with_capacity(headings.len());
-    for (i, (title, level, start_line)) in headings.iter().enumerate() {
+    for (i, (title, level, heading_end_0)) in headings.iter().enumerate() {
+        // Body ends just before the next heading's first line. Since we store
+        // heading_end_0 (0-based last line of the heading), for single-line
+        // headings that equals the 0-based start line, which is exactly the
+        // exclusive upper bound we need for the preceding section's body.
         let end_line = if i + 1 < headings.len() {
-            headings[i + 1].2 - 1
+            headings[i + 1].2
         } else {
             lines.len()
         };
 
-        let content: Vec<String> = lines[*start_line..end_line]
+        // Body starts at the line immediately after the heading ends.
+        let content: Vec<String> = lines[heading_end_0 + 1..end_line]
             .iter()
-            .skip(1)
             .map(|s| (*s).to_string())
             .collect();
 
@@ -203,5 +222,44 @@ mod tests {
     fn prefix_search_finds_math_namespace() {
         let hits = prefix_search("math.");
         assert!(hits.len() > 10, "math. prefix should hit many functions");
+    }
+
+    // Bug-1 regression: heading immediately followed by a body line (no blank
+    // line between) must not drop the first body line.
+    #[test]
+    fn body_not_dropped_when_heading_has_no_blank_line() {
+        let md = "## Category\n### Entry\nFirst body line\nSecond body line\n";
+        let sections = parse_sections(md).expect("must parse");
+        let entry = sections
+            .iter()
+            .find(|s| s.title == "Entry")
+            .expect("Entry section must exist");
+        assert!(
+            entry.content.contains("First body line"),
+            "first body line must not be dropped; got: {:?}",
+            entry.content
+        );
+        assert!(
+            entry.content.contains("Second body line"),
+            "second body line must not be dropped; got: {:?}",
+            entry.content
+        );
+    }
+
+    // Bug-2 regression: inline code spans inside headings must be captured in
+    // the section title.
+    #[test]
+    fn heading_inline_code_included_in_title() {
+        let md = "## Category\n### Entry with `inline_code`\nsome body\n";
+        let sections = parse_sections(md).expect("must parse");
+        let entry = sections
+            .iter()
+            .find(|s| s.title.contains("Entry with"))
+            .expect("section must exist");
+        assert!(
+            entry.title.contains("inline_code"),
+            "inline code token must appear in title; got: {:?}",
+            entry.title
+        );
     }
 }

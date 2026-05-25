@@ -55,17 +55,37 @@ pub fn run_strict_filtered(
     baseline_filter: Option<&str>,
 ) -> Result<IndicatorBatchReport> {
     let fixtures = list_fixtures_filtered(grep, baseline_filter)?;
-    let mut reports = Vec::with_capacity(fixtures.len());
-    for fixture in fixtures {
-        reports.push(run_strict(&fixture.slug)?);
-    }
-    let fixture_count = reports.len();
-    if fixture_count == 0 {
+    if fixtures.is_empty() {
         bail!(
             "no indicator fixtures matched ({})",
             fixture::filter_description(grep, baseline_filter)
         );
     }
+    let mut reports = Vec::with_capacity(fixtures.len());
+    for listing in &fixtures {
+        match run_strict(&listing.slug) {
+            Ok(report) => reports.push(report),
+            Err(err) => reports.push(IndicatorReport {
+                slug: listing.slug.clone(),
+                baseline: listing.baseline,
+                ok: false,
+                bar_count: 0,
+                compared_bar_count: 0,
+                output_count: 0,
+                expected_output_keys: vec![],
+                actual_output_keys: vec![],
+                mismatch_count: 0,
+                tolerance: 0.0,
+                test_range: None,
+                pine_version: None,
+                tv_snapshot: None,
+                runtime_error: Some(format!("fixture error: {err:#}")),
+                stub_dependencies: vec![],
+                mismatches: vec![],
+            }),
+        }
+    }
+    let fixture_count = reports.len();
     let passed_count = reports.iter().filter(|report| report.ok).count();
     let failed_count = fixture_count - passed_count;
     Ok(IndicatorBatchReport {

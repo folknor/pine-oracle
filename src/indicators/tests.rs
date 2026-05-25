@@ -551,6 +551,31 @@ fn strict_batch_rejects_empty_filter_result() {
 }
 
 #[test]
+fn strict_batch_report_count_matches_fixture_count() {
+    // Runs all smoke fixtures in one batch and verifies that the number of
+    // IndicatorReport entries equals the number of fixtures selected, even
+    // when multiple fixtures are involved.  This pins the non-aborting batch
+    // behavior: a broken fixture must produce a report entry rather than
+    // collapsing the entire batch into an Err.
+    let fixtures = list_fixtures_filtered(None, Some("smoke")).expect("fixture list");
+    let fixture_count = fixtures.len();
+    assert!(fixture_count >= 10, "expected at least 10 smoke fixtures");
+
+    let report = run_strict_filtered(None, Some("smoke")).expect("batch run");
+    assert_eq!(
+        report.reports.len(),
+        fixture_count,
+        "report count must equal fixture count: each fixture must produce exactly one entry"
+    );
+    assert_eq!(report.fixture_count, fixture_count);
+    let counted_passed = report.reports.iter().filter(|r| r.ok).count();
+    let counted_failed = report.reports.iter().filter(|r| !r.ok).count();
+    assert_eq!(counted_passed, report.passed_count);
+    assert_eq!(counted_failed, report.failed_count);
+    assert_eq!(report.passed_count + report.failed_count, fixture_count);
+}
+
+#[test]
 fn strict_fixture_reports_value_mismatch() {
     let fixture = parse_fixture(
         "close-plus-one",
