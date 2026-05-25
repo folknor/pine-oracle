@@ -24,5 +24,6 @@ that range.
 
 The `smoke-*` fixtures are deterministic substrate fixtures. They are not
 TradingView captures; they pin fixture loading, piners-runner replay, output
-slot naming, warmup token handling, and ranged comparisons. Real TV-captured
-baselines can be added alongside them as data.
+slot naming, warmup token handling, ranged comparisons, bool `plotshape`
+output, and same-symbol `request.security` replay. Real TV-captured baselines
+can be added alongside them as data.

@@ -21,7 +21,7 @@ runtime configuration.
 | `pine probes [--grep TEXT] [--feature NAME]` | List baked probes; `--grep` matches slug or summary substring, `--feature` restricts by detected Pine-feature usage (`oca`, `trail`, `pyramiding`, `mtf`, `varip`, `magnifier`, `matrix`, `map`, `udt`, `method`, `process_orders_on_close`, `barstate_isfirst`; pass `?` to list the catalog) |
 | `pine diff <probe> <trades.csv> [--show-diffs N]` | Tier-classify a user trade list against the probe's TV ground truth (port of PineForge's verify_corpus.py); `--show-diffs N` emits the worst-N matched pairs plus every TV / user orphan |
 | `pine indicator --list` | List baked indicator strict fixtures with smoke vs TV baseline kind |
-| `pine indicator --strict <slug>` | Run a baked indicator fixture through piners-runner and diff per-bar outputs against `expect.json`, including optional `test_range` windows; `smoke-*` fixtures are deterministic substrate checks, TV-captured baselines are still pending |
+| `pine indicator --strict <slug>` | Run a baked indicator fixture through piners-runner and diff per-bar outputs against `expect.json`, including optional `test_range` windows; `smoke-*` fixtures are deterministic substrate checks covering plots, warmup, ranges, bool `plotshape`, and same-symbol `request.security`; TV-captured baselines are still pending |
 | `pine version` | Binary version + bake counts and pinned snapshot metadata (reference, corpus, PineForge docs, pine-data, indicator fixtures split smoke vs TV) |
 
 All subcommands accept `--format json|text|auto`. JSON outputs carry

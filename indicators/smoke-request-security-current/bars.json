@@ -1,0 +1,11 @@
+{
+  "symbol": "SMOKE:FIXTURE",
+  "timeframe": "1D",
+  "source": "deterministic-smoke",
+  "bars": [
+    { "timestamp": 1735689600, "open": 9.0, "high": 11.0, "low": 8.0, "close": 10.0, "volume": 100.0 },
+    { "timestamp": 1735776000, "open": 10.0, "high": 12.0, "low": 9.0, "close": 11.0, "volume": 110.0 },
+    { "timestamp": 1735862400, "open": 11.0, "high": 13.0, "low": 10.0, "close": 12.0, "volume": 120.0 },
+    { "timestamp": 1735948800, "open": 12.0, "high": 14.0, "low": 11.0, "close": 13.0, "volume": 130.0 }
+  ]
+}

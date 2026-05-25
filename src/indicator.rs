@@ -965,7 +965,7 @@ mod tests {
                 .unwrap_or_else(|err| panic!("fixture {slug} failed strict validation: {err}"));
             count += 1;
         }
-        assert!(count >= 6, "expected baked smoke fixtures, found {count}");
+        assert!(count >= 8, "expected baked smoke fixtures, found {count}");
     }
 
     #[test]
@@ -974,6 +974,8 @@ mod tests {
             "smoke-close",
             "smoke-close-plus-one",
             "smoke-na-output",
+            "smoke-plotshape-bool",
+            "smoke-request-security-current",
             "smoke-two-plots",
             "smoke-sma-warmup",
             "smoke-test-range",
@@ -994,6 +996,8 @@ mod tests {
         assert!(slugs.contains(&"smoke-close"));
         assert!(slugs.contains(&"smoke-close-plus-one"));
         assert!(slugs.contains(&"smoke-na-output"));
+        assert!(slugs.contains(&"smoke-plotshape-bool"));
+        assert!(slugs.contains(&"smoke-request-security-current"));
         assert!(slugs.contains(&"smoke-two-plots"));
         assert!(slugs.contains(&"smoke-sma-warmup"));
         assert!(slugs.contains(&"smoke-test-range"));
@@ -1005,7 +1009,7 @@ mod tests {
         }
         let counts = fixture_counts().expect("counts");
         assert_eq!(counts.total, fixtures.len());
-        assert!(counts.smoke >= 6);
+        assert!(counts.smoke >= 8);
     }
 
     #[test]
