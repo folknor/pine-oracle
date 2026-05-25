@@ -79,6 +79,9 @@ const TV_CSV_TZ_OFFSET_HOURS_DEFAULT: i32 = 8; // Asia/Taipei, per upstream
 
 // ---------- public types ----------
 
+// Direction is intentionally exhaustive: Long / Short is the complete set of
+// directions TradingView's trade-list CSV can express. New variants would
+// require a TV format change, so exhaustive matching is correct here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Direction {
@@ -86,6 +89,9 @@ pub enum Direction {
     Short,
 }
 
+// Profile may grow new variants (e.g. a "relaxed" or "custom" profile),
+// so callers should not rely on exhaustive matching.
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Profile {
@@ -93,6 +99,9 @@ pub enum Profile {
     Production,
 }
 
+// Tier may grow new classification levels as the algorithm matures, so
+// callers should not rely on exhaustive matching.
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Tier {
@@ -105,6 +114,7 @@ pub enum Tier {
     EngineOnly,
 }
 
+#[must_use]
 #[derive(Debug, Clone, Serialize)]
 pub struct DiffReport {
     pub probe_slug: String,
@@ -133,6 +143,7 @@ pub struct DiffReport {
     pub user_orphans: Vec<TradeRow>,
 }
 
+#[must_use]
 #[derive(Debug, Clone, Copy, Serialize)]
 pub struct Thresholds {
     pub count: f64,
@@ -152,6 +163,7 @@ pub struct DiffOptions {
 }
 
 /// One matched (TV, user) trade pair, normalized for display.
+#[must_use]
 #[derive(Debug, Clone, Serialize)]
 pub struct PairDiff {
     pub direction: Direction,
@@ -175,6 +187,7 @@ pub struct PairDiff {
 }
 
 /// One trade row, normalized for display in the orphan lists.
+#[must_use]
 #[derive(Debug, Clone, Serialize)]
 pub struct TradeRow {
     pub direction: Direction,
@@ -409,25 +422,38 @@ fn parse_trades(csv_data: &str, tz_offset_hours: i32) -> Result<Vec<TradePair>> 
         let price: f64 = price_s
             .parse()
             .with_context(|| format!("parsing price `{price_s}`"))?;
-        let pnl: f64 = if pnl_s.is_empty() {
-            0.0
+        // Parse pnl as Option<f64>: None when the column is absent or blank,
+        // Some(v) only when the CSV actually contains a value. This preserves
+        // the emptiness signal through to the merge step below, so a blank
+        // exit-row pnl column cannot silently overwrite a non-zero entry-row
+        // pnl (the old code converted empty to 0.0 and then unconditionally
+        // assigned, losing the entry value).
+        let pnl_opt: Option<f64> = if pnl_s.is_empty() {
+            None
         } else {
-            pnl_s
-                .parse()
-                .with_context(|| format!("parsing pnl `{pnl_s}`"))?
+            Some(
+                pnl_s
+                    .parse()
+                    .with_context(|| format!("parsing pnl `{pnl_s}`"))?,
+            )
         };
         let time = parse_dt(time_s, tz).with_context(|| format!("parsing datetime `{time_s}`"))?;
 
         let entry = by_num.entry(num).or_default();
         entry.direction = Some(direction);
-        entry.pnl = Some(pnl);
+        // Merge rule: last non-None value wins. Entry row sets the initial
+        // pnl when present; exit row overrides it when the exit column is
+        // also present (exit row carries the canonical settled pnl in TV's
+        // export). An absent column on either row leaves the other row's
+        // value intact.
+        if let Some(p) = pnl_opt {
+            entry.pnl = Some(p);
+        }
         if kind.starts_with("entry") {
             entry.entry_time = Some(time);
             entry.entry_price = Some(price);
         } else {
             entry.exit_price = Some(price);
-            // Exit row often carries the canonical pnl; prefer it when present.
-            entry.pnl = Some(pnl);
         }
     }
 
@@ -1230,6 +1256,41 @@ mod tests {
         let trades = parse_trades(csv, 0).expect("Price USDT column must parse");
         assert_eq!(trades.len(), 1);
         assert!((trades[0].entry_price - 42000.00).abs() < 1e-9);
+    }
+
+    // ---------- Fix 1: pnl entry-vs-exit overwrite ----------
+
+    #[test]
+    fn parse_trades_entry_pnl_preserved_when_exit_pnl_blank() {
+        // Entry row carries a non-zero pnl; exit row has a blank pnl column.
+        // The exit-row blank must NOT overwrite the entry-row pnl with 0.0.
+        let csv = "Trade #,Type,Date and time,Price USDT,Net P&L USD\n\
+                   1,Entry Long,2024-01-15 10:30,42000.00,500.00\n\
+                   1,Exit Long,2024-01-15 11:00,43000.00,\n";
+        let trades = parse_trades(csv, 0).expect("must parse");
+        assert_eq!(trades.len(), 1);
+        // Entry-row pnl (500.0) must survive; blank exit column must not win.
+        assert!(
+            (trades[0].pnl - 500.0).abs() < 1e-9,
+            "expected pnl 500.0, got {}",
+            trades[0].pnl
+        );
+    }
+
+    #[test]
+    fn parse_trades_exit_pnl_wins_when_entry_pnl_blank() {
+        // Entry row has a blank pnl column; exit row carries the settled pnl.
+        // The exit-row value should win (original intent: TV export canonical pnl).
+        let csv = "Trade #,Type,Date and time,Price USDT,Net P&L USD\n\
+                   1,Entry Long,2024-01-15 10:30,42000.00,\n\
+                   1,Exit Long,2024-01-15 11:00,43000.00,1000.00\n";
+        let trades = parse_trades(csv, 0).expect("must parse");
+        assert_eq!(trades.len(), 1);
+        assert!(
+            (trades[0].pnl - 1000.0).abs() < 1e-9,
+            "expected pnl 1000.0, got {}",
+            trades[0].pnl
+        );
     }
 
     // ---------- Bug 3: parse_inputs_json error propagation ----------

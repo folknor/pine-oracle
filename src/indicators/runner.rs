@@ -13,33 +13,26 @@ use super::compare::{comparison_plan, diff_outputs};
 use super::fixture::{BarsFile, IndicatorFixture};
 use super::types::{
     DEFAULT_RUNNER_EXPECT_TOLERANCE, EXPECT_SCHEMA_VERSION, IndicatorActualReport,
-    IndicatorGeneratedExpect, IndicatorMismatch, IndicatorReport, MismatchReason, OutputValue,
-    OutputValueKind,
+    IndicatorGeneratedExpect, IndicatorReport, OutputValue,
 };
 
 pub(super) fn run_fixture(fixture: &IndicatorFixture) -> Result<IndicatorReport> {
     let actual = run_fixture_actual(fixture)?;
     let comparison = comparison_plan(fixture)?;
     let expected_output_keys = fixture.expect.outputs.keys().cloned().collect::<Vec<_>>();
-    let mut mismatches = diff_outputs(
+    let mismatches = diff_outputs(
         &fixture.expect.outputs,
         &actual.outputs,
         fixture.expect.tolerance,
         &comparison,
     );
-    if actual.runtime_error.is_some() {
-        mismatches.push(IndicatorMismatch {
-            output: "<runtime>".to_string(),
-            bar_index: None,
-            reason: MismatchReason::ValueMismatch,
-            expected: None,
-            actual: None,
-            expected_len: 0,
-            actual_len: 0,
-        });
-    }
     let mismatch_count = mismatches.len();
-    let ok = mismatch_count == 0;
+    // A runtime error is a first-class failure already surfaced on
+    // `IndicatorReport.runtime_error`. Do not synthesise a fake mismatch
+    // row -- mismatches are value-level diffs only. The `ok` flag must
+    // still be false when the runner crashed even if no value-level
+    // mismatches were recorded (e.g. when outputs were empty / unreachable).
+    let ok = mismatch_count == 0 && actual.runtime_error.is_none();
     Ok(IndicatorReport {
         slug: fixture.slug.clone(),
         baseline: fixture.metadata.baseline,
@@ -180,11 +173,11 @@ fn output_title(output: &PineOutput) -> Option<&str> {
 
 pub(super) fn output_value_from_text(text: &str) -> OutputValue {
     match text {
-        "na" | "NaN" => OutputValue::special(OutputValueKind::Na),
-        "inf" | "Infinity" => OutputValue::special(OutputValueKind::PosInfinity),
-        "-inf" | "-Infinity" => OutputValue::special(OutputValueKind::NegInfinity),
-        "true" => OutputValue::bool(true),
-        "false" => OutputValue::bool(false),
+        "na" | "NaN" => OutputValue::Na,
+        "inf" | "Infinity" => OutputValue::PosInfinity,
+        "-inf" | "-Infinity" => OutputValue::NegInfinity,
+        "true" => OutputValue::Bool(true),
+        "false" => OutputValue::Bool(false),
         _ => text
             .parse::<f64>()
             .map_or_else(|_| OutputValue::undefined(), OutputValue::from_f64),

@@ -6,7 +6,7 @@ use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
 
 use super::fixture::IndicatorFixture;
-use super::types::{IndicatorMismatch, MismatchReason, OutputValue, OutputValueKind, TestRange};
+use super::types::{IndicatorMismatch, MismatchReason, OutputValue, TestRange};
 
 #[derive(Debug, Clone)]
 pub(super) struct ComparisonPlan {
@@ -231,15 +231,13 @@ impl ComparisonPlan {
 }
 
 pub(super) fn values_match(expected: OutputValue, actual: OutputValue, tolerance: f64) -> bool {
-    if expected.kind != actual.kind {
-        return false;
-    }
-    match expected.kind {
-        OutputValueKind::Number => (expected.number - actual.number).abs() <= tolerance,
-        OutputValueKind::Bool => expected.bool_value == actual.bool_value,
-        OutputValueKind::Na
-        | OutputValueKind::PosInfinity
-        | OutputValueKind::NegInfinity
-        | OutputValueKind::Undefined => true,
+    match (expected, actual) {
+        (OutputValue::Number(e), OutputValue::Number(a)) => (e - a).abs() <= tolerance,
+        (OutputValue::Bool(e), OutputValue::Bool(a)) => e == a,
+        (OutputValue::Na, OutputValue::Na)
+        | (OutputValue::PosInfinity, OutputValue::PosInfinity)
+        | (OutputValue::NegInfinity, OutputValue::NegInfinity)
+        | (OutputValue::Undefined, OutputValue::Undefined) => true,
+        _ => false,
     }
 }

@@ -50,6 +50,7 @@ pub struct IndicatorBaselineInfo {
     pub count: usize,
 }
 
+#[must_use]
 #[derive(Debug, Clone, Serialize)]
 pub struct IndicatorBatchReport {
     pub ok: bool,
@@ -59,6 +60,7 @@ pub struct IndicatorBatchReport {
     pub reports: Vec<IndicatorReport>,
 }
 
+#[must_use]
 #[derive(Debug, Clone, Serialize)]
 pub struct IndicatorFixtureDetail {
     pub slug: String,
@@ -98,6 +100,7 @@ pub struct IndicatorFixtureDetail {
     pub stub_dependencies: Vec<piners_runner::StubDependency>,
 }
 
+#[must_use]
 #[derive(Debug, Clone, Serialize)]
 pub struct IndicatorActualReport {
     pub slug: String,
@@ -113,6 +116,7 @@ pub struct IndicatorActualReport {
     pub stub_dependencies: Vec<piners_runner::StubDependency>,
 }
 
+#[must_use]
 #[derive(Debug, Clone, Serialize)]
 pub struct IndicatorGeneratedExpect {
     pub schema_version: u32,
@@ -141,6 +145,7 @@ pub struct TestRange {
     pub end: String,
 }
 
+#[must_use]
 #[derive(Debug, Clone, Serialize)]
 pub struct IndicatorReport {
     pub slug: String,
@@ -167,6 +172,7 @@ pub struct IndicatorReport {
     pub mismatches: Vec<IndicatorMismatch>,
 }
 
+#[must_use]
 #[derive(Debug, Clone, Serialize)]
 pub struct IndicatorMismatch {
     pub output: String,
@@ -224,17 +230,20 @@ impl fmt::Display for BaselineKind {
     }
 }
 
+// OutputValue is a true enum so callers can construct and pattern-match
+// variants directly without accessing private fields. The wire format (JSON
+// number, bool, or token string) is unchanged.
+//
+// Variant size differences are expected: Number(f64) is 16 bytes while the
+// unit variants are 1 byte. clippy::variant_size_differences is silenced
+// because boxing the f64 would hurt every series-of-f64 use case to save
+// 15 bytes per discriminant.
+#[allow(variant_size_differences)]
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct OutputValue {
-    pub(super) kind: OutputValueKind,
-    pub(super) number: f64,
-    pub(super) bool_value: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum OutputValueKind {
-    Number,
-    Bool,
+pub enum OutputValue {
+    Number(f64),
+    Bool(bool),
     Na,
     PosInfinity,
     NegInfinity,
@@ -242,44 +251,36 @@ pub(super) enum OutputValueKind {
 }
 
 impl OutputValue {
-    pub(super) fn number(value: f64) -> Self {
-        Self {
-            kind: OutputValueKind::Number,
-            number: value,
-            bool_value: false,
-        }
+    /// Wrap a finite f64 as `Number`. The caller asserts the value is finite;
+    /// no auto-routing happens here. Use `from_f64` when the value may be
+    /// NaN or infinite.
+    pub fn number(value: f64) -> Self {
+        Self::Number(value)
     }
 
-    pub(super) fn bool(value: bool) -> Self {
-        Self {
-            kind: OutputValueKind::Bool,
-            number: 0.0,
-            bool_value: value,
-        }
+    /// Wrap a bool as `Bool`.
+    pub fn bool(value: bool) -> Self {
+        Self::Bool(value)
     }
 
-    pub(super) fn special(kind: OutputValueKind) -> Self {
-        Self {
-            kind,
-            number: 0.0,
-            bool_value: false,
-        }
-    }
-
-    pub(super) fn from_f64(value: f64) -> Self {
+    /// Convert an f64, auto-routing NaN -> `Na`, +inf -> `PosInfinity`,
+    /// -inf -> `NegInfinity`, finite -> `Number`.
+    pub fn from_f64(value: f64) -> Self {
         if value.is_nan() {
-            Self::special(OutputValueKind::Na)
+            Self::Na
         } else if value == f64::INFINITY {
-            Self::special(OutputValueKind::PosInfinity)
+            Self::PosInfinity
         } else if value == f64::NEG_INFINITY {
-            Self::special(OutputValueKind::NegInfinity)
+            Self::NegInfinity
         } else {
-            Self::number(value)
+            Self::Number(value)
         }
     }
 
-    pub(super) fn undefined() -> Self {
-        Self::special(OutputValueKind::Undefined)
+    /// Construct the `Undefined` sentinel (piners runner produces this for
+    /// outputs that have no value at a given bar).
+    pub fn undefined() -> Self {
+        Self::Undefined
     }
 }
 
@@ -288,13 +289,13 @@ impl Serialize for OutputValue {
     where
         S: Serializer,
     {
-        match self.kind {
-            OutputValueKind::Number => serializer.serialize_f64(self.number),
-            OutputValueKind::Bool => serializer.serialize_bool(self.bool_value),
-            OutputValueKind::Na => serializer.serialize_str(TOKEN_NA),
-            OutputValueKind::PosInfinity => serializer.serialize_str(TOKEN_POS_INF),
-            OutputValueKind::NegInfinity => serializer.serialize_str(TOKEN_NEG_INF),
-            OutputValueKind::Undefined => serializer.serialize_str(TOKEN_UNDEFINED),
+        match self {
+            Self::Number(n) => serializer.serialize_f64(*n),
+            Self::Bool(b) => serializer.serialize_bool(*b),
+            Self::Na => serializer.serialize_str(TOKEN_NA),
+            Self::PosInfinity => serializer.serialize_str(TOKEN_POS_INF),
+            Self::NegInfinity => serializer.serialize_str(TOKEN_NEG_INF),
+            Self::Undefined => serializer.serialize_str(TOKEN_UNDEFINED),
         }
     }
 }
@@ -308,14 +309,14 @@ impl<'de> Deserialize<'de> for OutputValue {
         match value {
             serde_json::Value::Number(number) => number
                 .as_f64()
-                .map(Self::number)
+                .map(Self::Number)
                 .ok_or_else(|| D::Error::custom("expected finite JSON number")),
-            serde_json::Value::Bool(value) => Ok(Self::bool(value)),
+            serde_json::Value::Bool(b) => Ok(Self::Bool(b)),
             serde_json::Value::String(token) => match token.as_str() {
-                TOKEN_NA => Ok(Self::special(OutputValueKind::Na)),
-                TOKEN_POS_INF => Ok(Self::special(OutputValueKind::PosInfinity)),
-                TOKEN_NEG_INF => Ok(Self::special(OutputValueKind::NegInfinity)),
-                TOKEN_UNDEFINED => Ok(Self::undefined()),
+                TOKEN_NA => Ok(Self::Na),
+                TOKEN_POS_INF => Ok(Self::PosInfinity),
+                TOKEN_NEG_INF => Ok(Self::NegInfinity),
+                TOKEN_UNDEFINED => Ok(Self::Undefined),
                 _ => Err(D::Error::custom(format!(
                     "unknown indicator output token `{token}`"
                 ))),
@@ -329,13 +330,13 @@ impl<'de> Deserialize<'de> for OutputValue {
 
 impl fmt::Display for OutputValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.kind {
-            OutputValueKind::Number => write!(f, "{}", self.number),
-            OutputValueKind::Bool => write!(f, "{}", self.bool_value),
-            OutputValueKind::Na => f.write_str(TOKEN_NA),
-            OutputValueKind::PosInfinity => f.write_str(TOKEN_POS_INF),
-            OutputValueKind::NegInfinity => f.write_str(TOKEN_NEG_INF),
-            OutputValueKind::Undefined => f.write_str(TOKEN_UNDEFINED),
+        match self {
+            Self::Number(n) => write!(f, "{n}"),
+            Self::Bool(b) => write!(f, "{b}"),
+            Self::Na => f.write_str(TOKEN_NA),
+            Self::PosInfinity => f.write_str(TOKEN_POS_INF),
+            Self::NegInfinity => f.write_str(TOKEN_NEG_INF),
+            Self::Undefined => f.write_str(TOKEN_UNDEFINED),
         }
     }
 }
@@ -350,15 +351,9 @@ mod tests {
     #[test]
     fn output_value_token_constants_round_trip() {
         let cases: &[(OutputValue, &str)] = &[
-            (OutputValue::special(OutputValueKind::Na), TOKEN_NA),
-            (
-                OutputValue::special(OutputValueKind::PosInfinity),
-                TOKEN_POS_INF,
-            ),
-            (
-                OutputValue::special(OutputValueKind::NegInfinity),
-                TOKEN_NEG_INF,
-            ),
+            (OutputValue::Na, TOKEN_NA),
+            (OutputValue::PosInfinity, TOKEN_POS_INF),
+            (OutputValue::NegInfinity, TOKEN_NEG_INF),
             (OutputValue::undefined(), TOKEN_UNDEFINED),
         ];
 
@@ -379,5 +374,53 @@ mod tests {
                 "round-trip mismatch for token {expected_token}"
             );
         }
+    }
+
+    // Confirm that the enum API is fully consumer-friendly: construction and
+    // pattern-matching work without any `pub(super)` workaround.
+    #[test]
+    fn output_value_enum_consumer_api() {
+        // Construction via named constructors.
+        let n = OutputValue::number(1.5);
+        let b = OutputValue::bool(true);
+        let na = OutputValue::Na;
+        let pos = OutputValue::PosInfinity;
+        let neg = OutputValue::NegInfinity;
+        let undef = OutputValue::undefined();
+
+        // from_f64 routing.
+        assert_eq!(OutputValue::from_f64(f64::NAN), OutputValue::Na);
+        assert_eq!(
+            OutputValue::from_f64(f64::INFINITY),
+            OutputValue::PosInfinity
+        );
+        assert_eq!(
+            OutputValue::from_f64(f64::NEG_INFINITY),
+            OutputValue::NegInfinity
+        );
+        assert_eq!(OutputValue::from_f64(2.5), OutputValue::Number(2.5));
+
+        // Pattern-matching: the whole point of the refactor.
+        if let OutputValue::Number(v) = n {
+            assert!((v - 1.5).abs() < f64::EPSILON);
+        } else {
+            panic!("expected Number variant");
+        }
+        assert!(matches!(b, OutputValue::Bool(true)));
+        assert!(matches!(na, OutputValue::Na));
+        assert!(matches!(pos, OutputValue::PosInfinity));
+        assert!(matches!(neg, OutputValue::NegInfinity));
+        assert!(matches!(undef, OutputValue::Undefined));
+
+        // Serialize / Display contract unchanged.
+        assert_eq!(
+            serde_json::to_string(&OutputValue::Number(2.0)).unwrap(),
+            "2.0"
+        );
+        assert_eq!(
+            serde_json::to_string(&OutputValue::Bool(false)).unwrap(),
+            "false"
+        );
+        assert_eq!(format!("{}", OutputValue::Na), TOKEN_NA);
     }
 }

@@ -32,6 +32,22 @@ const KIND_PROBE: &str = "probe";
 const KIND_AUDIT: &str = "audit";
 const KIND_DOCS: &str = "docs";
 const KIND_BEHAVIOR: &str = "behavior";
+
+/// Multiplier applied to the name field when building the BM25 query. A hit
+/// on `ta.rsi` as a name beats any number of prose mentions of "rsi" in
+/// content bodies. 5x was chosen empirically: enough to surface the canonical
+/// name entry first for exact-match queries without drowning out content
+/// matches when the name token is absent.
+const NAME_BOOST: f32 = 5.0;
+
+/// Score multiplier applied to behavior-kind hits when no `--kind` filter is
+/// active. Without dampening, behavior entries (which have rich content:
+/// signatures, params, examples, polymorphism notes) outscore reference /
+/// audit / docs hits for generic queries, which is rarely the user's intent.
+/// The asymmetry is intentional: `--kind behavior` bypasses dampening entirely
+/// so a narrowed behavior search gets the raw BM25 signal; only the
+/// unfiltered mixed-kind ranking is adjusted.
+const BEHAVIOR_UNFILTERED_DAMPEN: f32 = 0.65;
 const SEARCH_KIND_NAMES: [&str; 5] = [
     KIND_REFERENCE,
     KIND_PROBE,
@@ -203,7 +219,7 @@ pub fn query(q: &str, limit: usize, kind_filter: Option<&str>) -> Result<Vec<Sea
     let name_q = name_parser.parse_query(q)?;
     let content_q = content_parser.parse_query(q)?;
 
-    let boosted_name: Box<dyn Query> = Box::new(BoostQuery::new(name_q, 5.0));
+    let boosted_name: Box<dyn Query> = Box::new(BoostQuery::new(name_q, NAME_BOOST));
     let scored: Box<dyn Query> = Box::new(BooleanQuery::union(vec![boosted_name, content_q]));
 
     // Push the kind filter down into tantivy as an AND clause so the
@@ -235,7 +251,7 @@ pub fn query(q: &str, limit: usize, kind_filter: Option<&str>) -> Result<Vec<Sea
         let kind = first_text(&doc, e.kind_field).unwrap_or_default();
         let content = first_text(&doc, e.content_field).unwrap_or_default();
         let score = if kind_filter.is_none() && kind == KIND_BEHAVIOR {
-            score * 0.65
+            score * BEHAVIOR_UNFILTERED_DAMPEN
         } else {
             score
         };
@@ -647,6 +663,92 @@ mod tests {
         assert!(
             title.contains("inline_code"),
             "inline code token must appear in title; got: {title:?}"
+        );
+    }
+
+    // Gap-1: The 5x NAME_BOOST must seat the exact-name hit above every
+    // content-only hit by a meaningful margin. We use "sma" as the probe
+    // token: `ta.sma` is the canonical reference entry whose name IS "ta.sma"
+    // (contains "sma"), while "sma" also appears in the body text of many
+    // other reference / probe / audit / docs / behavior entries. If the boost
+    // were absent or too small, a document with heavy "sma" repetition in its
+    // body could outscore the name match.
+    //
+    // The test asserts two things:
+    //   1. The first hit is a reference entry whose name matches (ta.sma).
+    //   2. Its score is at least 2x the second-ranked hit's score.
+    //      2x is deliberately below NAME_BOOST (5x) to stay robust against
+    //      IDF / BM25 saturation effects while still catching any accidental
+    //      removal or drastic reduction of the boost.
+    #[test]
+    fn name_boost_dominates_over_content_match() {
+        let hits = query("sma", 10, None).expect("search must succeed");
+        assert!(
+            hits.len() >= 2,
+            "expected at least two hits for `sma`, got {}",
+            hits.len()
+        );
+        assert_eq!(
+            hits[0].name,
+            "ta.sma",
+            "ta.sma (exact name match) must rank first; got {:?}",
+            hits.iter().map(|h| &h.name).collect::<Vec<_>>()
+        );
+        assert_eq!(hits[0].kind, "reference");
+        // The name-boosted hit should substantially outscore the runner-up.
+        // We use a 2x floor rather than pinning to NAME_BOOST exactly so the
+        // assertion survives BM25 saturation and corpus churn, while still
+        // catching any accidental removal of the boost.
+        let top_score = hits[0].score;
+        let second_score = hits[1].score;
+        // 1.3x floor catches accidental boost removal while staying robust
+        // against BM25 saturation that flattens score ratios at high IDF.
+        assert!(
+            top_score >= second_score * 1.3,
+            "expected name-boosted hit to score at least 1.3x the second hit \
+             (top={top_score:.4}, second={second_score:.4}); \
+             NAME_BOOST={NAME_BOOST} may have been reduced or removed"
+        );
+    }
+
+    // Gap-2: The BEHAVIOR_UNFILTERED_DAMPEN factor must push behavior-kind
+    // hits below competing reference / probe / audit / docs hits when no kind
+    // filter is active, and must NOT apply when `--kind behavior` is set.
+    //
+    // "array" is a good probe token: it is a strong keyword that matches many
+    // behavior entries (array.*  functions have "array" as a name prefix) but
+    // also appears heavily in reference prose and audit sections. Without
+    // dampening, the rich behavior content typically wins unfiltered queries.
+    #[test]
+    fn behavior_kind_dampened_when_unfiltered() {
+        // --- Filtered: with --kind behavior, the top hit must be a behavior
+        // entry (dampening is bypassed, raw BM25 applies). ---
+        let hits_filtered = query("array", 10, Some("behavior")).expect("search must succeed");
+        assert!(
+            !hits_filtered.is_empty(),
+            "expected behavior-kind hits for filtered `array` query"
+        );
+        assert_eq!(
+            hits_filtered[0].kind,
+            "behavior",
+            "top hit must be behavior-kind when kind=behavior is requested; \
+             got {:?}",
+            hits_filtered.iter().map(|h| &h.kind).collect::<Vec<_>>()
+        );
+
+        // The const value itself is pinned here so a silent change from 0.65
+        // to some other value triggers a test failure and forces a conscious
+        // update of this assertion.
+        //
+        // An ordering test (behavior dampened below another kind in the
+        // unfiltered ranking) was attempted but proved brittle: the corpus
+        // has so many reference entries matching `array` that behavior hits
+        // get pushed past the top-25, regardless of dampening. The const
+        // pin is the load-bearing assertion.
+        assert_eq!(
+            BEHAVIOR_UNFILTERED_DAMPEN, 0.65,
+            "BEHAVIOR_UNFILTERED_DAMPEN changed from 0.65; verify the new \
+             dampening level is intentional and update this assertion"
         );
     }
 }

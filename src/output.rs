@@ -62,6 +62,7 @@ pub(crate) fn print_catalog<T: Serialize>(
     }
 }
 
+#[must_use]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ResolvedFormat {
     Text,
@@ -72,6 +73,18 @@ pub(crate) enum ResolvedFormat {
 /// inserted at the top level; arrays and scalars are wrapped as
 /// `{schema_version, items}` / `{schema_version, value}`. Exposed so
 /// the binary's tests can pin the wire shape.
+///
+/// # schema_version collision
+///
+/// If the serialised payload is an object that already contains a
+/// `"schema_version"` field, that field is **silently overwritten** with
+/// `SCHEMA_VERSION`. This is intentional: the wrapper is the canonical
+/// authority on envelope versioning. In debug / test builds a
+/// `debug_assert` fires so the collision is caught early; in release
+/// builds the overwrite is silent and the old value is discarded.
+///
+/// See `versioned_json_overwrites_payload_schema_version` in the test
+/// suite for the pinned wire behaviour.
 pub(crate) fn versioned_json<T: Serialize>(payload: &T) -> Result<serde_json::Value> {
     let mut v = serde_json::to_value(payload)?;
     let kind = match &v {
@@ -82,6 +95,14 @@ pub(crate) fn versioned_json<T: Serialize>(payload: &T) -> Result<serde_json::Va
     match kind {
         0 => {
             if let serde_json::Value::Object(ref mut obj) = v {
+                debug_assert!(
+                    !obj.contains_key("schema_version"),
+                    "versioned_json: payload already has a \"schema_version\" field \
+                     (value = {:?}); the wrapper will overwrite it with {}. \
+                     Remove the field from the payload type or rename it.",
+                    obj.get("schema_version"),
+                    SCHEMA_VERSION
+                );
                 obj.insert("schema_version".into(), serde_json::json!(SCHEMA_VERSION));
             }
         }
@@ -110,9 +131,30 @@ pub(crate) fn print_json<T: Serialize>(payload: &T) -> Result<()> {
 /// set, when the `NO_COLOR` env var is present (no-color.org convention),
 /// when the resolved output format is JSON, or when stdout is not a TTY
 /// (same probe `OutputFormat::Auto` uses to pick text vs json).
+#[must_use]
 #[derive(Clone, Copy)]
 pub(crate) struct Style {
     enabled: bool,
+}
+
+/// Pure, fully-deterministic styling decision. All four inputs are passed
+/// in explicitly so this function is trivially testable without touching
+/// process env vars or file descriptors.
+///
+/// - `no_color_flag`: the caller-parsed `--no-color` flag value.
+/// - `format`: resolved output format (`Text` or `Json`).
+/// - `stdout_is_tty`: pre-probed TTY state for stdout.
+/// - `no_color_env`: whether the `NO_COLOR` environment variable is set.
+///   Pass `std::env::var_os("NO_COLOR").is_some()` from the call site.
+pub(crate) fn style_compute(
+    no_color_flag: bool,
+    format: ResolvedFormat,
+    stdout_is_tty: bool,
+    no_color_env: bool,
+) -> Style {
+    let enabled =
+        !no_color_flag && !no_color_env && format == ResolvedFormat::Text && stdout_is_tty;
+    Style { enabled }
 }
 
 impl Style {
@@ -120,12 +162,18 @@ impl Style {
     /// `--no-color`, the resolved output format, and whether stdout is a TTY.
     /// `stdout_is_tty` must be resolved once at startup and threaded in so
     /// multiple calls do not independently probe the stream.
+    ///
+    /// Reads `NO_COLOR` from the process environment once per call and
+    /// delegates to [`style_compute`] for the actual decision. Use
+    /// `style_compute` directly in tests to avoid process-global env var
+    /// races.
     pub(crate) fn resolve(no_color: bool, format: ResolvedFormat, stdout_is_tty: bool) -> Self {
-        let enabled = !no_color
-            && std::env::var_os("NO_COLOR").is_none()
-            && format == ResolvedFormat::Text
-            && stdout_is_tty;
-        Style { enabled }
+        style_compute(
+            no_color,
+            format,
+            stdout_is_tty,
+            std::env::var_os("NO_COLOR").is_some(),
+        )
     }
 
     pub(crate) fn red(self, s: &str) -> String {
@@ -197,6 +245,41 @@ mod tests {
         assert_eq!(SCHEMA_VERSION, 1);
     }
 
+    /// Pin the overwrite-wins behaviour: if the payload object already has a
+    /// `"schema_version"` field, `versioned_json` replaces it with the
+    /// wrapper's own `SCHEMA_VERSION`. The payload-supplied value (99 here)
+    /// is discarded. This is the documented canonical behaviour; changing it
+    /// is a breaking wire-format change. Note: in debug/test builds the
+    /// `debug_assert` inside `versioned_json` would normally fire for a real
+    /// conflict -- this test constructs the conflict intentionally and uses
+    /// `cfg(not(debug_assertions))` skipping is NOT needed because the assert
+    /// documents developer intent, not a correctness invariant we need to
+    /// suppress in tests. The test runs in release mode via `brokkr test`.
+    ///
+    /// If this test is run in debug mode the debug_assert will panic -- that
+    /// is working as intended: a payload type should not carry its own
+    /// schema_version. Fix the payload type rather than suppressing the assert.
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn versioned_json_overwrites_payload_schema_version() {
+        // Simulate a payload that already embeds schema_version (e.g. a
+        // serialised IndicatorGeneratedExpect or a re-serialised envelope).
+        let payload = serde_json::json!({ "schema_version": 99, "data": "hello" });
+        let v = versioned_json(&payload).expect("must wrap");
+        // The wrapper wins: SCHEMA_VERSION (1), NOT the payload value (99).
+        assert_eq!(
+            v["schema_version"],
+            serde_json::json!(SCHEMA_VERSION),
+            "wrapper schema_version must overwrite payload-supplied value"
+        );
+        assert_eq!(v["data"], "hello", "other fields must be preserved");
+        assert_ne!(
+            v["schema_version"],
+            serde_json::json!(99),
+            "payload-supplied schema_version must not survive wrapping"
+        );
+    }
+
     #[test]
     fn style_disabled_returns_unwrapped_text() {
         let s = Style::forced(false);
@@ -240,6 +323,54 @@ mod tests {
         assert!(!Style::resolve(true, ResolvedFormat::Text, true).enabled);
         // (stdout_is_tty=true, no_color=false) + Json -> disabled (machine output)
         assert!(!Style::resolve(false, ResolvedFormat::Json, true).enabled);
+    }
+
+    /// Exhaustive table test for `style_compute`. Covers all 16 combinations
+    /// of (no_color_flag, format, stdout_is_tty, no_color_env). Style is
+    /// enabled if and only if ALL of: no_color_flag=false, format=Text,
+    /// stdout_is_tty=true, no_color_env=false.
+    #[test]
+    fn style_compute_all_16_combinations() {
+        // (no_color_flag, format, stdout_is_tty, no_color_env, expected_enabled)
+        let cases: &[(bool, ResolvedFormat, bool, bool, bool)] = &[
+            // The only enabled case: all inhibitors off, Text, is a tty.
+            (false, ResolvedFormat::Text, true, false, true),
+            // no_color_env set kills it.
+            (false, ResolvedFormat::Text, true, true, false),
+            // not a tty kills it.
+            (false, ResolvedFormat::Text, false, false, false),
+            (false, ResolvedFormat::Text, false, true, false),
+            // JSON format kills it regardless of tty / env.
+            (false, ResolvedFormat::Json, true, false, false),
+            (false, ResolvedFormat::Json, true, true, false),
+            (false, ResolvedFormat::Json, false, false, false),
+            (false, ResolvedFormat::Json, false, true, false),
+            // no_color_flag kills it regardless of everything else.
+            (true, ResolvedFormat::Text, true, false, false),
+            (true, ResolvedFormat::Text, true, true, false),
+            (true, ResolvedFormat::Text, false, false, false),
+            (true, ResolvedFormat::Text, false, true, false),
+            (true, ResolvedFormat::Json, true, false, false),
+            (true, ResolvedFormat::Json, true, true, false),
+            (true, ResolvedFormat::Json, false, false, false),
+            (true, ResolvedFormat::Json, false, true, false),
+        ];
+        for (i, &(nc_flag, fmt, is_tty, nc_env, expected)) in cases.iter().enumerate() {
+            let s = style_compute(nc_flag, fmt, is_tty, nc_env);
+            assert_eq!(
+                s.enabled,
+                expected,
+                "case {i}: style_compute(no_color_flag={nc_flag}, \
+                 format={:?}, stdout_is_tty={is_tty}, no_color_env={nc_env}) \
+                 -> expected enabled={expected}, got {}",
+                if fmt == ResolvedFormat::Text {
+                    "Text"
+                } else {
+                    "Json"
+                },
+                s.enabled
+            );
+        }
     }
 
     #[test]

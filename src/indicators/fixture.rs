@@ -32,12 +32,10 @@ pub(super) struct BarsFile {
     pub(super) bars: Vec<Bar>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(untagged)]
-enum BarsDocument {
-    Full(Box<BarsFile>),
-    Bare(Vec<Bar>),
-}
+// BarsDocument (untagged enum supporting both Full+Bare forms) was removed.
+// Audit of all baked fixtures confirmed every bars.json uses the Full object
+// form. Bare-array support was dead code; direct BarsFile deserialization is
+// simpler and produces better error messages.
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub(super) struct ExpectFile {
@@ -66,6 +64,7 @@ pub(super) struct MetadataFile {
     pub(super) notes: Option<String>,
 }
 
+#[must_use]
 #[derive(Debug, Clone)]
 pub(super) struct IndicatorFixture {
     pub(super) slug: String,
@@ -114,6 +113,7 @@ fn effective_tv_snapshot_inner(
     expect_snapshot.or(metadata_snapshot).cloned()
 }
 
+#[must_use = "fixture list is computed eagerly; ignoring it wastes work"]
 pub fn list_fixtures() -> Result<Vec<IndicatorListing>> {
     let entries = INDICATORS
         .find("**/source.pine")
@@ -137,6 +137,7 @@ pub fn list_fixtures() -> Result<Vec<IndicatorListing>> {
     Ok(out)
 }
 
+#[must_use = "filtered fixture list is computed eagerly; ignoring it wastes work"]
 pub fn list_fixtures_filtered(
     grep: Option<&str>,
     baseline_filter: Option<&str>,
@@ -153,6 +154,7 @@ pub fn list_fixtures_filtered(
     Ok(fixtures)
 }
 
+#[must_use = "fixture counts are computed eagerly; ignoring the result wastes work"]
 pub fn fixture_counts() -> Result<IndicatorFixtureCounts> {
     let fixtures = list_fixtures()?;
     let total = fixtures.len();
@@ -167,6 +169,7 @@ pub fn fixture_counts() -> Result<IndicatorFixtureCounts> {
     Ok(IndicatorFixtureCounts { total, smoke, tv })
 }
 
+#[must_use = "baseline catalog is computed eagerly; ignoring the result wastes work"]
 pub fn baseline_catalog() -> Result<Vec<IndicatorBaselineInfo>> {
     let counts = fixture_counts()?;
     Ok(vec![
@@ -186,6 +189,7 @@ pub fn baseline_catalog() -> Result<Vec<IndicatorBaselineInfo>> {
 /// Returns `true` when `baseline` is the catalog sentinel `"?"`.
 /// Thin delegate kept for library consumers that import `pine_cli::indicator`
 /// directly; the binary uses `output::is_catalog_request` instead.
+#[must_use]
 pub fn is_baseline_catalog_request(baseline: &str) -> bool {
     baseline == "?"
 }
@@ -307,6 +311,7 @@ pub(super) fn filter_description(grep: Option<&str>, baseline_filter: Option<&st
     }
 }
 
+#[must_use = "loaded fixture must be passed to runner::run_fixture or detail::fixture_detail"]
 pub(super) fn load_fixture(slug_input: &str) -> Result<IndicatorFixture> {
     let slug = sanitise_slug(slug_input)?;
     let source =
@@ -343,16 +348,7 @@ pub(super) fn parse_fixture(
 }
 
 fn parse_bars(json: &str) -> Result<BarsFile> {
-    match serde_json::from_str(json)? {
-        BarsDocument::Full(file) => Ok(*file),
-        BarsDocument::Bare(bars) => Ok(BarsFile {
-            symbol: None,
-            timeframe: None,
-            source: None,
-            context: None,
-            bars,
-        }),
-    }
+    Ok(serde_json::from_str(json)?)
 }
 
 pub(super) fn parse_expect(slug: &str, json: &str) -> Result<ExpectFile> {
@@ -563,6 +559,29 @@ mod tests {
                 notes: None,
             },
         }
+    }
+
+    // --- BarsDocument::Bare removal pin ---
+    // The bare-array form `[{...}, {...}]` was supported by a BarsDocument enum.
+    // No baked fixture ever used it, so the dead code was removed. Direct
+    // BarsFile deserialization is in effect; a bare JSON array must now error.
+    #[test]
+    fn bare_array_bars_json_is_rejected() {
+        let bare = r#"[
+            {"timestamp": 1735689600, "open": 10.0, "high": 11.0, "low": 9.0, "close": 10.0, "volume": 100.0}
+        ]"#;
+        let err = parse_fixture(
+            "bare-array-test",
+            "indicator(\"fixture\")\nplot(close)\n".to_string(),
+            bare,
+            r#"{"schema_version": 1, "indicator_slug": "bare-array-test", "outputs": {"plot": [10.0]}}"#,
+            None,
+        )
+        .expect_err("bare-array bars.json must be rejected after BarsDocument removal");
+        assert!(
+            err.to_string().contains("bars.json"),
+            "error should mention bars.json: {err}"
+        );
     }
 
     // --- effective_pine_version precedence ---

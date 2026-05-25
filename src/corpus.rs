@@ -167,6 +167,14 @@ const FEATURE_CATALOG: &[FeatureSpec] = &[
     FeatureSpec {
         name: "magnifier",
         description: "Chart magnifier mode (magnifier=true / use_magnifier=)",
+        // Intentionally a bare substring check rather than has_word or
+        // has_kwarg_eq_true. The feature appears as a strategy() parameter
+        // (`magnifier=true`) but also as a user-defined variable prefix
+        // (`use_magnifier`, `show_magnifier`, etc.) that still signals
+        // deliberate magnifier usage. Word-boundary matching would silently
+        // drop those. Bare contains("magnifier") has near-zero false-positive
+        // risk (the string is domain-specific) while preserving all true
+        // positives.
         detector: |s| s.contains("magnifier"),
     },
     FeatureSpec {
@@ -192,10 +200,10 @@ const FEATURE_CATALOG: &[FeatureSpec] = &[
     FeatureSpec {
         name: "process_orders_on_close",
         description: "Bar-close order processing (process_orders_on_close=true)",
-        detector: |s| {
-            s.contains("process_orders_on_close=true")
-                || s.contains("process_orders_on_close = true")
-        },
+        // Use has_kwarg_eq_true to handle all spacing variants around `=`:
+        // `process_orders_on_close=true`, `process_orders_on_close = true`,
+        // `process_orders_on_close  =  true`, etc.
+        detector: |s| has_kwarg_eq_true(s, "process_orders_on_close"),
     },
     FeatureSpec {
         name: "barstate_isfirst",
@@ -264,6 +272,29 @@ fn feature_index() -> &'static std::collections::HashMap<String, std::collection
     })
 }
 
+/// Return true when `src` contains `<key> = true` (with any amount of
+/// horizontal whitespace around `=`). Used by feature detectors that match
+/// named strategy parameters set to `true`.
+///
+/// The search is case-sensitive and only inspects the raw source text (callers
+/// are expected to pass comment-stripped source from `feature_index`).
+fn has_kwarg_eq_true(src: &str, key: &str) -> bool {
+    let mut idx = 0;
+    while let Some(pos) = src[idx..].find(key) {
+        let abs = idx + pos + key.len();
+        // Skip to just after the key match; allow any leading whitespace
+        // before `=` then any trailing whitespace before `true`.
+        let rest = src[abs..].trim_start();
+        if let Some(after_eq) = rest.strip_prefix('=')
+            && after_eq.trim_start().starts_with("true")
+        {
+            return true;
+        }
+        idx = abs;
+    }
+    false
+}
+
 fn detect_real_pyramiding(src: &str) -> bool {
     let mut start = 0;
     while let Some(pos) = src[start..].find("pyramiding") {
@@ -288,6 +319,12 @@ fn detect_real_pyramiding(src: &str) -> bool {
 }
 
 fn has_word(src: &str, word: &str) -> bool {
+    // An empty needle would match at every position and never advance `start`,
+    // looping forever. Return false: callers asking "does `src` contain the
+    // word ``" don't get a useful answer either way.
+    if word.is_empty() {
+        return false;
+    }
     let mut start = 0;
     while let Some(pos) = src[start..].find(word) {
         let abs = start + pos;
@@ -747,6 +784,68 @@ mod tests {
         // No false positive on substring matches.
         assert!(!has_word("myvarip x", "varip"));
         assert!(!has_word("varipx x", "varip"));
+    }
+
+    #[test]
+    fn has_word_empty_needle_returns_false() {
+        // Empty needle would loop forever (find("") always returns Some(0),
+        // advance-by-zero). The early-return guard must short-circuit.
+        assert!(!has_word("anything", ""));
+        assert!(!has_word("", ""));
+    }
+
+    #[test]
+    fn has_kwarg_eq_true_accepts_all_whitespace_variants() {
+        // No spaces (compact form).
+        assert!(has_kwarg_eq_true(
+            "process_orders_on_close=true",
+            "process_orders_on_close"
+        ));
+        // One space on each side (the pre-fix `contains` guard caught this one).
+        assert!(has_kwarg_eq_true(
+            "process_orders_on_close = true",
+            "process_orders_on_close"
+        ));
+        // Multiple spaces before `=`.
+        assert!(has_kwarg_eq_true(
+            "process_orders_on_close   =true",
+            "process_orders_on_close"
+        ));
+        // Multiple spaces after `=`.
+        assert!(has_kwarg_eq_true(
+            "process_orders_on_close=  true",
+            "process_orders_on_close"
+        ));
+        // Both sides multi-space.
+        assert!(has_kwarg_eq_true(
+            "strategy(\"x\", process_orders_on_close  =  true, calc_on_order_fills=false)",
+            "process_orders_on_close"
+        ));
+        // Must not fire on `=false`.
+        assert!(!has_kwarg_eq_true(
+            "process_orders_on_close=false",
+            "process_orders_on_close"
+        ));
+        // Must not fire when key is absent.
+        assert!(!has_kwarg_eq_true(
+            "strategy(\"x\")",
+            "process_orders_on_close"
+        ));
+    }
+
+    #[test]
+    fn process_orders_on_close_feature_detects_whitespace_variants() {
+        // Verify through the full FEATURE_CATALOG dispatch path.
+        let spec = FEATURE_CATALOG
+            .iter()
+            .find(|f| f.name == "process_orders_on_close")
+            .expect("spec must exist");
+        assert!((spec.detector)("process_orders_on_close=true"));
+        assert!((spec.detector)("process_orders_on_close = true"));
+        assert!((spec.detector)("process_orders_on_close  =  true"));
+        assert!((spec.detector)("process_orders_on_close=  true"));
+        assert!(!(spec.detector)("process_orders_on_close=false"));
+        assert!(!(spec.detector)("strategy(\"x\")"));
     }
 
     #[test]

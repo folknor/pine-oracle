@@ -8,7 +8,7 @@ use super::fixture::{INDICATORS, load_fixture, parse_expect, parse_fixture, sani
 use super::runner::{
     indicator_output_key, output_value_from_text, run_fixture, run_fixture_actual,
 };
-use super::types::{DEFAULT_RUNNER_EXPECT_TOLERANCE, OutputValueKind};
+use super::types::DEFAULT_RUNNER_EXPECT_TOLERANCE;
 use super::*;
 
 const BARS: &str = r#"{
@@ -131,8 +131,9 @@ fn baked_fixtures_validate_strictly() {
         if slug.is_empty() {
             continue;
         }
-        load_fixture(slug)
+        let fixture = load_fixture(slug)
             .unwrap_or_else(|err| panic!("fixture {slug} failed strict validation: {err}"));
+        assert_eq!(fixture.slug, slug);
         count += 1;
     }
     assert!(count >= 10, "expected baked smoke fixtures, found {count}");
@@ -596,6 +597,44 @@ fn strict_fixture_reports_value_mismatch() {
     assert_eq!(report.mismatches[0].reason, MismatchReason::ValueMismatch);
 }
 
+// Fix 1 regression pin: a fixture whose piners-runner crashes must still
+// report ok=false via runtime_error, not via a synthetic mismatch row.
+// Real "output never emitted" mismatches can still appear (MissingOutput),
+// but no synthetic "<runtime>" row with reason ValueMismatch may exist.
+#[test]
+fn runtime_error_sets_ok_false_without_synthetic_runtime_mismatch() {
+    let fixture = parse_fixture(
+        "runtime-error",
+        // runtime.error() causes a runtime crash; plot() output still emits
+        // so diff_outputs has something to compare against.
+        "indicator(\"fixture\")\nruntime.error(\"intentional crash\")\nplot(close)\n".to_string(),
+        BARS,
+        r#"{
+            "schema_version": 1,
+            "indicator_slug": "runtime-error",
+            "outputs": {"plot": [10.0, 11.0]}
+        }"#,
+        None,
+    )
+    .expect("fixture");
+    let report = run_fixture(&fixture).expect("run_fixture must not error at the Rust level");
+    assert!(!report.ok, "runtime error must make ok=false");
+    assert!(
+        report.runtime_error.is_some(),
+        "runtime_error must be populated: {report:?}"
+    );
+    // The synthetic `<runtime>` mismatch (reason=ValueMismatch) introduced by
+    // the old code is gone: any mismatch present must be a real value diff
+    // or output-missing, not a re-coding of the runtime error.
+    assert!(
+        !report
+            .mismatches
+            .iter()
+            .any(|m| m.output == "<runtime>" && m.reason == MismatchReason::ValueMismatch),
+        "synthetic <runtime> mismatch must not be present: {report:?}"
+    );
+}
+
 #[test]
 fn test_range_compares_sliced_expected_values() {
     let fixture = parse_fixture(
@@ -688,7 +727,7 @@ fn parses_runner_output_text_values() {
     ));
     assert!(values_match(
         output_value_from_text("na"),
-        OutputValue::special(OutputValueKind::Na),
+        OutputValue::Na,
         0.0
     ));
     assert!(values_match(
@@ -701,17 +740,17 @@ fn parses_runner_output_text_values() {
 #[test]
 fn special_tokens_match_non_finite_values() {
     assert!(values_match(
-        OutputValue::special(OutputValueKind::Na),
+        OutputValue::Na,
         OutputValue::from_f64(f64::NAN),
         0.0
     ));
     assert!(values_match(
-        OutputValue::special(OutputValueKind::PosInfinity),
+        OutputValue::PosInfinity,
         OutputValue::from_f64(f64::INFINITY),
         0.0
     ));
     assert!(values_match(
-        OutputValue::special(OutputValueKind::NegInfinity),
+        OutputValue::NegInfinity,
         OutputValue::from_f64(f64::NEG_INFINITY),
         0.0
     ));
