@@ -19,9 +19,9 @@ use include_dir::{Dir, include_dir};
 use serde::Serialize;
 use std::sync::OnceLock;
 use tantivy::collector::TopDocs;
-use tantivy::query::{BooleanQuery, BoostQuery, Query, QueryParser};
-use tantivy::schema::{Field, STORED, STRING, Schema, TEXT};
-use tantivy::{Index, IndexReader, ReloadPolicy, TantivyDocument};
+use tantivy::query::{BooleanQuery, BoostQuery, Query, QueryParser, TermQuery};
+use tantivy::schema::{Field, IndexRecordOption, STORED, STRING, Schema, TEXT};
+use tantivy::{Index, IndexReader, ReloadPolicy, TantivyDocument, Term};
 
 use crate::{corpus, reference};
 
@@ -148,7 +148,7 @@ fn build() -> Result<Engine> {
     })
 }
 
-pub fn query(q: &str, limit: usize) -> Result<Vec<SearchHit>> {
+pub fn query(q: &str, limit: usize, kind_filter: Option<&str>) -> Result<Vec<SearchHit>> {
     if q.trim().is_empty() {
         return Ok(Vec::new());
     }
@@ -162,10 +162,23 @@ pub fn query(q: &str, limit: usize) -> Result<Vec<SearchHit>> {
     let content_q = content_parser.parse_query(q)?;
 
     let boosted_name: Box<dyn Query> = Box::new(BoostQuery::new(name_q, 5.0));
-    let combined: Box<dyn Query> = Box::new(BooleanQuery::union(vec![boosted_name, content_q]));
+    let scored: Box<dyn Query> = Box::new(BooleanQuery::union(vec![boosted_name, content_q]));
+
+    // Push the kind filter down into tantivy as an AND clause so the
+    // searcher returns exactly `limit` matching docs - no over-fetch +
+    // post-filter dance (which could silently under-deliver when the
+    // filtered kind is a small fraction of top-ranked hits).
+    let final_query: Box<dyn Query> = match kind_filter {
+        Some(kind) => {
+            let term = Term::from_field_text(e.kind_field, kind);
+            let kind_q: Box<dyn Query> = Box::new(TermQuery::new(term, IndexRecordOption::Basic));
+            Box::new(BooleanQuery::intersection(vec![scored, kind_q]))
+        }
+        None => scored,
+    };
 
     let collector = TopDocs::with_limit(limit).order_by_score();
-    let top = searcher.search(&combined, &collector)?;
+    let top = searcher.search(&final_query, &collector)?;
 
     let mut hits = Vec::with_capacity(top.len());
     for (score, addr) in top {
@@ -284,7 +297,7 @@ mod tests {
 
     #[test]
     fn rsi_query_ranks_ta_rsi_first() {
-        let hits = query("rsi", 5).expect("search must succeed");
+        let hits = query("rsi", 5, None).expect("search must succeed");
         assert!(!hits.is_empty(), "expected at least one hit for rsi");
         assert_eq!(
             hits[0].name,
@@ -297,13 +310,13 @@ mod tests {
 
     #[test]
     fn empty_query_returns_empty() {
-        let hits = query("", 10).expect("empty query must not error");
+        let hits = query("", 10, None).expect("empty query must not error");
         assert!(hits.is_empty());
     }
 
     #[test]
     fn math_max_finds_the_function() {
-        let hits = query("math max", 10).expect("search must succeed");
+        let hits = query("math max", 10, None).expect("search must succeed");
         assert!(
             hits.iter().any(|h| h.name == "math.max"),
             "math max must surface math.max, got {:?}",
@@ -316,7 +329,7 @@ mod tests {
         // `oca` is a strong slug token across multiple corpus probes; it
         // also appears in the v6 reference docs (function parameter
         // `oca_name`), so we expect a mix of kinds.
-        let hits = query("oca", 25).expect("search must succeed");
+        let hits = query("oca", 25, None).expect("search must succeed");
         assert!(!hits.is_empty());
         assert!(
             hits.iter().any(|h| h.kind == "probe"),
@@ -329,7 +342,7 @@ mod tests {
 
     #[test]
     fn probe_search_returns_corpus_category() {
-        let hits = query("anomaly", 25).expect("search must succeed");
+        let hits = query("anomaly", 25, None).expect("search must succeed");
         let probe_hit = hits.iter().find(|h| h.kind == "probe");
         assert!(
             probe_hit.is_some(),
@@ -365,7 +378,7 @@ mod tests {
 
     #[test]
     fn docs_hit_appears_for_magnifier_query() {
-        let hits = query("magnifier", 25).expect("search must succeed");
+        let hits = query("magnifier", 25, None).expect("search must succeed");
         assert!(
             hits.iter().any(|h| h.kind == "docs"),
             "expected a docs-kind hit for `magnifier`, got {:?}",
@@ -379,7 +392,7 @@ mod tests {
     fn audit_doc_appears_in_search() {
         // "fallthrough" is the canonical name for the most-dangerous
         // divergence class in audit_master ("Silent fallthrough -> return 0").
-        let hits = query("fallthrough", 25).expect("search must succeed");
+        let hits = query("fallthrough", 25, None).expect("search must succeed");
         assert!(
             hits.iter().any(|h| h.kind == "audit"),
             "expected at least one audit-kind hit for `fallthrough`, got {:?}",
@@ -391,7 +404,7 @@ mod tests {
 
     #[test]
     fn hits_carry_non_empty_content() {
-        let hits = query("rsi", 3).expect("search must succeed");
+        let hits = query("rsi", 3, None).expect("search must succeed");
         assert!(!hits.is_empty());
         let ta_rsi = hits.iter().find(|h| h.name == "ta.rsi").expect("ta.rsi");
         assert!(
@@ -399,5 +412,37 @@ mod tests {
             "ta.rsi hit must carry stored content"
         );
         assert!(ta_rsi.content.len() > 30);
+    }
+
+    #[test]
+    fn kind_filter_returns_only_matching_kind() {
+        // Push the filter into tantivy: every returned hit must carry
+        // the requested kind. Previously this was done by over-fetching
+        // 4x and post-retaining in main.rs.
+        let hits = query("magnifier", 10, Some("docs")).expect("search must succeed");
+        assert!(!hits.is_empty(), "expected docs-kind hits for `magnifier`");
+        assert!(
+            hits.iter().all(|h| h.kind == "docs"),
+            "kind filter leaked non-docs hits: {:?}",
+            hits.iter()
+                .map(|h| (h.kind.as_str(), h.name.as_str()))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn kind_filter_can_deliver_full_limit_when_kind_is_sparse() {
+        // Pre-fix: `--kind probe --limit 25` over-fetched 100 hits, then
+        // post-filtered; if probes were <25% of the top 100 for a popular
+        // query the caller would silently get fewer than 25 hits.
+        // Post-fix: tantivy filters during retrieval so the limit is honored
+        // whenever the underlying index has enough matching docs.
+        let hits = query("strategy", 20, Some("probe")).expect("search must succeed");
+        assert!(
+            hits.len() >= 15,
+            "kind filter under-delivered: got {} probe hits for `strategy`, expected >=15",
+            hits.len()
+        );
+        assert!(hits.iter().all(|h| h.kind == "probe"));
     }
 }

@@ -268,17 +268,7 @@ fn cmd_search(
     format: ResolvedFormat,
     style: Style,
 ) -> Result<()> {
-    // Over-fetch when filtering so the post-filter list still fills the limit.
-    let raw_limit = if kind_filter.is_some() {
-        limit * 4
-    } else {
-        limit
-    };
-    let mut hits = search::query(query, raw_limit)?;
-    if let Some(k) = kind_filter {
-        hits.retain(|h| h.kind == k);
-        hits.truncate(limit);
-    }
+    let hits = search::query(query, limit, kind_filter)?;
     match format {
         ResolvedFormat::Json => {
             let matches: Vec<_> = hits

@@ -53,9 +53,6 @@ crates.io or pinned by git ref.
   a single arena allocator (e.g. `&'static [u8]` slab) if leak count
   ever becomes a memory concern. Bounded today at ~235 entries; not
   urgent.
-- `cmd_search` over-fetches `4x limit` when `--kind` is set. Could
-  switch to a tantivy `FilterCollector` for native kind-filtering.
-  Cleaner but more code.
 - The AST pretty-printer renders type annotations as raw strings
   (`: int`). When piners-syntax lands and exposes structured types,
   print qualifier + type kind separately.
