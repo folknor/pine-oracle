@@ -45,14 +45,15 @@ Combined size: ~1.5 MB. Trivial.
 
 ### 2. BM25 index (built lazily at startup)
 
-Four sources, all baked into the binary as source markdown / extracted-at-runtime content:
+Five sources, all baked into the binary as source markdown / extracted-at-runtime content:
 
 - **v6 reference**: 941 entries from `vendor/pine-reference/spec/v6.md`, indexed as `kind: "reference"`.
 - **Corpus probes**: 239 baked probes, indexed by their published slug as `kind: "probe"` with their full author-extracted summary as content.
 - **PineForge audit doc**: `vendor/pineforge-docs/pine_v6_audit_master.md`, 38 critical + ~62 minor documented TV-vs-engine divergences, sliced on H2 / H3 boundaries, indexed as `kind: "audit"`.
 - **PineForge narrative pages**: `vendor/pineforge-docs/pages/*.md`, 18 explainer docs (magnifier, mtf, timeframes, lifecycle, report-schema, abi-stability, examples, tutorials), section-sliced on H2 / H3, indexed as `kind: "docs"`.
+- **pine-data behavior entries**: function / variable / constant / keyword exports from `vendor/pine-data/v6/*.json`, indexed as `kind: "behavior"` with signatures, parameter prose, examples, and polymorphism notes.
 
-Total: ~1.2k documents. Index is a `tantivy` RAM directory rebuilt on first query (~10-15 ms one-shot cost, then sub-millisecond per query), cached behind a `OnceLock`. Schema: `name` (TEXT|STORED, 5x boost), `category` (STRING|STORED), `kind` (STRING|STORED), `content` (STORED for retrieval) + `content_search` (TEXT, drives ranking). Hits carry the full content body in `SearchHit.content` so consumers don't need a follow-up lookup. `pine search --kind <kind>` narrows by source.
+Total: a few thousand compact documents. Index is a `tantivy` RAM directory rebuilt on first query (~10-15 ms one-shot cost, then sub-millisecond per query), cached behind a `OnceLock`. Schema: `name` (TEXT|STORED, 5x boost), `category` (STRING|STORED), `kind` (STRING|STORED), `content` (STORED for retrieval) + `content_search` (TEXT, drives ranking). Hits carry the full content body in `SearchHit.content` so consumers don't need a follow-up lookup. `pine search --kind <kind>` narrows by source.
 
 Per-probe summaries are extracted live at runtime from each `strategy.pine`'s header by `corpus::summary_for`: every prose comment line up to the first real code line, with license / SPDX / copyright / version-directive noise filtered and blank `//` paragraph separators collapsed. Covers 100% of the 239 baked probes with multi-paragraph summaries (median ~650 chars) - no LLM-curation pass required.
 
@@ -117,7 +118,7 @@ Pinecone has a working ~250-LOC markdown query layer at `crates/pine-reference/s
 
 Phase 1 lifts this verbatim (MPL-2.0, file-level copyleft, add SPDX header), wraps it in the subcommand surface, and adds JSON output. That gives `pine lookup <name>` and reference-only lookup/search over the entire 941-entry v6 reference.
 
-Phase 2 adds the `tantivy` BM25 index over all baked knowledge sources: the v6 reference, corpus probe summaries, the PineForge audit doc, and PineForge narrative docs. The index is rebuilt in memory on first search rather than shipped as a sidecar.
+Phase 2 adds the `tantivy` BM25 index over all baked knowledge sources: the v6 reference, corpus probe summaries, the PineForge audit doc, PineForge narrative docs, and structured pine-data behavior entries. The index is rebuilt in memory on first search rather than shipped as a sidecar.
 
 Phase 3 bakes the PineForge corpus and adds the probe, probe-listing, behavior, parser, token, validation, and trade-list diff commands.
 

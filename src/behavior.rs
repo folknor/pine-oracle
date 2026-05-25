@@ -194,6 +194,13 @@ pub struct KeywordBehavior {
     pub name: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct BehaviorSearchEntry {
+    pub category: &'static str,
+    pub name: String,
+    pub content: String,
+}
+
 // ---------- indexed lookup ----------
 
 struct BehaviorIndex {
@@ -269,6 +276,129 @@ pub fn lookup(name: &str) -> Option<Behavior> {
     None
 }
 
+pub fn search_entries() -> Vec<BehaviorSearchEntry> {
+    let idx = index();
+    let mut out = Vec::new();
+    for function in idx.functions.values() {
+        out.push(BehaviorSearchEntry {
+            category: "Function",
+            name: function.name.clone(),
+            content: function_search_content(function, idx.function_behaviors.get(&function.name)),
+        });
+    }
+    for variable in idx.variables.values() {
+        out.push(BehaviorSearchEntry {
+            category: "Variable",
+            name: variable.name.clone(),
+            content: variable_search_content(variable),
+        });
+    }
+    for constant in idx.constants.values() {
+        out.push(BehaviorSearchEntry {
+            category: "Constant",
+            name: constant.name.clone(),
+            content: constant_search_content(constant),
+        });
+    }
+    for keyword in &idx.keywords {
+        out.push(BehaviorSearchEntry {
+            category: "Keyword",
+            name: keyword.clone(),
+            content: "Reserved Pine keyword.".to_string(),
+        });
+    }
+    out.sort_by(|a, b| a.category.cmp(b.category).then_with(|| a.name.cmp(&b.name)));
+    out
+}
+
+fn function_search_content(function: &RawFunction, behavior: Option<&RawBehaviorEntry>) -> String {
+    let mut parts = Vec::new();
+    if !function.syntax.is_empty() {
+        parts.push(format!("Syntax: {}", function.syntax));
+    }
+    if !function.returns.is_empty() {
+        parts.push(format!("Returns: {}", function.returns));
+    }
+    if !function.description.is_empty() {
+        parts.push(function.description.clone());
+    }
+    for param in &function.parameters {
+        let required = if param.required {
+            "required"
+        } else {
+            "optional"
+        };
+        let mut line = format!("Parameter {}: {} ({required})", param.name, param.ty);
+        if !param.description.is_empty() {
+            line.push_str(". ");
+            line.push_str(&param.description);
+        }
+        parts.push(line);
+    }
+    if function
+        .flags
+        .as_ref()
+        .is_some_and(|flags| flags.top_level_only)
+    {
+        parts.push("Top-level only.".to_string());
+    }
+    if let Some(behavior) = behavior {
+        if let Some(detail) = behavior.polymorphic.detail() {
+            parts.push(format!(
+                "Polymorphic return: {}",
+                detail.strategy.as_deref().unwrap_or("dependent-on-input")
+            ));
+            if let Some(param) = &detail.return_type_param {
+                parts.push(format!("Return type depends on parameter: {param}"));
+            }
+            if !detail.allowed_types.is_empty() {
+                parts.push(format!(
+                    "Allowed types: {}",
+                    detail.allowed_types.join(", ")
+                ));
+            }
+        }
+        if let Some(ordering) = &behavior.argument_ordering {
+            parts.push(format!("Argument ordering: {ordering}"));
+        }
+        if !behavior.observed_return_types.is_empty() {
+            parts.push(format!(
+                "Observed return types: {}",
+                behavior.observed_return_types.join(", ")
+            ));
+        }
+        if let Some(reason) = &behavior.reason {
+            parts.push(reason.clone());
+        }
+    }
+    for example in &function.examples {
+        parts.push(format!("Example:\n{example}"));
+    }
+    parts.join("\n")
+}
+
+fn variable_search_content(variable: &RawVariable) -> String {
+    let mut parts = vec![
+        format!("Type: {}", variable.ty),
+        format!("Qualifier: {}", variable.qualifier),
+    ];
+    if !variable.description.is_empty() {
+        parts.push(variable.description.clone());
+    }
+    parts.join("\n")
+}
+
+fn constant_search_content(constant: &RawConstant) -> String {
+    let mut parts = vec![format!("Type: {}", constant.ty)];
+    if let Some(namespace) = &constant.namespace {
+        parts.push(format!("Namespace: {namespace}"));
+    }
+    if let Some(short_name) = &constant.short_name {
+        parts.push(format!("Short name: {short_name}"));
+    }
+    parts.join("\n")
+}
+
 /// Built-in surface for piners-syntax validation. piners-runtime is the
 /// primary authority; pine-oracle's vendored pine-tools JSON fills symbols
 /// not represented by the runtime table yet.
@@ -282,26 +412,15 @@ fn build_syntax_builtins() -> BuiltinsTable {
     let mut table = piners_runtime::build_builtins_table();
 
     for function in idx.functions.values() {
-        if table.function_signatures(&function.name).is_some() {
+        if function.name.contains('<') {
             continue;
         }
-        table.insert_function(
-            function.name.clone(),
-            FunctionSignature {
-                params: function
-                    .parameters
-                    .iter()
-                    .map(|param| SyntaxFunctionParameter {
-                        name: param.name.clone(),
-                        value_type: parse_value_type(&param.ty),
-                        optional: !param.required,
-                    })
-                    .collect(),
-                return_type: parse_value_type(&function.returns),
-                stateful: false,
-                stub: false,
-            },
-        );
+        for signature in syntax_function_signatures(function) {
+            let signatures = table.functions.entry(function.name.clone()).or_default();
+            if !signature_shape_exists(signatures, &signature) {
+                signatures.push(signature);
+            }
+        }
     }
 
     for variable in idx.variables.values() {
@@ -328,6 +447,42 @@ fn build_syntax_builtins() -> BuiltinsTable {
     table
 }
 
+fn signature_shape_exists(signatures: &[FunctionSignature], signature: &FunctionSignature) -> bool {
+    signatures.iter().any(|existing| {
+        existing.params == signature.params && existing.return_type == signature.return_type
+    })
+}
+
+fn syntax_function_signatures(function: &RawFunction) -> Vec<FunctionSignature> {
+    let return_type = parse_value_type(&function.returns);
+    let mut variants = vec![Vec::new()];
+    for param in &function.parameters {
+        let alternatives = parse_param_value_type_alternatives(&param.ty);
+        let mut next = Vec::new();
+        for existing in &variants {
+            for value_type in &alternatives {
+                let mut params = existing.clone();
+                params.push(SyntaxFunctionParameter {
+                    name: param.name.clone(),
+                    value_type: value_type.clone(),
+                    optional: !param.required,
+                });
+                next.push(params);
+            }
+        }
+        variants = next;
+    }
+    variants
+        .into_iter()
+        .map(|params| FunctionSignature {
+            params,
+            return_type: return_type.clone(),
+            stateful: false,
+            stub: false,
+        })
+        .collect()
+}
+
 fn syntax_polymorphism_rule(behavior: &RawBehaviorEntry) -> Option<PolymorphismRule> {
     let detail = behavior.polymorphic.detail()?;
     match detail.strategy.as_deref() {
@@ -342,6 +497,24 @@ fn syntax_polymorphism_rule(behavior: &RawBehaviorEntry) -> Option<PolymorphismR
         // how to interpret them.
         Some(_) => None,
     }
+}
+
+fn parse_param_value_type_alternatives(raw: &str) -> Vec<ValueType> {
+    let ty = strip_qualifier(raw.trim());
+    let parts = split_top_level(ty, '/');
+    if parts.len() > 1 {
+        let mut values = Vec::new();
+        for part in parts {
+            let Some(value_type) = parse_primitive_value_type(part) else {
+                return vec![parse_value_type(raw)];
+            };
+            if !values.contains(&value_type) {
+                values.push(value_type);
+            }
+        }
+        return values;
+    }
+    vec![parse_value_type(raw)]
 }
 
 fn parse_value_type(raw: &str) -> ValueType {
@@ -384,23 +557,33 @@ fn parse_value_type(raw: &str) -> ValueType {
     }
 
     match ty {
-        "int" => ValueType::Int,
-        "float" => ValueType::Float,
-        "bool" => ValueType::Bool,
-        "string" => ValueType::String,
-        "color" => ValueType::Color,
+        "int" | "float" | "bool" | "string" | "color" | "line" | "label" | "box" | "table"
+        | "polyline" | "linefill" | "chart" | "chart.point" => {
+            parse_primitive_value_type(ty).unwrap_or(ValueType::Unknown)
+        }
         "array" => ValueType::Array(Box::new(ValueType::Unknown)),
         "matrix" => ValueType::Matrix(Box::new(ValueType::Unknown)),
         "map" => ValueType::Map(Box::new(ValueType::Unknown), Box::new(ValueType::Unknown)),
-        "line" => ValueType::Line,
-        "label" => ValueType::Label,
-        "box" => ValueType::Box,
-        "table" => ValueType::Table,
-        "polyline" => ValueType::Polyline,
-        "linefill" => ValueType::Linefill,
-        "chart" => ValueType::Chart,
-        "chart.point" => ValueType::ChartPoint,
         _ => ValueType::Unknown,
+    }
+}
+
+fn parse_primitive_value_type(ty: &str) -> Option<ValueType> {
+    match ty.trim() {
+        "int" => Some(ValueType::Int),
+        "float" => Some(ValueType::Float),
+        "bool" => Some(ValueType::Bool),
+        "string" => Some(ValueType::String),
+        "color" => Some(ValueType::Color),
+        "line" => Some(ValueType::Line),
+        "label" => Some(ValueType::Label),
+        "box" => Some(ValueType::Box),
+        "table" => Some(ValueType::Table),
+        "polyline" => Some(ValueType::Polyline),
+        "linefill" => Some(ValueType::Linefill),
+        "chart" => Some(ValueType::Chart),
+        "chart.point" => Some(ValueType::ChartPoint),
+        _ => None,
     }
 }
 
@@ -510,6 +693,28 @@ mod tests {
     }
 
     #[test]
+    fn syntax_builtins_add_doc_union_overloads_to_runtime_functions() {
+        let builtins = syntax_builtins();
+        let signatures = builtins
+            .function_signatures("plotshape")
+            .expect("plotshape signature");
+        assert!(
+            signatures.iter().any(|signature| {
+                signature.params.first().is_some_and(|param| {
+                    param.name == "series" && param.value_type == ValueType::Bool
+                })
+            }),
+            "plotshape should accept bool series per pine-data, got {signatures:?}"
+        );
+    }
+
+    #[test]
+    fn syntax_builtins_skip_generic_placeholder_function_names() {
+        let builtins = syntax_builtins();
+        assert!(builtins.function_signatures("array.new<type>").is_none());
+    }
+
+    #[test]
     fn unknown_polymorphism_strategy_is_not_inserted() {
         let entry = RawBehaviorEntry {
             polymorphic: PolymorphicField::Dynamic(PolymorphicDetail {
@@ -535,6 +740,15 @@ mod tests {
             "map<string, float>"
         );
         assert_eq!(parse_value_type("chart.point").describe(), "chart.point");
+    }
+
+    #[test]
+    fn parses_top_level_param_unions_into_alternatives() {
+        let alternatives = parse_param_value_type_alternatives("series int/float/bool");
+        assert_eq!(
+            alternatives,
+            vec![ValueType::Int, ValueType::Float, ValueType::Bool]
+        );
     }
 
     #[test]

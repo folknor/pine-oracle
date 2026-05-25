@@ -303,6 +303,14 @@ mod tests {
     }
 
     #[test]
+    fn local_validation_accepts_bool_plotshape_and_plotchar_series() {
+        let r = check(
+            "//@version=6\nindicator(\"x\")\ncondition = close > open\nplotshape(condition)\nplotchar(condition)\n",
+        );
+        assert!(r.ok, "expected ok, got {:?}", r.diagnostics);
+    }
+
+    #[test]
     fn parses_strict_response_with_error_and_warning() {
         let body = r#"{
             "success": true,

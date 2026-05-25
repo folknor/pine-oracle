@@ -1,9 +1,9 @@
-// BM25 search across the vendored v6 reference and the baked PineForge
-// corpus.
+// BM25 search across the vendored v6 reference, baked PineForge corpus,
+// PineForge docs, and structured pine-data behavior surface.
 //
 // The index is built lazily into a RAMDirectory on first query, cached via
-// OnceLock. ~941 reference entries + ~235 corpus probes = ~1.18k documents;
-// build cost is single-digit milliseconds.
+// OnceLock. The current corpus is a few thousand compact documents; build
+// cost stays in low milliseconds.
 //
 // Scoring: name field carries a 5x boost over content. A query like
 // "rsi" therefore puts `ta.rsi` ahead of any prose paragraph that
@@ -23,7 +23,7 @@ use tantivy::query::{BooleanQuery, BoostQuery, Query, QueryParser, TermQuery};
 use tantivy::schema::{Field, IndexRecordOption, STORED, STRING, Schema, TEXT};
 use tantivy::{Index, IndexReader, ReloadPolicy, TantivyDocument, Term};
 
-use crate::{corpus, reference};
+use crate::{behavior, corpus, reference};
 
 const AUDIT_MARKDOWN: &str = include_str!("../vendor/pineforge-docs/pine_v6_audit_master.md");
 static DOCS_PAGES: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/vendor/pineforge-docs/pages");
@@ -130,6 +130,20 @@ fn build() -> Result<Engine> {
         writer.add_document(doc)?;
     }
 
+    // Source 5: structured pine-data behavior exports. Exact lookup remains
+    // `pine behavior <name>`; search indexes signatures, param prose,
+    // examples, and polymorphism notes so users can discover a symbol when
+    // they only remember a behavior or concept.
+    for entry in behavior::search_entries() {
+        let mut doc = TantivyDocument::default();
+        doc.add_text(name_field, &entry.name);
+        doc.add_text(category_field, entry.category);
+        doc.add_text(kind_field, "behavior");
+        doc.add_text(content_field, &entry.content);
+        doc.add_text(content_query_field, &entry.content);
+        writer.add_document(doc)?;
+    }
+
     writer.commit()?;
 
     let reader = index
@@ -177,7 +191,12 @@ pub fn query(q: &str, limit: usize, kind_filter: Option<&str>) -> Result<Vec<Sea
         None => scored,
     };
 
-    let collector = TopDocs::with_limit(limit).order_by_score();
+    let collect_limit = if kind_filter.is_some() {
+        limit
+    } else {
+        limit.saturating_mul(4).max(limit)
+    };
+    let collector = TopDocs::with_limit(collect_limit).order_by_score();
     let top = searcher.search(&final_query, &collector)?;
 
     let mut hits = Vec::with_capacity(top.len());
@@ -187,6 +206,11 @@ pub fn query(q: &str, limit: usize, kind_filter: Option<&str>) -> Result<Vec<Sea
         let category = first_text(&doc, e.category_field).unwrap_or_default();
         let kind = first_text(&doc, e.kind_field).unwrap_or_default();
         let content = first_text(&doc, e.content_field).unwrap_or_default();
+        let score = if kind_filter.is_none() && kind == "behavior" {
+            score * 0.65
+        } else {
+            score
+        };
         hits.push(SearchHit {
             kind,
             category,
@@ -194,6 +218,14 @@ pub fn query(q: &str, limit: usize, kind_filter: Option<&str>) -> Result<Vec<Sea
             score,
             content,
         });
+    }
+    if kind_filter.is_none() {
+        hits.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        hits.truncate(limit);
     }
     Ok(hits)
 }
@@ -214,6 +246,10 @@ pub fn audit_section_count() -> usize {
 /// Count of indexed sections across the vendored narrative pages.
 pub fn docs_section_count() -> usize {
     pages_sections().len()
+}
+
+pub fn behavior_doc_count() -> usize {
+    behavior::search_entries().len()
 }
 
 /// Split markdown into `(heading_text, body_text)` pairs for each H2 / H3
@@ -444,5 +480,20 @@ mod tests {
             hits.len()
         );
         assert!(hits.iter().all(|h| h.kind == "probe"));
+    }
+
+    #[test]
+    fn behavior_entries_appear_in_search() {
+        let hits = query("polymorphic return allowed types", 25, Some("behavior"))
+            .expect("search must succeed");
+        assert!(!hits.is_empty(), "expected behavior-kind hits");
+        assert!(hits.iter().all(|h| h.kind == "behavior"));
+        assert!(
+            hits.iter().any(|h| h.category == "Function"),
+            "expected at least one function behavior hit, got {:?}",
+            hits.iter()
+                .map(|h| (h.category.as_str(), h.name.as_str()))
+                .collect::<Vec<_>>()
+        );
     }
 }

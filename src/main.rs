@@ -52,12 +52,12 @@ enum Command {
     /// Function / constant / variable details
     Lookup { name: String },
 
-    /// Substring search across the v6 reference (BM25 in v2)
+    /// BM25 search across reference, corpus, docs, audit, and behavior data
     Search {
         query: String,
         #[arg(long, default_value_t = 25)]
         limit: usize,
-        /// Restrict hits to one source: `reference` or `probe`.
+        /// Restrict hits to one source: reference, probe, audit, docs, or behavior.
         #[arg(long)]
         kind: Option<String>,
     },
@@ -159,6 +159,7 @@ fn cmd_version(format: ResolvedFormat) -> Result<()> {
         .map_or(0, |v| v.iter().filter(|p| p.summary.is_some()).count());
     let audit_sections = search::audit_section_count();
     let docs_sections = search::docs_section_count();
+    let behavior_docs = search::behavior_doc_count();
     let indicator_counts =
         indicator::fixture_counts().unwrap_or(indicator::IndicatorFixtureCounts {
             total: 0,
@@ -181,6 +182,9 @@ fn cmd_version(format: ResolvedFormat) -> Result<()> {
                     "audit_sections": audit_sections,
                     "narrative_sections": docs_sections,
                 },
+                "behavior": {
+                    "search_doc_count": behavior_docs,
+                },
                 "indicator": {
                     "fixture_count": indicator_counts.total,
                     "smoke_fixture_count": indicator_counts.smoke,
@@ -201,6 +205,7 @@ fn cmd_version(format: ResolvedFormat) -> Result<()> {
             println!(
                 "pineforge docs: {audit_sections} audit sections + {docs_sections} narrative sections"
             );
+            println!("behavior:      {behavior_docs} searchable pine-data docs");
             println!(
                 "indicator:     {} strict fixtures ({} smoke, {} tv)",
                 indicator_counts.total, indicator_counts.smoke, indicator_counts.tv

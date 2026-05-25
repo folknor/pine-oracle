@@ -357,7 +357,9 @@ fn load_listing_lenient(slug: &str) -> IndicatorListing {
         .ok()
         .flatten()
         .and_then(|json| serde_json::from_str::<ExpectFile>(json).ok())
-        .map_or((None, None), |expect| (expect.pine_version, expect.tv_snapshot));
+        .map_or((None, None), |expect| {
+            (expect.pine_version, expect.tv_snapshot)
+        });
     IndicatorListing {
         slug: slug.to_string(),
         baseline: metadata.baseline,
