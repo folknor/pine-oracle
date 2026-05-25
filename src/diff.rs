@@ -32,16 +32,23 @@
 //   - No interior trim. OHLCV isn't baked into the binary today, so the
 //     trim_bars / warmup_bars trimming that needs ohlcv_first_ms / last_ms
 //     is skipped. The headline stats use the full trim_to_common_window.
-//   - No --show-diffs ranked output. The DiffReport carries the headline
-//     numbers only; verbose worst-N is future work.
 //
 // Threshold values mirror verify_corpus.py exactly; bumping them here
 // without bumping them upstream is a regression flag.
+//
+// Per-pair detail (`DiffOptions::show_diffs`): when set, the report's
+// `pair_diffs` carries the worst N matched pairs ranked by per-pair
+// max(entry_delta, exit_delta, pnl_delta) - the same metrics that drive
+// tier classification - and `tv_orphans` / `user_orphans` list the
+// unmatched trades from the trimmed window. The ranking metric is a
+// local design choice (verify_corpus.py's exact format isn't reproduced
+// here); it surfaces the trade pairs that the tier classifier itself
+// would weight most heavily.
 
 use std::collections::HashSet;
 
 use anyhow::{Context, Result, anyhow};
-use chrono::{FixedOffset, NaiveDateTime, TimeZone};
+use chrono::{DateTime, FixedOffset, NaiveDateTime, TimeZone, Utc};
 use serde::Serialize;
 
 use crate::corpus;
@@ -110,6 +117,19 @@ pub struct DiffReport {
     pub exit_p90_delta: f64,
     pub pnl_p90_delta: f64,
     pub thresholds: Thresholds,
+    /// Worst-N matched pairs, ranked descending by
+    /// `max(entry_delta, exit_delta, pnl_delta)`. Empty unless
+    /// `DiffOptions::show_diffs > 0`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub pair_diffs: Vec<PairDiff>,
+    /// TV trades in the trimmed window that didn't pair with any user
+    /// trade. Empty unless `DiffOptions::show_diffs > 0`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tv_orphans: Vec<TradeRow>,
+    /// User trades in the trimmed window that didn't pair with any TV
+    /// trade. Empty unless `DiffOptions::show_diffs > 0`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub user_orphans: Vec<TradeRow>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -117,6 +137,49 @@ pub struct Thresholds {
     pub count: f64,
     pub entry: f64,
     pub exit: f64,
+    pub pnl: f64,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DiffOptions {
+    /// If non-zero, the worst N matched pairs (ranked descending by
+    /// per-pair `max(entry_delta, exit_delta, pnl_delta)`) are emitted
+    /// in `DiffReport::pair_diffs`, and all unmatched trades from the
+    /// trimmed window are listed in `tv_orphans` / `user_orphans`.
+    /// `usize::MAX` keeps every matched pair.
+    pub show_diffs: usize,
+}
+
+/// One matched (TV, user) trade pair, normalized for display.
+#[derive(Debug, Clone, Serialize)]
+pub struct PairDiff {
+    pub direction: Direction,
+    pub tv_entry_time: String,
+    pub user_entry_time: String,
+    /// `user_entry_time - tv_entry_time` in seconds (signed).
+    pub time_skew_seconds: i64,
+    pub tv_entry_price: f64,
+    pub user_entry_price: f64,
+    pub entry_delta: f64,
+    pub tv_exit_price: f64,
+    pub user_exit_price: f64,
+    pub exit_delta: f64,
+    pub tv_pnl: f64,
+    pub user_pnl: f64,
+    /// Empty when `tv_pnl` is near-zero (matches the headline pnl-p90
+    /// gate that drops scratch trades from the percentile).
+    pub pnl_delta: Option<f64>,
+    /// Ranking key: `max(entry_delta, exit_delta, pnl_delta.unwrap_or(0))`.
+    pub worst_delta: f64,
+}
+
+/// One trade row, normalized for display in the orphan lists.
+#[derive(Debug, Clone, Serialize)]
+pub struct TradeRow {
+    pub direction: Direction,
+    pub entry_time: String,
+    pub entry_price: f64,
+    pub exit_price: f64,
     pub pnl: f64,
 }
 
@@ -131,7 +194,7 @@ struct TradePair {
 
 // ---------- public entrypoint ----------
 
-pub fn diff(probe_slug: &str, user_csv: &str) -> Result<DiffReport> {
+pub fn diff(probe_slug: &str, user_csv: &str, opts: DiffOptions) -> Result<DiffReport> {
     let probe = corpus::load_probe(probe_slug)?;
 
     let meta = parse_inputs_json(probe.inputs_json);
@@ -140,18 +203,20 @@ pub fn diff(probe_slug: &str, user_csv: &str) -> Result<DiffReport> {
     let tv = parse_trades(probe.tv_trades_csv, tv_tz).context("parsing baked tv_trades.csv")?;
     let user = parse_trades(user_csv, 0).context("parsing user-supplied trade list")?;
 
-    let matched_initial = align_by_time(&tv, &user);
-    let (tv_trim, user_trim) = trim_to_common_window(&tv, &user, &matched_initial);
-    let matched = align_by_time(&tv_trim, &user_trim);
+    let initial_indices = align_by_time(&tv, &user);
+    let (tv_trim, user_trim) = trim_to_common_window(&tv, &user, &initial_indices);
+    let final_indices = align_by_time(&tv_trim, &user_trim);
 
     let profile = resolve_profile(probe.strategy_pine, &meta);
     let thresh = thresholds_for(profile);
 
     let count_delta = relative_max(tv_trim.len() as f64, user_trim.len() as f64);
-    let mut entry_deltas: Vec<f64> = Vec::with_capacity(matched.len());
-    let mut exit_deltas: Vec<f64> = Vec::with_capacity(matched.len());
-    let mut pnl_deltas: Vec<f64> = Vec::with_capacity(matched.len());
-    for (tv_t, eng_t) in &matched {
+    let mut entry_deltas: Vec<f64> = Vec::with_capacity(final_indices.len());
+    let mut exit_deltas: Vec<f64> = Vec::with_capacity(final_indices.len());
+    let mut pnl_deltas: Vec<f64> = Vec::with_capacity(final_indices.len());
+    for &(ti, ui) in &final_indices {
+        let tv_t = &tv_trim[ti];
+        let eng_t = &user_trim[ui];
         entry_deltas.push(relative_max(tv_t.entry_price, eng_t.entry_price));
         exit_deltas.push(relative_max(tv_t.exit_price, eng_t.exit_price));
         if tv_t.pnl.abs() >= PNL_NEAR_ZERO_USD {
@@ -164,8 +229,8 @@ pub fn diff(probe_slug: &str, user_csv: &str) -> Result<DiffReport> {
     let pnl_p90 = percentile(&pnl_deltas, 0.90);
 
     let tier = classify_tier(
-        &matched,
-        &tv_trim,
+        final_indices.len(),
+        tv_trim.len(),
         count_delta,
         entry_p90,
         exit_p90,
@@ -174,19 +239,108 @@ pub fn diff(probe_slug: &str, user_csv: &str) -> Result<DiffReport> {
     );
     let tier = apply_overrides(tier, &meta);
 
+    let (pair_diffs, tv_orphans, user_orphans) = if opts.show_diffs > 0 {
+        build_details(&tv_trim, &user_trim, &final_indices, opts.show_diffs)
+    } else {
+        (Vec::new(), Vec::new(), Vec::new())
+    };
+
     Ok(DiffReport {
         probe_slug: probe.slug,
         profile,
         tier,
         tv_trade_count: tv_trim.len(),
         user_trade_count: user_trim.len(),
-        matched_count: matched.len(),
+        matched_count: final_indices.len(),
         count_delta,
         entry_p90_delta: entry_p90,
         exit_p90_delta: exit_p90,
         pnl_p90_delta: pnl_p90,
         thresholds: thresh,
+        pair_diffs,
+        tv_orphans,
+        user_orphans,
     })
+}
+
+// ---------- worst-N + orphan extraction ----------
+
+fn build_details(
+    tv: &[TradePair],
+    user: &[TradePair],
+    matched: &[(usize, usize)],
+    limit: usize,
+) -> (Vec<PairDiff>, Vec<TradeRow>, Vec<TradeRow>) {
+    let mut pairs: Vec<PairDiff> = matched
+        .iter()
+        .map(|&(ti, ui)| pair_diff(&tv[ti], &user[ui]))
+        .collect();
+    pairs.sort_by(|a, b| {
+        b.worst_delta
+            .partial_cmp(&a.worst_delta)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    pairs.truncate(limit);
+
+    let tv_used: HashSet<usize> = matched.iter().map(|&(i, _)| i).collect();
+    let user_used: HashSet<usize> = matched.iter().map(|&(_, j)| j).collect();
+    let tv_orphans = tv
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !tv_used.contains(i))
+        .map(|(_, t)| trade_row(t))
+        .collect();
+    let user_orphans = user
+        .iter()
+        .enumerate()
+        .filter(|(j, _)| !user_used.contains(j))
+        .map(|(_, t)| trade_row(t))
+        .collect();
+    (pairs, tv_orphans, user_orphans)
+}
+
+fn pair_diff(tv: &TradePair, user: &TradePair) -> PairDiff {
+    let entry_delta = relative_max(tv.entry_price, user.entry_price);
+    let exit_delta = relative_max(tv.exit_price, user.exit_price);
+    let pnl_delta = if tv.pnl.abs() >= PNL_NEAR_ZERO_USD {
+        Some((tv.pnl - user.pnl).abs() / tv.pnl.abs())
+    } else {
+        None
+    };
+    let worst_delta = entry_delta.max(exit_delta).max(pnl_delta.unwrap_or(0.0));
+    PairDiff {
+        direction: tv.direction,
+        tv_entry_time: format_ts(tv.entry_time),
+        user_entry_time: format_ts(user.entry_time),
+        time_skew_seconds: user.entry_time - tv.entry_time,
+        tv_entry_price: tv.entry_price,
+        user_entry_price: user.entry_price,
+        entry_delta,
+        tv_exit_price: tv.exit_price,
+        user_exit_price: user.exit_price,
+        exit_delta,
+        tv_pnl: tv.pnl,
+        user_pnl: user.pnl,
+        pnl_delta,
+        worst_delta,
+    }
+}
+
+fn trade_row(t: &TradePair) -> TradeRow {
+    TradeRow {
+        direction: t.direction,
+        entry_time: format_ts(t.entry_time),
+        entry_price: t.entry_price,
+        exit_price: t.exit_price,
+        pnl: t.pnl,
+    }
+}
+
+fn format_ts(unix_seconds: i64) -> String {
+    match DateTime::<Utc>::from_timestamp(unix_seconds, 0) {
+        Some(dt) => dt.format("%Y-%m-%d %H:%M UTC").to_string(),
+        None => format!("@{unix_seconds}"),
+    }
 }
 
 // ---------- CSV parsing ----------
@@ -309,11 +463,15 @@ fn parse_dt(s: &str, tz: FixedOffset) -> Result<i64> {
 
 // ---------- alignment ----------
 
-fn align_by_time(tv: &[TradePair], eng: &[TradePair]) -> Vec<(TradePair, TradePair)> {
-    let mut matched: Vec<(TradePair, TradePair)> = Vec::new();
+/// Greedy time-window align. Returns matched `(tv_index, user_index)` pairs.
+/// Each TV trade pairs with at most one user trade and vice versa; the
+/// match is the unused, same-direction, within-window, within-price-gate
+/// candidate closest in entry time.
+fn align_by_time(tv: &[TradePair], eng: &[TradePair]) -> Vec<(usize, usize)> {
+    let mut matched: Vec<(usize, usize)> = Vec::new();
     let mut used: HashSet<usize> = HashSet::new();
     let mut j_start = 0usize;
-    for tv_t in tv {
+    for (ti, tv_t) in tv.iter().enumerate() {
         while j_start < eng.len()
             && eng[j_start].entry_time < tv_t.entry_time - MATCH_WINDOW_SECONDS
         {
@@ -342,7 +500,7 @@ fn align_by_time(tv: &[TradePair], eng: &[TradePair]) -> Vec<(TradePair, TradePa
             }
         }
         if let Some(j) = best_j {
-            matched.push((tv_t.clone(), eng[j].clone()));
+            matched.push((ti, j));
             used.insert(j);
         }
     }
@@ -352,20 +510,20 @@ fn align_by_time(tv: &[TradePair], eng: &[TradePair]) -> Vec<(TradePair, TradePa
 fn trim_to_common_window(
     tv: &[TradePair],
     eng: &[TradePair],
-    matched: &[(TradePair, TradePair)],
+    matched: &[(usize, usize)],
 ) -> (Vec<TradePair>, Vec<TradePair>) {
     if matched.is_empty() {
         return (tv.to_vec(), eng.to_vec());
     }
     let lo = matched
         .iter()
-        .map(|(t, e)| t.entry_time.min(e.entry_time))
+        .map(|&(ti, ui)| tv[ti].entry_time.min(eng[ui].entry_time))
         .min()
         .unwrap()
         - MATCH_WINDOW_SECONDS;
     let hi = matched
         .iter()
-        .map(|(t, e)| t.entry_time.max(e.entry_time))
+        .map(|&(ti, ui)| tv[ti].entry_time.max(eng[ui].entry_time))
         .max()
         .unwrap()
         + MATCH_WINDOW_SECONDS;
@@ -477,8 +635,8 @@ fn detect_profile_from_source(pine_source: &str) -> bool {
 }
 
 fn classify_tier(
-    matched: &[(TradePair, TradePair)],
-    tv_pool: &[TradePair],
+    matched_count: usize,
+    tv_pool_count: usize,
     count_delta: f64,
     entry_p90: f64,
     exit_p90: f64,
@@ -492,7 +650,7 @@ fn classify_tier(
     if all_ok {
         return Tier::Excellent;
     }
-    let match_rate = matched.len() as f64 / tv_pool.len().max(1) as f64;
+    let match_rate = matched_count as f64 / tv_pool_count.max(1) as f64;
     if match_rate >= 0.99
         && count_delta < STRONG_COUNT_DELTA
         && entry_p90 < STRONG_ENTRY_DELTA
@@ -504,7 +662,7 @@ fn classify_tier(
     if match_rate >= 0.90 {
         return Tier::Moderate;
     }
-    if !matched.is_empty() {
+    if matched_count > 0 {
         return Tier::Weak;
     }
     Tier::Minimal
@@ -642,7 +800,7 @@ mod tests {
         ];
         let user = tv.clone();
         let m = align_by_time(&tv, &user);
-        assert_eq!(m.len(), 3);
+        assert_eq!(m, vec![(0, 0), (1, 1), (2, 2)]);
     }
 
     #[test]
@@ -668,44 +826,29 @@ mod tests {
 
     #[test]
     fn classify_excellent_when_all_under_threshold() {
-        let tv = vec![pair(Direction::Long, 100, 50.0)];
-        let matched = vec![(tv[0].clone(), tv[0].clone())];
-        let tier = classify_tier(
-            &matched,
-            &tv,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            thresholds_for(Profile::Strict),
-        );
+        let tier = classify_tier(1, 1, 0.0, 0.0, 0.0, 0.0, thresholds_for(Profile::Strict));
         assert_eq!(tier, Tier::Excellent);
     }
 
     #[test]
     fn classify_minimal_when_no_matches() {
-        let tv: Vec<TradePair> = Vec::new();
-        let matched: Vec<(TradePair, TradePair)> = Vec::new();
-        let tier = classify_tier(
-            &matched,
-            &tv,
-            0.5,
-            0.5,
-            0.5,
-            0.5,
-            thresholds_for(Profile::Strict),
-        );
+        let tier = classify_tier(0, 0, 0.5, 0.5, 0.5, 0.5, thresholds_for(Profile::Strict));
         assert_eq!(tier, Tier::Minimal);
     }
 
     #[test]
     fn anomaly_probe_with_empty_user_csv_returns_anomaly() {
         let empty = "Trade #,Type,Date and time,Price USDT,Net P&L USD\n";
-        let report = diff(PROBE, empty).expect("diff must run on empty user csv");
+        let report =
+            diff(PROBE, empty, DiffOptions::default()).expect("diff must run on empty user csv");
         assert_eq!(report.matched_count, 0);
         assert!(report.tv_trade_count > 0);
         // Anomaly override fires when computed tier is below excellent.
         assert_eq!(report.tier, Tier::Anomaly);
+        // show_diffs=0 keeps the detail vectors empty.
+        assert!(report.pair_diffs.is_empty());
+        assert!(report.tv_orphans.is_empty());
+        assert!(report.user_orphans.is_empty());
     }
 
     #[test]
@@ -771,18 +914,13 @@ mod tests {
 
     #[test]
     fn classify_strong_when_match_rate_high_and_within_relaxed_thresholds() {
-        // Construct 100 TV trades, 100 matched (100% match rate), with
-        // entry/exit p90 just above strict but below strong thresholds.
-        let tv: Vec<TradePair> = (0..100)
-            .map(|i| pair(Direction::Long, (i * 1000) as i64, 50.0))
-            .collect();
-        let matched: Vec<(TradePair, TradePair)> =
-            tv.iter().map(|t| (t.clone(), t.clone())).collect();
-        // count_delta=0, entry_p90=0.0005 (>strict 0.0001, <strong 0.001),
+        // 100 TV trades, 100 matched (100% match rate), entry/exit p90
+        // just above strict but below strong thresholds.
+        // entry_p90=0.0005 (>strict 0.0001, <strong 0.001),
         // exit_p90=0.001 (>strict 0.0001, <strong 0.005), pnl_p90=0.
         let tier = classify_tier(
-            &matched,
-            &tv,
+            100,
+            100,
             0.0,
             0.0005,
             0.001,
@@ -794,16 +932,11 @@ mod tests {
 
     #[test]
     fn classify_moderate_when_match_rate_drops_below_strong() {
-        // 100 TV trades, 95 matched (95% match rate => below 99% strong gate
-        // but above 90% moderate gate).
-        let tv: Vec<TradePair> = (0..100)
-            .map(|i| pair(Direction::Long, (i * 1000) as i64, 50.0))
-            .collect();
-        let matched: Vec<(TradePair, TradePair)> =
-            tv.iter().take(95).map(|t| (t.clone(), t.clone())).collect();
+        // 95 matched out of 100 (=> below 99% strong gate but above 90%
+        // moderate gate).
         let tier = classify_tier(
-            &matched,
-            &tv,
+            95,
+            100,
             0.05,
             0.001,
             0.005,
@@ -815,22 +948,125 @@ mod tests {
 
     #[test]
     fn classify_weak_when_match_rate_drops_below_moderate() {
-        // 100 TV, only 50 matched (50%) => below 90% moderate gate, but
-        // matched is non-empty so not Minimal.
-        let tv: Vec<TradePair> = (0..100)
-            .map(|i| pair(Direction::Long, (i * 1000) as i64, 50.0))
-            .collect();
-        let matched: Vec<(TradePair, TradePair)> =
-            tv.iter().take(50).map(|t| (t.clone(), t.clone())).collect();
-        let tier = classify_tier(
-            &matched,
-            &tv,
-            0.5,
-            0.5,
-            0.5,
-            5.0,
-            thresholds_for(Profile::Strict),
-        );
+        // 50 matched out of 100 (50%) => below 90% moderate gate but
+        // matched > 0 so not Minimal.
+        let tier = classify_tier(50, 100, 0.5, 0.5, 0.5, 5.0, thresholds_for(Profile::Strict));
         assert_eq!(tier, Tier::Weak);
+    }
+
+    // ---------- pair-diff details ----------
+
+    fn full_pair(
+        direction: Direction,
+        entry_time: i64,
+        entry: f64,
+        exit: f64,
+        pnl: f64,
+    ) -> TradePair {
+        TradePair {
+            direction,
+            entry_time,
+            entry_price: entry,
+            exit_price: exit,
+            pnl,
+        }
+    }
+
+    #[test]
+    fn pair_diff_ranks_by_max_of_entry_exit_pnl() {
+        // Pair A: entry exact, exit exact, pnl 100% off -> worst = 1.0
+        let a_tv = full_pair(Direction::Long, 100, 50.0, 51.0, 10.0);
+        let a_us = full_pair(Direction::Long, 100, 50.0, 51.0, 20.0);
+        // Pair B: entry 10% off, exit/pnl exact -> worst = ~0.0909
+        let b_tv = full_pair(Direction::Long, 200, 100.0, 101.0, 5.0);
+        let b_us = full_pair(Direction::Long, 200, 110.0, 101.0, 5.0);
+        let a = pair_diff(&a_tv, &a_us);
+        let b = pair_diff(&b_tv, &b_us);
+        assert!(a.worst_delta > b.worst_delta);
+        assert_eq!(a.pnl_delta, Some(1.0));
+        // Entry delta: |100-110|/110 = ~0.0909
+        assert!((b.entry_delta - 10.0 / 110.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn pair_diff_drops_pnl_for_near_zero_scratch() {
+        // tv pnl below scratch threshold -> pnl_delta is None and
+        // doesn't contribute to worst_delta.
+        let tv = full_pair(Direction::Long, 100, 50.0, 50.001, 0.005);
+        let us = full_pair(Direction::Long, 100, 50.0, 50.001, 1000.0);
+        let d = pair_diff(&tv, &us);
+        assert!(d.pnl_delta.is_none());
+        assert!(d.worst_delta < 1e-3);
+    }
+
+    #[test]
+    fn show_diffs_zero_keeps_detail_empty() {
+        let report = diff(PROBE, baked_tv_csv(), DiffOptions::default()).expect("diff must run");
+        assert!(report.pair_diffs.is_empty());
+        assert!(report.tv_orphans.is_empty());
+        assert!(report.user_orphans.is_empty());
+    }
+
+    #[test]
+    fn show_diffs_truncates_to_n_and_sorts_descending() {
+        // Self-diff: the baked csv is parsed with the probe's chart
+        // timezone (UTC+8 by default) while the user-supplied csv is
+        // parsed as UTC, so the two copies land 8h apart and nothing
+        // matches. The truncation + sort logic still has to behave.
+        let report =
+            diff(PROBE, baked_tv_csv(), DiffOptions { show_diffs: 3 }).expect("diff must run");
+        assert!(report.pair_diffs.len() <= 3);
+        for w in report.pair_diffs.windows(2) {
+            assert!(w[0].worst_delta >= w[1].worst_delta);
+        }
+        // Conservation: every trimmed TV trade is either matched or in
+        // tv_orphans (show_diffs > 0 emits all orphans, not a top-N).
+        assert_eq!(
+            report.matched_count + report.tv_orphans.len(),
+            report.tv_trade_count
+        );
+        assert_eq!(
+            report.matched_count + report.user_orphans.len(),
+            report.user_trade_count
+        );
+    }
+
+    #[test]
+    fn build_details_reports_orphans_on_both_sides() {
+        // TV has 3 trades, user has 2 (one matches TV[0], one is orphan
+        // outside the match window). TV[1] and TV[2] are orphans.
+        let tv = vec![
+            pair(Direction::Long, 1000, 50.0),
+            pair(Direction::Long, 5000, 50.0),
+            pair(Direction::Long, 9000, 50.0),
+        ];
+        let user = vec![
+            pair(Direction::Long, 1000, 50.0),
+            // Outside the 1h match window from any TV entry -> orphan.
+            pair(Direction::Long, 50000, 50.0),
+        ];
+        let matched = align_by_time(&tv, &user);
+        assert_eq!(matched, vec![(0, 0)]);
+        let (pairs, tv_orph, user_orph) = build_details(&tv, &user, &matched, 10);
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(tv_orph.len(), 2);
+        assert_eq!(user_orph.len(), 1);
+        assert!((user_orph[0].entry_price - 50.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn pair_diff_time_skew_is_signed() {
+        let tv = full_pair(Direction::Long, 1000, 50.0, 51.0, 10.0);
+        let us = full_pair(Direction::Long, 1300, 50.0, 51.0, 10.0);
+        let d = pair_diff(&tv, &us);
+        assert_eq!(d.time_skew_seconds, 300);
+        let d2 = pair_diff(&us, &tv);
+        assert_eq!(d2.time_skew_seconds, -300);
+    }
+
+    #[test]
+    fn format_ts_is_iso_utc() {
+        // 2024-01-15 10:30:00 UTC = unix 1705314600
+        assert_eq!(format_ts(1705314600), "2024-01-15 10:30 UTC");
     }
 }

@@ -132,7 +132,16 @@ enum Command {
     },
 
     /// Tier-classify a piners trade list against the probe's tv_trades
-    Diff { probe: String, trades_csv: String },
+    Diff {
+        probe: String,
+        trades_csv: String,
+        /// Emit the worst-N matched pairs (ranked descending by the per-
+        /// pair max of entry / exit / pnl normalized deltas) plus every
+        /// unmatched trade from the trimmed window. 0 (default) keeps
+        /// the report headline-only.
+        #[arg(long, default_value_t = 0)]
+        show_diffs: usize,
+    },
 
     /// pine-data snapshot date + corpus revision + binary version
     Version,
@@ -153,7 +162,11 @@ fn main() -> Result<()> {
         Command::Behavior { name } => cmd_behavior(&name, format),
         Command::Probe { slug } => cmd_probe(&slug, format),
         Command::Probes { grep } => cmd_probes(grep.as_deref(), format),
-        Command::Diff { probe, trades_csv } => cmd_diff(&probe, &trades_csv, format),
+        Command::Diff {
+            probe,
+            trades_csv,
+            show_diffs,
+        } => cmd_diff(&probe, &trades_csv, show_diffs, format),
         Command::Version => cmd_version(format),
     }
 }
@@ -322,10 +335,15 @@ fn cmd_probes(grep: Option<&str>, format: ResolvedFormat) -> Result<()> {
     Ok(())
 }
 
-fn cmd_diff(probe_slug: &str, trades_csv_path: &str, format: ResolvedFormat) -> Result<()> {
+fn cmd_diff(
+    probe_slug: &str,
+    trades_csv_path: &str,
+    show_diffs: usize,
+    format: ResolvedFormat,
+) -> Result<()> {
     let user_csv = std::fs::read_to_string(trades_csv_path)
         .map_err(|e| anyhow::anyhow!("reading {trades_csv_path}: {e}"))?;
-    let report = diff::diff(probe_slug, &user_csv)?;
+    let report = diff::diff(probe_slug, &user_csv, diff::DiffOptions { show_diffs })?;
     match format {
         ResolvedFormat::Json => {
             print_json(&report)?;
@@ -363,6 +381,66 @@ fn print_diff_text(r: &diff::DiffReport) {
         r.thresholds.pnl * 100.0
     );
     println!("tier:        {:?}", r.tier);
+    print_diff_details(r);
+}
+
+fn print_diff_details(r: &diff::DiffReport) {
+    if !r.pair_diffs.is_empty() {
+        println!();
+        println!(
+            "worst {} matched pair(s) (ranked by max of entry / exit / pnl deltas):",
+            r.pair_diffs.len()
+        );
+        for (i, p) in r.pair_diffs.iter().enumerate() {
+            let dir = match p.direction {
+                diff::Direction::Long => "long ",
+                diff::Direction::Short => "short",
+            };
+            let pnl_cell = match p.pnl_delta {
+                Some(d) => format!("{:>6.2}%", d * 100.0),
+                None => "  (na)".to_string(),
+            };
+            println!(
+                "  {:>2}. {dir}  worst {:>6.2}%  skew {:>+5}s",
+                i + 1,
+                p.worst_delta * 100.0,
+                p.time_skew_seconds
+            );
+            println!(
+                "      tv:   entry {} @ {:>10.4}    exit @ {:>10.4}    pnl {:>+10.4}",
+                p.tv_entry_time, p.tv_entry_price, p.tv_exit_price, p.tv_pnl
+            );
+            println!(
+                "      user: entry {} @ {:>10.4}    exit @ {:>10.4}    pnl {:>+10.4}",
+                p.user_entry_time, p.user_entry_price, p.user_exit_price, p.user_pnl
+            );
+            println!(
+                "      delta:                entry {:>6.2}%      exit {:>6.2}%      pnl {pnl_cell}",
+                p.entry_delta * 100.0,
+                p.exit_delta * 100.0
+            );
+        }
+    }
+    print_orphan_block("TV-only", &r.tv_orphans);
+    print_orphan_block("user-only", &r.user_orphans);
+}
+
+fn print_orphan_block(label: &str, rows: &[diff::TradeRow]) {
+    if rows.is_empty() {
+        return;
+    }
+    println!();
+    println!("{label} trades ({} unmatched):", rows.len());
+    for t in rows {
+        let dir = match t.direction {
+            diff::Direction::Long => "long ",
+            diff::Direction::Short => "short",
+        };
+        println!(
+            "  {dir}  entry {} @ {:>10.4}    exit @ {:>10.4}    pnl {:>+10.4}",
+            t.entry_time, t.entry_price, t.exit_price, t.pnl
+        );
+    }
 }
 
 fn cmd_behavior(name: &str, format: ResolvedFormat) -> Result<()> {
