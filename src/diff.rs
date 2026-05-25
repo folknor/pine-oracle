@@ -703,4 +703,130 @@ mod tests {
         // Anomaly override fires when computed tier is below excellent.
         assert_eq!(report.tier, Tier::Anomaly);
     }
+
+    #[test]
+    fn production_profile_loosens_exit_and_pnl() {
+        let strict = thresholds_for(Profile::Strict);
+        let prod = thresholds_for(Profile::Production);
+        // Count + entry stay tight in both profiles.
+        assert_eq!(strict.count, prod.count);
+        assert_eq!(strict.entry, prod.entry);
+        // Production relaxes exit (sub-bar broker drift) and pnl (catastrophic only).
+        assert!(prod.exit > strict.exit, "production exit must be looser");
+        assert!(prod.pnl > strict.pnl, "production pnl must be looser");
+    }
+
+    #[test]
+    fn inputs_meta_parity_profile_override_forces_production() {
+        let meta = InputsMeta {
+            parity_profile: Some("production".into()),
+            ..InputsMeta::default()
+        };
+        // Pine source with NO trail_* - auto-detect would say Strict - but
+        // the inputs.json override wins.
+        let source = "strategy.exit(\"x\", \"e\", profit=10)\n";
+        assert_eq!(resolve_profile(source, &meta), Profile::Production);
+    }
+
+    #[test]
+    fn inputs_meta_parity_profile_override_forces_strict() {
+        let meta = InputsMeta {
+            parity_profile: Some("strict".into()),
+            ..InputsMeta::default()
+        };
+        // Pine source WITH trail_* - auto-detect would say Production -
+        // but the inputs.json override wins.
+        let source = "strategy.exit(\"x\", \"e\", trail_points=10)\n";
+        assert_eq!(resolve_profile(source, &meta), Profile::Strict);
+    }
+
+    #[test]
+    fn expect_tv_match_false_yields_engine_only() {
+        let meta = InputsMeta {
+            expect_tv_match: Some(false),
+            ..InputsMeta::default()
+        };
+        // Override applies only when the computed tier is below excellent.
+        assert_eq!(apply_overrides(Tier::Weak, &meta), Tier::EngineOnly);
+        assert_eq!(apply_overrides(Tier::Moderate, &meta), Tier::EngineOnly);
+        // Excellent is preserved so a genuine engine improvement isn't masked.
+        assert_eq!(apply_overrides(Tier::Excellent, &meta), Tier::Excellent);
+    }
+
+    #[test]
+    fn expected_tier_engine_only_wins_over_anomaly_when_both_set() {
+        // Override precedence: expected_tier checked first; expect_tv_match
+        // only fires when no expected_tier override matched.
+        let meta = InputsMeta {
+            expected_tier: Some("engine_only".into()),
+            expect_tv_match: Some(false),
+            ..InputsMeta::default()
+        };
+        assert_eq!(apply_overrides(Tier::Weak, &meta), Tier::EngineOnly);
+    }
+
+    #[test]
+    fn classify_strong_when_match_rate_high_and_within_relaxed_thresholds() {
+        // Construct 100 TV trades, 100 matched (100% match rate), with
+        // entry/exit p90 just above strict but below strong thresholds.
+        let tv: Vec<TradePair> = (0..100)
+            .map(|i| pair(Direction::Long, (i * 1000) as i64, 50.0))
+            .collect();
+        let matched: Vec<(TradePair, TradePair)> =
+            tv.iter().map(|t| (t.clone(), t.clone())).collect();
+        // count_delta=0, entry_p90=0.0005 (>strict 0.0001, <strong 0.001),
+        // exit_p90=0.001 (>strict 0.0001, <strong 0.005), pnl_p90=0.
+        let tier = classify_tier(
+            &matched,
+            &tv,
+            0.0,
+            0.0005,
+            0.001,
+            0.0,
+            thresholds_for(Profile::Strict),
+        );
+        assert_eq!(tier, Tier::Strong);
+    }
+
+    #[test]
+    fn classify_moderate_when_match_rate_drops_below_strong() {
+        // 100 TV trades, 95 matched (95% match rate => below 99% strong gate
+        // but above 90% moderate gate).
+        let tv: Vec<TradePair> = (0..100)
+            .map(|i| pair(Direction::Long, (i * 1000) as i64, 50.0))
+            .collect();
+        let matched: Vec<(TradePair, TradePair)> =
+            tv.iter().take(95).map(|t| (t.clone(), t.clone())).collect();
+        let tier = classify_tier(
+            &matched,
+            &tv,
+            0.05,
+            0.001,
+            0.005,
+            1.0,
+            thresholds_for(Profile::Strict),
+        );
+        assert_eq!(tier, Tier::Moderate);
+    }
+
+    #[test]
+    fn classify_weak_when_match_rate_drops_below_moderate() {
+        // 100 TV, only 50 matched (50%) => below 90% moderate gate, but
+        // matched is non-empty so not Minimal.
+        let tv: Vec<TradePair> = (0..100)
+            .map(|i| pair(Direction::Long, (i * 1000) as i64, 50.0))
+            .collect();
+        let matched: Vec<(TradePair, TradePair)> =
+            tv.iter().take(50).map(|t| (t.clone(), t.clone())).collect();
+        let tier = classify_tier(
+            &matched,
+            &tv,
+            0.5,
+            0.5,
+            0.5,
+            5.0,
+            thresholds_for(Profile::Strict),
+        );
+        assert_eq!(tier, Tier::Weak);
+    }
 }
