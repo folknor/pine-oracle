@@ -10,12 +10,14 @@
 // (e.g. `symbol-specified/AAPL/session-ismarket-nyse-rth-01`).
 //
 // Per-probe summaries are extracted live from each strategy.pine's header
-// comment block - the strategy author's own one-paragraph description. The
-// extractor skips license / SPDX / copyright lines and the `//@version`
-// directive, takes the first prose comment block, and stops at the first
-// blank `//` or non-comment line after prose begins. Cached behind a
-// OnceLock so repeat lookups are cheap. >=80% of the 235 baked probes
-// have author-written summaries that this picks up.
+// comment block - every prose comment line up to the first real code
+// (non-comment, non-blank) line, with license / SPDX / copyright / version
+// directive noise filtered out and blank `//` paragraph separators
+// collapsed. Cached behind a OnceLock so repeat lookups are cheap. 100%
+// of the 239 baked probes get a usable summary out of this; carrying the
+// full multi-paragraph header (typically a slug-title line plus a
+// `Purpose:` block plus a `Trade shape:` block) gives BM25 something
+// substantive to rank against rather than just a slug echo.
 
 use anyhow::{Result, anyhow, bail};
 use include_dir::{Dir, include_dir};
@@ -85,21 +87,36 @@ pub fn list_probes(grep: Option<&str>) -> Result<Vec<ProbeListing>> {
     Ok(out)
 }
 
-/// Pull the first prose comment block out of a `strategy.pine` source.
+/// Pull the entire author-written header comment block out of a
+/// `strategy.pine` source, joined into one space-separated string.
 ///
-/// Each baked strategy.pine carries an author-written header comment block
-/// (Apache-2.0 boilerplate first, then a blank `//` separator, then a
-/// title + purpose paragraph). The extractor:
-///   - Skips license / SPDX / copyright lines.
-///   - Skips `//@version=` directives.
-///   - Skips empty `//` separators until the first prose line.
-///   - Collects contiguous prose comment lines into one space-joined string.
-///   - Stops at the first blank `//`, blank line, or non-comment line after
-///     prose begins.
+/// PineForge headers follow a consistent layout:
+///   ```text
+///   // <license boilerplate>
+///   // SPDX-License-Identifier: Apache-2.0
+///   // (c) PineForge contributors 2026
+///   //
+///   // <title line, often the slug>
+///   //
+///   // Purpose: <multi-line description>
+///   //
+///   // Trade shape: <multi-line description>
+///   //
+///   //@version=6
+///   strategy(...)
+///   ```
 ///
-/// The output is the strategy author's own one-paragraph description, which
-/// gives 235 probes real summaries without an LLM curation pass and unblocks
-/// `pine probes --grep <text>` matching against summary content.
+/// The extractor:
+///   - Skips `//` comments matching `is_header_noise` (license / SPDX /
+///     copyright / `@version` directive).
+///   - Skips empty `//` separators - they don't break the collection,
+///     so multi-paragraph headers are joined into one string.
+///   - Stops at the first non-comment, non-blank line (real Pine code).
+///   - Returns `None` only when no prose comment lines were found at all.
+///
+/// Joining every prose paragraph (title + Purpose + Trade shape + TV
+/// setup notes) gives BM25 substantive substrate to rank against
+/// rather than a single slug-echo title.
 fn extract_summary(strategy_pine: &str) -> Option<String> {
     let mut lines = Vec::new();
     let mut in_prose = false;
@@ -108,9 +125,6 @@ fn extract_summary(strategy_pine: &str) -> Option<String> {
         if let Some(rest) = trimmed.strip_prefix("//") {
             let content = rest.trim_start_matches('/').trim();
             if content.is_empty() {
-                if in_prose {
-                    break;
-                }
                 continue;
             }
             if is_header_noise(content) {
@@ -310,9 +324,46 @@ mod tests {
         assert!(summary.contains("Purpose"));
         assert!(!summary.contains("Apache-2.0"));
         assert!(!summary.contains("SPDX"));
-        // Should stop at the first blank `//` after prose begins, so the
-        // "strategy.exit is close-only" trailing fragment is excluded.
-        assert!(!summary.contains("close-only"));
+        // Blank `//` separators no longer terminate collection - the
+        // "strategy.exit is close-only" trailing paragraph is now
+        // captured into the summary along with everything else.
+        assert!(summary.contains("close-only"));
+    }
+
+    #[test]
+    fn extracts_summary_joins_multiple_paragraphs_across_blank_separators() {
+        // Header pattern seen in 19 short-summary probes pre-fix: title
+        // line, blank `//`, then a `Purpose:` paragraph that the old
+        // first-blank-stop heuristic dropped entirely.
+        let src = "// SPDX-License-Identifier: Apache-2.0\n\
+                   //\n\
+                   // PF probe 82 - dual stop far only\n\
+                   //\n\
+                   // Purpose: isolate farther long/short stop competition from probe 80.\n\
+                   // TV setup: 15m chart, same symbol/window as data/ohlcv_ETH-USDT-USDT_15m.csv.\n\
+                   //@version=6\n\
+                   strategy(\"x\")\n";
+        let summary = extract_summary(src).expect("must extract");
+        assert!(summary.contains("PF probe 82"));
+        assert!(
+            summary.contains("Purpose: isolate"),
+            "Purpose paragraph must survive the blank // separator, got: {summary:?}"
+        );
+        assert!(summary.contains("TV setup"));
+    }
+
+    #[test]
+    fn extracts_summary_stops_at_real_code() {
+        // A non-comment, non-blank line ends collection. Comments AFTER
+        // the first code line are inline docs, not header prose.
+        let src = "// title line\n\
+                   // body line\n\
+                   strategy(\"x\")\n\
+                   // inline comment that should NOT be in summary\n";
+        let summary = extract_summary(src).expect("must extract");
+        assert!(summary.contains("title line"));
+        assert!(summary.contains("body line"));
+        assert!(!summary.contains("inline comment"));
     }
 
     #[test]
@@ -333,15 +384,47 @@ mod tests {
     }
 
     #[test]
-    fn most_probes_have_extractable_summaries() {
+    fn every_baked_probe_has_an_extractable_summary() {
+        // The wider header-collection heuristic (no first-blank stop, only
+        // real-code stops) means every PineForge-format probe yields a
+        // non-empty summary. If a new probe is vendored without a header,
+        // this test will catch it and the heuristic likely needs another
+        // widening pass.
         let listings = list_probes(None).expect("list");
-        let covered = listings.iter().filter(|p| p.summary.is_some()).count();
-        let total = listings.len();
-        let coverage = covered as f64 / total as f64;
+        let missing: Vec<&str> = listings
+            .iter()
+            .filter(|p| p.summary.is_none())
+            .map(|p| p.slug.as_str())
+            .collect();
         assert!(
-            coverage >= 0.80,
-            "expected >=80% probe summary coverage, got {covered}/{total} ({:.1}%)",
-            coverage * 100.0
+            missing.is_empty(),
+            "{} probe(s) without summaries: {:?}",
+            missing.len(),
+            missing
+        );
+    }
+
+    #[test]
+    fn captured_summaries_are_substantive() {
+        // Pre-fix the "PF probe N - slug-words" title-only summaries were
+        // <40 chars and gave BM25 nothing to rank against. Post-fix the
+        // multi-paragraph collection should put almost every summary
+        // comfortably above that.
+        let listings = list_probes(None).expect("list");
+        let thin: Vec<(&str, &str)> = listings
+            .iter()
+            .filter_map(|p| p.summary.map(|s| (p.slug.as_str(), s)))
+            .filter(|(_, s)| s.len() < 60)
+            .collect();
+        // A handful of stub probes may legitimately have title-only headers;
+        // require <5% rather than 0 so adding a new minimal probe doesn't
+        // tank CI.
+        let cap = (listings.len() / 20).max(5);
+        assert!(
+            thin.len() <= cap,
+            "{} probe(s) with summaries shorter than 60 chars (cap {cap}): {:?}",
+            thin.len(),
+            thin.iter().take(10).collect::<Vec<_>>()
         );
     }
 }

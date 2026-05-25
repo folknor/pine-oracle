@@ -9,7 +9,7 @@ Across review sessions, claims about Pine v6 semantics drift. A reviewer in sess
 Two canonical sources exist:
 
 - **pine-tools** (`../pine-tools/`) -- scraped TV docs: function signatures, types, polymorphism, behavior flags, type-coercion rules, the parser/validator itself.
-- **The corpus** (`vendor/pineforge-corpus/validation/`) -- 235 Pine strategies cross-validated trade-for-trade against TradingView's broker emulator, baked into the binary. The executable parity oracle. Sourced from <https://github.com/fullpass-4pass/pineforge-corpus> (Apache-2.0); refreshed via `scripts/prune-vendored-corpus.sh`. Background on the underlying ETH/USDT-USDT 15m Binance feed + the verifier's tier definitions (excellent / strong / moderate / weak / minimal + the anomaly / engine_only overrides) lives in `src/diff.rs`'s preamble and `vendor/pineforge-corpus/VENDORING_NOTES.md`.
+- **The corpus** (`vendor/pineforge-corpus/validation/`) -- 239 Pine strategies cross-validated trade-for-trade against TradingView's broker emulator, baked into the binary. The executable parity oracle. Sourced from <https://github.com/fullpass-4pass/pineforge-corpus> (Apache-2.0); refreshed via `scripts/prune-vendored-corpus.sh`. Background on the underlying ETH/USDT-USDT 15m Binance feed + the verifier's tier definitions (excellent / strong / moderate / weak / minimal + the anomaly / engine_only overrides) lives in `src/diff.rs`'s preamble and `vendor/pineforge-corpus/VENDORING_NOTES.md`.
 
 Together they cover almost every Pine claim a reviewer can make. But pine-tools is a pnpm/node project (slow startup, brittle dependency graph), the corpus is a directory of .pine + .csv files with no query layer, and neither is reachable from a piners shell without remembering the right incantation.
 
@@ -46,17 +46,17 @@ Combined size: ~1.5 MB. Trivial.
 Four sources, all baked into the binary as source markdown / extracted-at-runtime content:
 
 - **v6 reference**: 941 entries from `vendor/pine-reference/spec/v6.md`, indexed as `kind: "reference"`.
-- **Corpus probes**: 235 baked probes, indexed by their published slug as `kind: "probe"` with their author-extracted summary as content (or slug-as-fallback for the ~20% of probes without a summary).
+- **Corpus probes**: 239 baked probes, indexed by their published slug as `kind: "probe"` with their full author-extracted summary as content.
 - **PineForge audit doc**: `vendor/pineforge-docs/pine_v6_audit_master.md`, 38 critical + ~62 minor documented TV-vs-engine divergences, sliced on H2 / H3 boundaries, indexed as `kind: "audit"`.
 - **PineForge narrative pages**: `vendor/pineforge-docs/pages/*.md`, 18 explainer docs (magnifier, mtf, timeframes, lifecycle, report-schema, abi-stability, examples, tutorials), section-sliced on H2 / H3, indexed as `kind: "docs"`.
 
 Total: ~1.2k documents. Index is a `tantivy` RAM directory rebuilt on first query (~10-15 ms one-shot cost, then sub-millisecond per query), cached behind a `OnceLock`. Schema: `name` (TEXT|STORED, 5x boost), `category` (STRING|STORED), `kind` (STRING|STORED), `content` (STORED for retrieval) + `content_search` (TEXT, drives ranking). Hits carry the full content body in `SearchHit.content` so consumers don't need a follow-up lookup. `pine search --kind <kind>` narrows by source.
 
-Per-probe summaries are extracted live at runtime from each `strategy.pine`'s header comment block by `corpus::summary_for` (skipping license / SPDX / copyright / version-directive lines). Covers >=80% of the 235 baked probes without any LLM-curation pass.
+Per-probe summaries are extracted live at runtime from each `strategy.pine`'s header by `corpus::summary_for`: every prose comment line up to the first real code line, with license / SPDX / copyright / version-directive noise filtered and blank `//` paragraph separators collapsed. Covers 100% of the 239 baked probes with multi-paragraph summaries (median ~650 chars) - no LLM-curation pass required.
 
 ### 3. Vendored corpus (baked)
 
-The corpus ships **inside the binary**. Reality after vendoring: the published PineForge corpus is ~245 MB cloned (38 MB git history, 75 MB OHLCV across four feeds, 235 probes' worth of strategy.pine + tv_trades.csv + engine_trades.csv + generated.cpp + reports). The vendored subset pine-oracle bakes is the strict minimum the public subcommands need: per-probe `strategy.pine`, `tv_trades.csv`, and optional `inputs.json`. Everything else (OHLCV feeds, PineForge's own `engine_trades.csv`, the transpiler's `generated.cpp`, validation reports, upstream tooling) is pruned out of `vendor/pineforge-corpus/` and not in the binary.
+The corpus ships **inside the binary**. Reality after vendoring: the published PineForge corpus is ~245 MB cloned (38 MB git history, 75 MB OHLCV across four feeds, 239 probes' worth of strategy.pine + tv_trades.csv + engine_trades.csv + generated.cpp + reports). The vendored subset pine-oracle bakes is the strict minimum the public subcommands need: per-probe `strategy.pine`, `tv_trades.csv`, and optional `inputs.json`. Everything else (OHLCV feeds, PineForge's own `engine_trades.csv`, the transpiler's `generated.cpp`, validation reports, upstream tooling) is pruned out of `vendor/pineforge-corpus/` and not in the binary.
 
 Baked subset size: ~72 MB. Final binary size lands around 75-80 MB. Embedded via `include_dir!()` at compile time, queried as `&'static str` slices at runtime. Zero on-disk scratch, zero env vars, zero settings files.
 
@@ -83,10 +83,10 @@ What to pull from where, in priority order. The oracle's license is the natural 
 | 3 | Pine v6 lexer + AST + parser (~3.3k LOC) | `research/pinecone/crates/pine-{lexer,ast,parser}/src/lib.rs` | MPL-2.0 | Backs `pine parse` / `pine tokens` / `pine validate` (v0) | **Done** (lifted into `src/syntax/`). Temporary - replaced when piners-syntax stabilises. |
 | 4 | 72 parser golden fixtures | `research/pinecone/crates/pine-parser/testdata/` | MPL-2.0 | Regression tests for the lifted parser | **Done** (`vendor/pine-syntax/testdata/`) |
 | 5 | `pine-data/v6/*.json` (functions / variables / constants / keywords / function-behavior) | `pine-tools/pine-data/v6/*.json` | MIT (folknor) | Backs `pine behavior` | **Done** (`vendor/pine-data/v6/`) |
-| 6 | PineForge validation corpus (235 probes) | `https://github.com/fullpass-4pass/pineforge-corpus` | Apache-2.0 | Backs `pine probe` / `pine probes` / `pine diff`; corpus-kind BM25 docs | **Done** (`vendor/pineforge-corpus/`) |
+| 6 | PineForge validation corpus (239 probes) | `https://github.com/fullpass-4pass/pineforge-corpus` | Apache-2.0 | Backs `pine probe` / `pine probes` / `pine diff`; corpus-kind BM25 docs | **Done** (`vendor/pineforge-corpus/`) |
 | 7 | `docs/pine_v6_audit_master.md` (38 critical + ~62 minor divergences) | `research/pineforge-engine/docs/` | Apache-2.0 | Audit-kind BM25 docs | **Done** (`vendor/pineforge-docs/pine_v6_audit_master.md`) |
 | 8 | `docs/pages/*.md` (18 narrative docs) | `research/pineforge-engine/docs/pages/` | Apache-2.0 | Docs-kind BM25 substrate | **Done** (`vendor/pineforge-docs/pages/`) |
-| 9 | 21 engine-internals probe summaries | `research/pineforge-engine/src/engine_*.cpp` + tests | Apache-2.0 | Per-probe BM25 substrate | **Superseded.** The harvested summaries were keyed to engine-internal probe identifiers that do not match the published-corpus slugs. `corpus::summary_for` extracts the strategy author's own paragraph from each baked `strategy.pine`'s header instead, covering >=80% of the 235 baked probes without any LLM curation. |
+| 9 | 21 engine-internals probe summaries | `research/pineforge-engine/src/engine_*.cpp` + tests | Apache-2.0 | Per-probe BM25 substrate | **Superseded.** The harvested summaries were keyed to engine-internal probe identifiers that do not match the published-corpus slugs. `corpus::summary_for` collects every prose comment line from each baked `strategy.pine`'s header instead, covering 100% of the 239 baked probes with multi-paragraph summaries (median ~650 chars) without any LLM curation. |
 | 10 | `scripts/verify_corpus.py` (622 lines Python) | `research/pineforge-engine/` | Apache-2.0 | Trade-list alignment + tier classification | **Done** (ported to `src/diff.rs`); interior-trim path pending OHLCV bake |
 | 11 | `pineforge.h` doxygen blocks (~390 LOC) | `research/pineforge-engine/include/pineforge/` | Apache-2.0 | C ABI documentation | **Deferred.** Niche substrate (describes the C ABI consumers integrate against, not Pine semantics). Re-evaluate if `pine indicator --strict` needs it. |
 | 12 | 120 runtime golden fixtures | `research/pinecone/tests/testdata/` | MPL-2.0 | `pine behavior <feature>` per-feature substrate | **Deferred.** Lower yield once pine-tools JSON ships the structured signatures (item 5). |
@@ -189,7 +189,7 @@ The version does **not** bump when:
 
 ## Per-probe descriptions
 
-Each baked `strategy.pine` carries an author-written header comment block (title + purpose paragraph) below the Apache-2.0 boilerplate. `corpus::summary_for` extracts that paragraph at first invocation, caches the result behind a `OnceLock`, and exposes it through `Probe::summary` + `ProbeListing::summary`. >=80% of the 235 baked probes get a real summary out of the box; the remaining ~20% either have no header or have a header the extractor's heuristic rejects. `pine probes --grep <text>` matches against slug OR summary.
+Each baked `strategy.pine` carries an author-written header comment block (title line + `Purpose:` paragraph + often `Trade shape:` / `TV setup:` paragraphs) below the Apache-2.0 boilerplate. `corpus::summary_for` collects every prose comment line from the header up to the first real code line at first invocation, caches the result behind a `OnceLock`, and exposes it through `Probe::summary` + `ProbeListing::summary`. License / SPDX / copyright / `//@version=` directive lines are filtered as noise; blank `//` separators between paragraphs are collapsed so multi-paragraph headers join into one space-separated string. 100% of the 239 baked probes yield a substantive summary (median ~650 chars). `pine probes --grep <text>` matches against slug OR summary.
 
 PineForge engine source comments reference probes by engine-internal slugs (`magnifier-dist-probe-08b`, engine-history numbers 52..97, etc.) that don't appear in the published corpus. The renaming to topical slugs (`oca-multi-bracket-isolation-01`, `magnifier-tick-dist-endpoints-01`, etc.) was not bijective and no mapping table ships with the corpus. Treat engine-history names as prose annotations only; the published slugs are the canonical lookup key.
 
@@ -299,9 +299,9 @@ Release cadence: pin to pine-tools' scrape cadence. When TV's docs change, refre
 
 5. **`validate --strict` auth.** **Resolved:** no auth required. The TradingView pine-lint endpoint is open; pine-oracle stores no credentials anywhere because it stores nothing anywhere.
 
-6. **Per-probe summary ownership.** **Resolved (via live extraction).** `corpus::summary_for(slug)` extracts the strategy author's own one-paragraph description from each baked `strategy.pine`'s header comment block - no LLM curation pass required, no external dependency. >=80% of the 235 probes get a real summary out of the box.
+6. **Per-probe summary ownership.** **Resolved (via live extraction).** `corpus::summary_for(slug)` collects every prose comment line from each baked `strategy.pine`'s header (title + `Purpose:` + `Trade shape:` + `TV setup:` etc.), joined on whitespace, no LLM curation pass required, no external dependency. 100% of the 239 probes get a substantive multi-paragraph summary out of the box (median ~650 chars).
 
-7. **Search corpus coverage.** Today BM25 indexes the v6 reference (941 entries) + the baked corpus probes (235, with author-extracted summaries). Hits carry a `kind` discriminator ("reference" / "probe") so consumers can route. Broader sources (pine-tools issue tracker, TV release notes, Pine v6 migration guide) are off the table for now: each broadens recall but dilutes precision; grow with demand.
+7. **Search corpus coverage.** Today BM25 indexes the v6 reference (941 entries) + the baked corpus probes (239, with author-extracted summaries). Hits carry a `kind` discriminator ("reference" / "probe") so consumers can route. Broader sources (pine-tools issue tracker, TV release notes, Pine v6 migration guide) are off the table for now: each broadens recall but dilutes precision; grow with demand.
 
 8. **Caching `validate --strict` responses.** **Resolved:** no cache. pine-oracle has zero on-disk state; a CLI invocation hits the API once and exits, so cross-invocation caching has nowhere to live.
 

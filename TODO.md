@@ -72,11 +72,6 @@ crates.io or pinned by git ref.
 
 ## Internal polish (large / deferred)
 
-- Re-curate per-probe summaries against published-corpus slugs. Live
-  extraction from `strategy.pine` headers covers >=80% of the 235
-  probes; the remaining ~50 either have no header or have a header
-  the extractor's heuristic rejects. Either widen the heuristic or
-  hand-curate the gaps. Bumps BM25 substrate quality.
 - Multi-error parser recovery in `src/syntax/parser.rs`. **Throwaway
   work** - piners-syntax replaces this; doing it twice is wasted
   effort. Listed for completeness only.
