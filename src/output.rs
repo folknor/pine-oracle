@@ -7,7 +7,6 @@
 
 use anyhow::Result;
 use serde::Serialize;
-use std::io::IsTerminal;
 
 /// JSON output schema version. Bumped on any breaking shape change to a
 /// subcommand's JSON output. Documented in `docs/pine-oracle.md`.
@@ -67,11 +66,15 @@ pub(crate) struct Style {
 }
 
 impl Style {
-    pub(crate) fn resolve(no_color: bool, format: ResolvedFormat) -> Self {
+    /// Resolve styling from the three determinants: whether the caller passed
+    /// `--no-color`, the resolved output format, and whether stdout is a TTY.
+    /// `stdout_is_tty` must be resolved once at startup and threaded in so
+    /// multiple calls do not independently probe the stream.
+    pub(crate) fn resolve(no_color: bool, format: ResolvedFormat, stdout_is_tty: bool) -> Self {
         let enabled = !no_color
             && std::env::var_os("NO_COLOR").is_none()
             && format == ResolvedFormat::Text
-            && std::io::stdout().is_terminal();
+            && stdout_is_tty;
         Style { enabled }
     }
 
@@ -167,13 +170,25 @@ mod tests {
     fn style_resolve_disables_for_json_output() {
         // Even if --no-color is unset and stdout were a tty, JSON output
         // must never carry escape codes.
-        let s = Style::resolve(false, ResolvedFormat::Json);
+        let s = Style::resolve(false, ResolvedFormat::Json, true);
         assert!(!s.enabled);
     }
 
     #[test]
     fn style_resolve_disables_with_no_color_flag() {
-        let s = Style::resolve(true, ResolvedFormat::Text);
+        let s = Style::resolve(true, ResolvedFormat::Text, true);
         assert!(!s.enabled);
+    }
+
+    #[test]
+    fn style_resolve_four_combinations() {
+        // (stdout_is_tty=true, no_color=false) + Text -> enabled
+        assert!(Style::resolve(false, ResolvedFormat::Text, true).enabled);
+        // (stdout_is_tty=false, no_color=false) + Text -> disabled (not a tty)
+        assert!(!Style::resolve(false, ResolvedFormat::Text, false).enabled);
+        // (stdout_is_tty=true, no_color=true) + Text -> disabled (user opted out)
+        assert!(!Style::resolve(true, ResolvedFormat::Text, true).enabled);
+        // (stdout_is_tty=true, no_color=false) + Json -> disabled (machine output)
+        assert!(!Style::resolve(false, ResolvedFormat::Json, true).enabled);
     }
 }

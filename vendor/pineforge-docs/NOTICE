@@ -22,6 +22,14 @@ Local modifications:
     ASCII equivalents so the files pass pine-oracle's gremlin scan. The
     rewrite is punctuation/whitespace-only and does not change rendered
     semantics; see commit history for the exact changes.
+  - U+2192 RIGHT ARROW (42 occurrences across audit + pages) rewritten to
+    ASCII `->` (code/flow contexts) or `->` (prose). Applies to all prose
+    and code-comment uses; meaning is preserved.
+  - U+2022 BULLET / U+2713 CHECK MARK / U+274C CROSS / U+2753 QUESTION /
+    U+23ED SKIP / U+25BC TRIANGLE / U+2026 ELLIPSIS / U+2248 APPROX /
+    U+00A7 SECTION / U+2260 NOT-EQUAL removed or replaced with ASCII
+    equivalents: `[yes]`/`[no]`/`[?]`/`[skip]`/`[ok]`, `v`, `...`, `~=`,
+    `-`, `!=`. Semantic meaning is fully preserved.
 
 pine-oracle indexes the audit at build time via `src/search.rs` exposing
 its sections as `kind: "audit"` results, and indexes the narrative pages

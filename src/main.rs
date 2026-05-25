@@ -33,12 +33,12 @@ enum OutputFormat {
 }
 
 impl OutputFormat {
-    fn resolve(self) -> ResolvedFormat {
+    fn resolve(self, stdout_is_tty: bool) -> ResolvedFormat {
         match self {
             OutputFormat::Json => ResolvedFormat::Json,
             OutputFormat::Text => ResolvedFormat::Text,
             OutputFormat::Auto => {
-                if std::io::stdout().is_terminal() {
+                if stdout_is_tty {
                     ResolvedFormat::Text
                 } else {
                     ResolvedFormat::Json
@@ -228,8 +228,16 @@ enum Command {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    let format = cli.format.resolve();
-    let style = Style::resolve(cli.no_color, format);
+    // Resolve stdout TTY state once so OutputFormat::Auto and Style::resolve
+    // both see the same answer. stdin().is_terminal() is kept separate in
+    // PineSourceArgs::read -- it is a different stream.
+    let stdout_is_tty = std::io::stdout().is_terminal();
+    let format = cli.format.resolve(stdout_is_tty);
+    // Style is currently threaded into validate and search, the two commands
+    // that emit colored text today. TODO: extend to every command's run()
+    // signature for forward compat once a clean pass is made across all
+    // command modules.
+    let style = Style::resolve(cli.no_color, format, stdout_is_tty);
 
     match cli.command {
         Command::Lookup { name } => commands::lookup::run(&name, format, cli.quiet),
@@ -301,19 +309,20 @@ fn cmd_version(format: ResolvedFormat, quiet: bool) -> Result<()> {
     let binary = env!("CARGO_PKG_VERSION");
     let categories = reference::categories();
     let reference_entry_count = reference::all_entries().len();
-    let probe_count = corpus::list_probes(None, None).map_or(0, |v| v.len());
-    let probe_summary_count = corpus::list_probes(None, None)
-        .map_or(0, |v| v.iter().filter(|p| p.summary.is_some()).count());
+    let probe_count = corpus::probe_count();
+    let probe_summary_count = corpus::probe_summary_count();
     let audit_sections = search::audit_section_count();
     let docs_sections = search::docs_section_count();
     let behavior_docs = search::behavior_doc_count();
     let pine_data = behavior::snapshot();
-    let indicator_counts =
-        indicator::fixture_counts().unwrap_or(indicator::IndicatorFixtureCounts {
+    let indicator_counts = indicator::fixture_counts().unwrap_or_else(|err| {
+        eprintln!("warning: indicator fixture counts unavailable: {err}");
+        indicator::IndicatorFixtureCounts {
             total: 0,
             smoke: 0,
             tv: 0,
-        });
+        }
+    });
     match format {
         ResolvedFormat::Json => {
             print_json(&serde_json::json!({
@@ -348,7 +357,7 @@ fn cmd_version(format: ResolvedFormat, quiet: bool) -> Result<()> {
             }))?;
         }
         ResolvedFormat::Text => {
-            println!("pine-cli {binary}");
+            println!("pine {binary}");
             if quiet {
                 return Ok(());
             }
@@ -361,14 +370,14 @@ fn cmd_version(format: ResolvedFormat, quiet: bool) -> Result<()> {
                 "corpus:         {probe_count} baked probes ({probe_summary_count} with author summaries)"
             );
             println!(
-                "pineforge docs: {audit_sections} audit sections + {docs_sections} narrative sections"
+                "PineForge docs: {audit_sections} audit sections + {docs_sections} narrative sections"
             );
             println!(
-                "pine-data:     v{} generated {}",
+                "pine-data:      v{} generated {}",
                 pine_data.version, pine_data.generated_at
             );
             println!(
-                "behavior:      {} functions, {} variables, {} constants, {} keywords, {} behavior entries, {behavior_docs} searchable docs",
+                "behavior:       {} functions, {} variables, {} constants, {} keywords, {} behavior entries, {behavior_docs} searchable docs",
                 pine_data.function_count,
                 pine_data.variable_count,
                 pine_data.constant_count,
@@ -376,7 +385,7 @@ fn cmd_version(format: ResolvedFormat, quiet: bool) -> Result<()> {
                 pine_data.function_behavior_count
             );
             println!(
-                "indicator:     {} strict fixtures ({} smoke, {} tv)",
+                "indicator:      {} strict fixtures ({} smoke, {} tv)",
                 indicator_counts.total, indicator_counts.smoke, indicator_counts.tv
             );
         }
@@ -387,6 +396,132 @@ fn cmd_version(format: ResolvedFormat, quiet: bool) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn looks_like_source_path_positive_and_negative() {
+        // .pine extension -> path
+        assert!(looks_like_source_path("foo.pine"));
+        // path with separator -> path
+        assert!(looks_like_source_path("path/to/file"));
+        // inline Pine with parens -> not a path
+        assert!(!looks_like_source_path("indicator(\"x\")"));
+        // inline Pine with function call -> not a path
+        assert!(!looks_like_source_path("plot(close)"));
+    }
+
+    #[test]
+    fn looks_like_inline_source_positive_and_negative() {
+        // newline -> inline
+        assert!(looks_like_inline_source("\n"));
+        // assignment -> inline
+        assert!(looks_like_inline_source("x = 1"));
+        // space -> inline (file paths usually don't contain spaces)
+        assert!(looks_like_inline_source("just text"));
+        // bare identifier -> not inline (could be a slug or filename)
+        assert!(!looks_like_inline_source("identifier"));
+    }
+
+    #[test]
+    fn cmd_version_json_shape() {
+        use crate::output::versioned_json;
+        use pine_cli::{behavior, corpus, indicator, reference, search};
+
+        let binary = env!("CARGO_PKG_VERSION");
+        let categories = reference::categories();
+        let reference_entry_count = reference::all_entries().len();
+        let probe_count = corpus::probe_count();
+        let probe_summary_count = corpus::probe_summary_count();
+        let audit_sections = search::audit_section_count();
+        let docs_sections = search::docs_section_count();
+        let behavior_docs = search::behavior_doc_count();
+        let pine_data = behavior::snapshot();
+        let indicator_counts =
+            indicator::fixture_counts().unwrap_or(indicator::IndicatorFixtureCounts {
+                total: 0,
+                smoke: 0,
+                tv: 0,
+            });
+
+        let payload = serde_json::json!({
+            "binary": binary,
+            "reference": {
+                "categories": categories,
+                "entry_count": reference_entry_count,
+            },
+            "corpus": {
+                "probe_count": probe_count,
+                "probe_summary_count": probe_summary_count,
+            },
+            "pineforge_docs": {
+                "audit_sections": audit_sections,
+                "narrative_sections": docs_sections,
+            },
+            "behavior": {
+                "pine_data_version": pine_data.version,
+                "generated_at": pine_data.generated_at,
+                "function_count": pine_data.function_count,
+                "variable_count": pine_data.variable_count,
+                "constant_count": pine_data.constant_count,
+                "keyword_count": pine_data.keyword_count,
+                "function_behavior_count": pine_data.function_behavior_count,
+                "search_doc_count": behavior_docs,
+            },
+            "indicator": {
+                "fixture_count": indicator_counts.total,
+                "smoke_fixture_count": indicator_counts.smoke,
+                "tv_fixture_count": indicator_counts.tv,
+            },
+        });
+
+        let v = versioned_json(&payload).expect("must wrap");
+
+        // Pin all eight top-level fields; any rename must update this test.
+        assert!(
+            v["schema_version"].is_number(),
+            "schema_version must be present"
+        );
+        assert!(v["binary"].is_string(), "binary field must be a string");
+        assert!(
+            v["reference"].is_object(),
+            "reference field must be an object"
+        );
+        assert!(v["corpus"].is_object(), "corpus field must be an object");
+        assert!(
+            v["pineforge_docs"].is_object(),
+            "pineforge_docs field must be an object"
+        );
+        assert!(
+            v["behavior"].is_object(),
+            "behavior field must be an object"
+        );
+        assert!(
+            v["indicator"].is_object(),
+            "indicator field must be an object"
+        );
+
+        // Spot-check nested fields so renames inside objects are caught too.
+        assert!(v["reference"]["entry_count"].is_number());
+        assert!(v["reference"]["categories"].is_array());
+        assert!(v["corpus"]["probe_count"].is_number());
+        assert!(v["corpus"]["probe_summary_count"].is_number());
+        assert!(v["pineforge_docs"]["audit_sections"].is_number());
+        assert!(v["pineforge_docs"]["narrative_sections"].is_number());
+        assert!(v["behavior"]["pine_data_version"].is_string());
+        assert!(v["behavior"]["generated_at"].is_string());
+        assert!(v["behavior"]["function_count"].is_number());
+        assert!(v["behavior"]["variable_count"].is_number());
+        assert!(v["behavior"]["constant_count"].is_number());
+        assert!(v["behavior"]["keyword_count"].is_number());
+        assert!(v["behavior"]["function_behavior_count"].is_number());
+        assert!(v["behavior"]["search_doc_count"].is_number());
+        assert!(v["indicator"]["fixture_count"].is_number());
+        assert!(v["indicator"]["smoke_fixture_count"].is_number());
+        assert!(v["indicator"]["tv_fixture_count"].is_number());
+
+        // Count must be > 0 for reference and corpus to flag regressions.
+        assert!(v["reference"]["entry_count"].as_u64().unwrap_or(0) > 0);
+        assert!(v["corpus"]["probe_count"].as_u64().unwrap_or(0) > 0);
+    }
 
     #[test]
     fn behavior_list_parses_without_name() {

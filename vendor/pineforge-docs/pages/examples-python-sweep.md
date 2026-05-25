@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # Example - Parameter sweep in Python {#examples_python_sweep}
 
 @tableofcontents

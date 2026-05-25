@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # Configuration {#configuration}
 
 @tableofcontents
@@ -83,7 +84,7 @@ strategy_set_trace_enabled(s, 1);
 
 Captures `// @pf-trace name=expr` pragma values per bar into
 `pf_report_t::trace`. Zero-cost when disabled. See
-[Report schema § Trace records](@ref report_schema).
+[Report schema - Trace records](@ref report_schema).
 
 ### Trade start gate
 

@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # Install {#install}
 
 @tableofcontents
@@ -29,28 +30,28 @@ sudo cmake --install build --prefix /usr/local
 
 ```
 ${prefix}/
-├── lib/
-│   ├── libpineforge.a
-│   └── cmake/PineForge/
-│       ├── PineForgeConfig.cmake
-│       ├── PineForgeConfigVersion.cmake
-│       └── PineForgeTargets.cmake
-└── include/pineforge/
-    ├── pineforge.h        # public C ABI
-    ├── version.h          # generated version macros
-    ├── bar.hpp            # internal C++ headers (no stability guarantee)
-    ├── color.hpp
-    ├── engine.hpp
-    ├── log.hpp
-    ├── magnifier.hpp
-    ├── math.hpp
-    ├── matrix.hpp
-    ├── na.hpp
-    ├── series.hpp
-    ├── session_time.hpp
-    ├── str_utils.hpp
-    ├── ta.hpp
-    └── timeframe.hpp
++-- lib/
+|   +-- libpineforge.a
+|   +-- cmake/PineForge/
+|       +-- PineForgeConfig.cmake
+|       +-- PineForgeConfigVersion.cmake
+|       +-- PineForgeTargets.cmake
++-- include/pineforge/
+    +-- pineforge.h        # public C ABI
+    +-- version.h          # generated version macros
+    +-- bar.hpp            # internal C++ headers (no stability guarantee)
+    +-- color.hpp
+    +-- engine.hpp
+    +-- log.hpp
+    +-- magnifier.hpp
+    +-- math.hpp
+    +-- matrix.hpp
+    +-- na.hpp
+    +-- series.hpp
+    +-- session_time.hpp
+    +-- str_utils.hpp
+    +-- ta.hpp
+    +-- timeframe.hpp
 ```
 
 ## Docker

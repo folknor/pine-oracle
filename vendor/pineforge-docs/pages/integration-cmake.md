@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # CMake integration {#integration_cmake}
 
 @tableofcontents
@@ -82,7 +83,7 @@ Libs: -L${libdir} -lpineforge -lstdc++ -lm
 
 A compiled PineForge strategy is a separate shared object that **also**
 exports the public C ABI symbols (`strategy_create`, `run_backtest`,
-…). Each strategy `.so` statically links `libpineforge.a` internally;
+...). Each strategy `.so` statically links `libpineforge.a` internally;
 the runtime is not a separate runtime DSO.
 
 You don't need PineForge installed on the *target* machine to run a

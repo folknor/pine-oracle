@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # PineForge Runtime - API Reference {#mainpage}
 
 > **Deterministic PineScript v6 backtest runtime, validated trade-for-trade against TradingView.**

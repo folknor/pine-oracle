@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # Example - Multi-strategy harness {#examples_multi}
 
 @tableofcontents
@@ -15,10 +16,10 @@ even across `.so` files compiled at different runtime versions.
 $ python3 multi.py strategies/*.so
 loaded 12 strategies, 672 bars
 running 12 backtests across 8 workers...
-  [ ✓] macd_cross.so          trades=49  pnl=  -190.85   1.2 ms
-  [ ✓] rsi_meanreversion.so   trades=87  pnl=  +412.30   2.1 ms
-  [ ✓] supertrend.so          trades=23  pnl= +1840.55   0.9 ms
-  [ ✓] bbands_squeeze.so      trades=14  pnl=  -382.00   0.7 ms
+  [ok] macd_cross.so          trades=49  pnl=  -190.85   1.2 ms
+  [ok] rsi_meanreversion.so   trades=87  pnl=  +412.30   2.1 ms
+  [ok] supertrend.so          trades=23  pnl= +1840.55   0.9 ms
+  [ok] bbands_squeeze.so      trades=14  pnl=  -382.00   0.7 ms
   ...
 ranking:
    1. supertrend           pnl=+1840.55  trades=23
@@ -117,7 +118,7 @@ def main(so_paths: list[str]) -> int:
         for f in futures:
             r = f.result()
             results.append(r)
-            print(f"  [ ✓] {r['name']:25s} trades={r['trades']:3d}  "
+            print(f"  [ok] {r['name']:25s} trades={r['trades']:3d}  "
                   f"pnl={r['pnl']:+9.2f}  {r['elapsed']:.1f} ms")
 
     print("\nranking:")

@@ -16,3 +16,14 @@ Local modifications:
     to U+0020 SPACE so the file passes pine-oracle's gremlin scan. The
     rewrite is whitespace-only and does not change rendered output or
     semantic content; see commit history for the exact change.
+
+Intentionally retained unicode (not rewritten):
+  - U+2192 RIGHT ARROW (713 occurrences): canonical Pine return-type
+    notation, e.g. `alert() -> void`. Replacing these would break the
+    technical meaning of every function signature in the reference.
+  - U+00AE REGISTERED SIGN: part of TradingView's "Pine Script(r)"
+    product name, used verbatim from the upstream source.
+  - U+25B2 (triangle), U+2297 (circled times), U+00B3 (superscript 3),
+    U+2744 (snowflake), U+25EF (large circle), U+2026 (ellipsis): all
+    appear inside Pine code examples as string literals or plotchar
+    arguments, where they represent actual Pine values being demonstrated.

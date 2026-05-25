@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # Bar magnifier {#magnifier}
 
 @tableofcontents
@@ -70,7 +71,7 @@ Every report carries two magnifier counters:
 
 Quick sanity check: with `magnifier_samples = 4` and
 `PF_MAGNIFIER_ENDPOINTS`, expect roughly
-`magnifier_sample_ticks_total ≈ 4 * input_bars_processed`.
+`magnifier_sample_ticks_total ~= 4 * input_bars_processed`.
 
 ## How it interacts with request.security()
 

@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # Multi-Timeframe (MTF) {#mtf}
 
 @tableofcontents
@@ -29,8 +30,8 @@ Every backtest run takes two timeframe strings on
 
 ```c
 run_backtest_full(s, bars, n,
-                  /* input_tf  */ "",   // empty → auto-detect from bar timestamps
-                  /* script_tf */ "",   // empty → defaults to input_tf
+                  /* input_tf  */ "",   // empty -> auto-detect from bar timestamps
+                  /* script_tf */ "",   // empty -> defaults to input_tf
                   /* magnifier */ 0, 4, PF_MAGNIFIER_ENDPOINTS,
                   &report);
 ```
@@ -61,14 +62,14 @@ The report exposes the resolved values and the ratio:
 ```c
 pf_report_t r = {0};
 
-// 1. Both empty → auto-detect input, default script to input.
+// 1. Both empty -> auto-detect input, default script to input.
 run_backtest_full(s, bars, n, "", "", 0, 4, PF_MAGNIFIER_ENDPOINTS, &r);
 //    r.input_tf_seconds  == 900   (15m, auto-detected)
 //    r.script_tf_seconds == 900   (defaulted)
 //    r.script_tf_ratio   == 1
 //    r.needs_aggregation == 0
 
-// 2. Explicit input + explicit higher script → 4:1 aggregation.
+// 2. Explicit input + explicit higher script -> 4:1 aggregation.
 run_backtest_full(s, bars, n, "15", "60", 0, 4, PF_MAGNIFIER_ENDPOINTS, &r);
 //    r.input_tf_seconds  == 900
 //    r.script_tf_seconds == 3600

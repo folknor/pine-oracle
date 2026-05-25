@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # PineScript v6 coverage {#coverage}
 
 The complete map of which Pine v6 surface this runtime implements lives

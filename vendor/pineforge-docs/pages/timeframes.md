@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # Timeframes {#timeframes}
 
 @tableofcontents
@@ -46,7 +47,7 @@ When `script_tf_seconds > input_tf_seconds`, the runtime groups input
 bars into script-TF parent bars:
 
 - **Ratio aggregation** - used when both TFs are intraday and the ratio
-  is exact (e.g. 5m → 60m groups 12 input bars per parent).
+  is exact (e.g. 5m -> 60m groups 12 input bars per parent).
 - **Calendar aggregation** - used when the script TF crosses a
   day / week / month boundary. Respects the configured timezone for
   boundary detection.

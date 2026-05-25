@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # Example - Calling from Rust {#examples_rust}
 
 @tableofcontents
@@ -38,7 +39,7 @@ use std::ffi::{c_char, c_int, c_void, CStr, CString};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
-// ── C ABI mirror ──────────────────────────────────────────────────────
+// -- C ABI mirror ----------------------------------------------------------
 
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
@@ -106,7 +107,7 @@ struct PfReport {
 
 const PF_MAGNIFIER_ENDPOINTS: c_int = 3;
 
-// ── Safe wrapper ──────────────────────────────────────────────────────
+// -- Safe wrapper ----------------------------------------------------------
 
 struct StrategyLib {
     _lib: Library,   // own the lib so it outlives the symbols
@@ -166,7 +167,7 @@ impl StrategyLib {
     }
 }
 
-// ── Driver ────────────────────────────────────────────────────────────
+// -- Driver ----------------------------------------------------------------
 
 fn load_csv(path: &str) -> std::io::Result<Vec<PfBar>> {
     let mut bars = Vec::new();

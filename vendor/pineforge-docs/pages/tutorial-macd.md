@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # Tutorial - MACD on BTCUSDT 15m {#tutorial_macd}
 
 @tableofcontents
@@ -23,16 +24,16 @@ parameter sweeps, walk-forward windows, and live diagnostic capture.
 
 ```
 tutorial/
-├── macd/
-│   ├── strategy.pine       # PineScript v6 reference
-│   └── generated.cpp       # transpiled C++ → becomes strategy.so
-├── data/
-│   ├── btcusdt_15m_7d.csv  # 672 frozen bars (Binance)
-│   └── fetch_btcusdt.py    # refresh from Binance public API
-├── run.py                  # ctypes harness
-├── run_advanced.py         # parameter sweep using ABI overrides
-├── run.sh                  # one-shot: cmake build + run.py
-└── CMakeLists.txt
++-- macd/
+|   +-- strategy.pine       # PineScript v6 reference
+|   +-- generated.cpp       # transpiled C++ -> becomes strategy.so
++-- data/
+|   +-- btcusdt_15m_7d.csv  # 672 frozen bars (Binance)
+|   +-- fetch_btcusdt.py    # refresh from Binance public API
++-- run.py                  # ctypes harness
++-- run_advanced.py         # parameter sweep using ABI overrides
++-- run.sh                  # one-shot: cmake build + run.py
++-- CMakeLists.txt
 ```
 
 ## The Pine source
@@ -71,7 +72,7 @@ Configures CMake (first time only), builds
 `tutorial/macd/strategy.so`, then runs the harness. Expected output:
 
 ```
-MACD(12,26,9) on BTCUSDT 15m - 672 bars, 2026-04-29 18:15 → 2026-05-06 18:00 UTC
+MACD(12,26,9) on BTCUSDT 15m - 672 bars, 2026-04-29 18:15 -> 2026-05-06 18:00 UTC
   trades:    49  (16W / 33L, 32.7% win)
   net pnl:   -190.85
   best/worst:+1149.00 / -1111.97
@@ -181,7 +182,7 @@ lib.report_free(ctypes.byref(report))
 lib.strategy_free(state)
 ```
 
-Order matters - see [Lifecycle § Free everything](@ref lifecycle).
+Order matters - see [Lifecycle - Free everything](@ref lifecycle).
 
 ## More worked examples
 

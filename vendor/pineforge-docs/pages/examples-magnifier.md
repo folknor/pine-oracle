@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # Example - Magnifier on vs off {#examples_magnifier}
 
 @tableofcontents
@@ -22,7 +23,7 @@ hourly strategy) makes the magnifier sample intra-hour fills from the
 
 ```
 $ python3 magnifier_ab.py
-PineForge 0.1.1 - 672 input bars → 168 hourly script bars (ratio 4:1)
+PineForge 0.1.1 - 672 input bars -> 168 hourly script bars (ratio 4:1)
 
 without magnifier:
   trades:  19   net pnl:  -5096.73   sub_bars:     0   ticks:     0
@@ -45,7 +46,7 @@ per-mode comparison:
 @note Trade count is identical across all six distribution modes here
 because the MACD entry condition (`ta.crossover` evaluated at script-bar
 close) is bar-close-deterministic. Distribution modes only differ when
-the script has intra-bar `strategy.exit(stop=…)` brackets, trail stops,
+the script has intra-bar `strategy.exit(stop=...)` brackets, trail stops,
 or take-profit limits - see [Bar magnifier](@ref magnifier).
 
 ## Source: magnifier_ab.py
@@ -169,13 +170,13 @@ if __name__ == "__main__":
 | Trade count unchanged, PnL changes | Same fills, but at finer-grained prices - typical for `strategy.exit(profit, loss)` brackets. |
 | Distribution modes give different PnL | Strategy has intra-bar exits (stops, limits, trailing). |
 | Distribution modes give identical PnL | Strategy is bar-close-deterministic - distribution choice doesn't matter. |
-| `ticks_total ≈ samples * sub_bars_total` | Healthy sample density. Big gap → check for sub-bars too small to magnify. |
+| `ticks_total ~= samples * sub_bars_total` | Healthy sample density. Big gap -> check for sub-bars too small to magnify. |
 
 ## Strategies where the magnifier matters most
 
-- `strategy.exit(stop=…, limit=…)` brackets - the OCA pair fills on whichever level is hit first inside the bar.
-- `strategy.exit(trail_points=…, trail_offset=…)` - trailing stops update on every magnified sample.
-- `strategy.close(qty_percent=…)` partial closes triggered by an intra-bar level.
+- `strategy.exit(stop=..., limit=...)` brackets - the OCA pair fills on whichever level is hit first inside the bar.
+- `strategy.exit(trail_points=..., trail_offset=...)` - trailing stops update on every magnified sample.
+- `strategy.close(qty_percent=...)` partial closes triggered by an intra-bar level.
 - Any strategy that issues `strategy.entry` from inside an `if barstate.isconfirmed == false` block.
 
 For pure bar-close strategies (the tutorial MACD is one), the magnifier
@@ -184,5 +185,5 @@ is a no-op on PnL - only `magnifier_sub_bars_total` changes.
 ## See also
 
 - [Bar magnifier](@ref magnifier) - full sampling model + distribution reference
-- [Report schema § Bar magnifier diagnostics](@ref report_schema)
+- [Report schema - Bar magnifier diagnostics](@ref report_schema)
 - [Timeframes](@ref timeframes) - when input_tf and script_tf differ

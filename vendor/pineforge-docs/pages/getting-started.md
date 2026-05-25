@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # Getting Started {#getting_started}
 
 @tableofcontents

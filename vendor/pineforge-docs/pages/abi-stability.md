@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # ABI stability {#abi_stability}
 
 @tableofcontents
@@ -31,7 +32,7 @@ when breaking the ABI - and announces it in release notes.
 | Strategy `.so` built against `0.1.0`, loaded by runtime `1.0.0`. | **No guarantee.** Recompile against the new ABI. |
 | Strategy `.so` built against `0.2.0`, loaded by runtime `0.1.7`. | **Undefined.** Newer ABI on older runtime - strategy may reference symbols that don't exist. |
 
-The forward-compatible direction is **older strategy → newer runtime**.
+The forward-compatible direction is **older strategy -> newer runtime**.
 
 ## How it's enforced
 

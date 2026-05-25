@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # Strategy lifecycle {#lifecycle}
 
 @tableofcontents
@@ -6,9 +7,9 @@ A PineForge backtest is a four-step pipeline. Each step maps to one
 function in `<pineforge/pineforge.h>`.
 
 ```
-strategy_create()  →  configure()  →  run_backtest_full()  →  read pf_report_t
-       │                  │                    │                       │
-       ▼                  ▼                    ▼                       ▼
+strategy_create()  ->  configure()  ->  run_backtest_full()  ->  read pf_report_t
+       |                  |                    |                       |
+       v                  v                    v                       v
   pf_strategy_t      set_input /          fills pf_report_t       report_free()
                      set_override                                  strategy_free()
 ```

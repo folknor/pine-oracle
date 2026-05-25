@@ -3,39 +3,29 @@
 Living list of pending work. External blockers separated from internal
 polish. Each item should be deletable in one commit when done.
 
-## Waiting on piners-syntax 0.1
+## Piners-syntax migration cleanups
 
-When piners-syntax ships its public API (spec sketched in the design doc
-and earlier chat), swap the pinecone lift out:
+The migration is complete: `src/syntax/` is gone, `piners-syntax` is on
+a path dependency, and `validate`, `parse`, and `tokens` all flow through
+`piners_syntax::*`. Remaining cleanup items:
 
-- Add `piners-syntax = "0.1"` to `Cargo.toml`; drop `thiserror` (piners-
-  syntax owns its own error types).
-- Delete `src/syntax/{mod.rs, ast.rs, lexer.rs, parser.rs}` and the
-  `vendor/pine-syntax/` tree (LICENSE, NOTICE, 72 testdata fixtures).
-- Rewrite `src/validate.rs::check` to call
-  `piners_syntax::validate(source, &builtins())` where `builtins()`
-  builds a `BuiltinsTable` from `behavior::index()`. Map every
-  `piners_syntax::Diagnostic` to local `Diagnostic`.
-- Rewrite `cmd_parse` to call `piners_syntax::parse`, `cmd_tokens` to
-  call `piners_syntax::lex`. Update the AST pretty-printer in `main.rs`
-  to render piners-syntax's `Program` / `Stmt` / `Expr` shapes.
-- Update `docs/pine-oracle.md` Architecture section + `AGENTS.md` to
-  drop the "lifted from pinecone, temporary" framing. Mark Open Q1 fully
-  resolved (currently flagged as "near-term").
+- Drop `thiserror` from `Cargo.toml` once `piners-syntax` exports its own
+  error types publicly and no local code needs `thiserror` directly.
+- Update `docs/pine-oracle.md` Architecture section + `AGENTS.md` to drop
+  any remaining "lifted from pinecone, temporary" framing.
 
-Estimated effort: half a day mechanical work once piners-syntax is on
-crates.io or pinned by git ref.
+## Waiting on OHLCV bake
 
-## Waiting on piners' engine + OHLCV bake
-
-- `pine indicator --strict <slug>`: per-bar parity oracle. Requires
-  piners' runtime + an `.expect.json` fixture per indicator + the OHLCV
-  feed baked into the binary (~75 MB for the four ETH/USDT-USDT CSVs).
-  Schema for `expect.json` already filed in `docs/pine-oracle.md` Open Q11
-  (`schema_version` + `pine_version` + `tv_snapshot` + outputs map).
+- `pine indicator --strict <slug>`: runner substrate is shipped; real
+  TradingView-captured `expect.json` baselines are pending. Existing
+  `smoke-*` fixtures are deterministic substrate checks, not oracle-grade
+  captures. Bake TV baselines per indicator before treating `--strict` as
+  an oracle.
 - `pine diff` interior trim: `trim_bars` / `warmup_bars` honouring needs
   `ohlcv_first_ms` + `ohlcv_last_ms` + `bar_ms`. Currently skipped; full
   common-window trim used instead. Will land alongside the OHLCV bake.
+  Also blocked: cross-symbol / cross-timeframe `request.security(...)` TV
+  fixtures (OHLCV feed not yet baked).
 
 ## Waiting on pine-tools schema evolutions
 
@@ -53,15 +43,9 @@ crates.io or pinned by git ref.
   a single arena allocator (e.g. `&'static [u8]` slab) if leak count
   ever becomes a memory concern. Bounded today at 239 entries with
   median ~650 chars each (~150 KB total); not urgent.
-- The AST pretty-printer renders type annotations as raw strings
-  (`: int`). When piners-syntax lands and exposes structured types,
-  print qualifier + type kind separately.
-
-## Internal polish (large / deferred)
-
-- Multi-error parser recovery in `src/syntax/parser.rs`. **Throwaway
-  work** - piners-syntax replaces this; doing it twice is wasted
-  effort. Listed for completeness only.
+- `pine parse` text mode uses `{:#?}` Debug output because piners-syntax
+  has no stable pretty-printer yet. When piners-syntax exposes a
+  structured printer, replace Debug with it.
 
 ## Distribution
 

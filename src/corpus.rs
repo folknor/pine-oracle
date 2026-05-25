@@ -169,12 +169,12 @@ const FEATURE_CATALOG: &[FeatureSpec] = &[
     },
     FeatureSpec {
         name: "matrix",
-        description: "Matrix data structure (matrix.new / matrix.set / matrix.get)",
+        description: "Matrix data structure (matrix.new / matrix<...> typing)",
         detector: |s| s.contains("matrix.new") || s.contains("matrix<"),
     },
     FeatureSpec {
         name: "map",
-        description: "Map data structure (map.new / map.put / map.get)",
+        description: "Map data structure (map.new / map<...> typing)",
         detector: |s| s.contains("map.new") || s.contains("map<"),
     },
     FeatureSpec {
@@ -440,6 +440,26 @@ fn build_summary_index() -> std::collections::HashMap<String, &'static str> {
         }
     }
     out
+}
+
+/// Infallible count of baked corpus probes. Walks the embedded include_dir
+/// once; does not allocate a Vec. Use in `pine version` instead of the
+/// fallible `list_probes` round-trip.
+pub fn probe_count() -> usize {
+    CORPUS.find("**/strategy.pine").map_or(0, Iterator::count)
+}
+
+/// Infallible count of baked probes that have an extractable author summary.
+/// Relies on `summary_for`, which is cached behind a OnceLock.
+pub fn probe_summary_count() -> usize {
+    let Ok(entries) = CORPUS.find("**/strategy.pine") else {
+        return 0;
+    };
+    entries
+        .filter_map(|e| e.as_file())
+        .filter_map(|f| f.path().parent()?.to_str().map(str::to_string))
+        .filter(|slug| summary_for(slug).is_some())
+        .count()
 }
 
 fn sanitise_slug(slug: &str) -> Result<&str> {
