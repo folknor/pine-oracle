@@ -75,6 +75,45 @@ pub(super) struct IndicatorFixture {
     pub(super) metadata: MetadataFile,
 }
 
+impl IndicatorFixture {
+    /// `expect.pine_version` takes precedence; falls back to `metadata.pine_version`.
+    pub(super) fn effective_pine_version(&self) -> Option<String> {
+        effective_pine_version_inner(
+            self.expect.pine_version.as_ref(),
+            self.metadata.pine_version.as_ref(),
+        )
+    }
+
+    /// `expect.tv_snapshot` takes precedence; falls back to `metadata.tv_snapshot`.
+    /// No `BaselineKind::Smoke` suppression here -- callers that need that constraint
+    /// apply it themselves (e.g. `load_listing_lenient`).
+    pub(super) fn effective_tv_snapshot(&self) -> Option<String> {
+        effective_tv_snapshot_inner(
+            self.expect.tv_snapshot.as_ref(),
+            self.metadata.tv_snapshot.as_ref(),
+        )
+    }
+}
+
+/// Inner helper so both `IndicatorFixture::effective_pine_version` and
+/// `load_listing_lenient` (which operates before a fixture is constructed) share
+/// identical precedence logic.
+fn effective_pine_version_inner(
+    expect_version: Option<&String>,
+    metadata_version: Option<&String>,
+) -> Option<String> {
+    expect_version.or(metadata_version).cloned()
+}
+
+/// Inner helper so both `IndicatorFixture::effective_tv_snapshot` and
+/// `load_listing_lenient` share identical precedence logic.
+fn effective_tv_snapshot_inner(
+    expect_snapshot: Option<&String>,
+    metadata_snapshot: Option<&String>,
+) -> Option<String> {
+    expect_snapshot.or(metadata_snapshot).cloned()
+}
+
 pub fn list_fixtures() -> Result<Vec<IndicatorListing>> {
     let entries = INDICATORS
         .find("**/source.pine")
@@ -148,24 +187,40 @@ pub fn is_baseline_catalog_request(baseline: &str) -> bool {
     baseline == BASELINE_CATALOG_MARKER
 }
 
-// Lenient listing: malformed metadata or expect.json downgrades to defaults
-// rather than failing the whole catalog. Validation lives in `run_strict` (and
-// the `baked_fixtures_validate_strictly` test) so a single bad fixture cannot
-// silently zero out `pine version` or `pine indicator --list`.
+// Lenient listing: malformed metadata, bars.json, or expect.json downgrades to
+// defaults rather than failing the whole catalog. A warning is emitted to stderr
+// so misconfigured fixtures are visible without breaking the catalog entirely.
+// Strict validation lives in `run_strict` (and the
+// `baked_fixtures_validate_strictly` test).
 fn load_listing_lenient(slug: &str) -> IndicatorListing {
     let metadata: MetadataFile = optional_utf8(slug, "metadata.json")
         .ok()
         .flatten()
-        .and_then(|json| serde_json::from_str(json).ok())
+        .map(serde_json::from_str::<MetadataFile>)
+        .transpose()
+        .unwrap_or_else(|e| {
+            eprintln!("warning: indicator fixture {slug}: metadata.json parse failed: {e}");
+            None
+        })
         .unwrap_or_default();
     let bars = optional_utf8(slug, "bars.json")
         .ok()
         .flatten()
-        .and_then(|json| parse_bars(json).ok());
+        .map(parse_bars)
+        .transpose()
+        .unwrap_or_else(|e| {
+            eprintln!("warning: indicator fixture {slug}: bars.json parse failed: {e}");
+            None
+        });
     let (expect_pine, expect_tv, output_count, test_range) = optional_utf8(slug, "expect.json")
         .ok()
         .flatten()
-        .and_then(|json| parse_expect(slug, json).ok())
+        .map(|json| parse_expect(slug, json))
+        .transpose()
+        .unwrap_or_else(|e| {
+            eprintln!("warning: indicator fixture {slug}: expect.json parse failed: {e}");
+            None
+        })
         .map_or((None, None, None, None), |expect| {
             (
                 expect.pine_version,
@@ -182,11 +237,14 @@ fn load_listing_lenient(slug: &str) -> IndicatorListing {
         bar_count: bars.as_ref().map(|bars| bars.bars.len()),
         output_count,
         test_range,
-        pine_version: expect_pine.or(metadata.pine_version),
+        pine_version: effective_pine_version_inner(
+            expect_pine.as_ref(),
+            metadata.pine_version.as_ref(),
+        ),
         tv_snapshot: if metadata.baseline == BaselineKind::Smoke {
             None
         } else {
-            expect_tv.or(metadata.tv_snapshot)
+            effective_tv_snapshot_inner(expect_tv.as_ref(), metadata.tv_snapshot.as_ref())
         },
     }
 }
@@ -484,4 +542,139 @@ pub(super) fn sanitise_slug(slug: &str) -> Result<&str> {
 
 fn default_tolerance() -> f64 {
     1e-9
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_fixture(
+        expect_pine: Option<&str>,
+        expect_tv: Option<&str>,
+        meta_pine: Option<&str>,
+        meta_tv: Option<&str>,
+    ) -> IndicatorFixture {
+        IndicatorFixture {
+            slug: "test-fixture".to_string(),
+            source: String::new(),
+            bars: BarsFile {
+                symbol: None,
+                timeframe: None,
+                source: None,
+                context: None,
+                bars: vec![],
+            },
+            expect: ExpectFile {
+                schema_version: EXPECT_SCHEMA_VERSION,
+                indicator_slug: "test-fixture".to_string(),
+                pine_version: expect_pine.map(String::from),
+                tv_snapshot: expect_tv.map(String::from),
+                tolerance: 1e-9,
+                outputs: std::collections::BTreeMap::new(),
+                test_range: None,
+            },
+            metadata: MetadataFile {
+                baseline: BaselineKind::Smoke,
+                pine_version: meta_pine.map(String::from),
+                tv_snapshot: meta_tv.map(String::from),
+                notes: None,
+            },
+        }
+    }
+
+    // --- effective_pine_version precedence ---
+
+    #[test]
+    fn effective_pine_version_expect_wins_over_metadata() {
+        let fixture = make_fixture(Some("from-expect"), None, Some("from-meta"), None);
+        assert_eq!(
+            fixture.effective_pine_version().as_deref(),
+            Some("from-expect")
+        );
+    }
+
+    #[test]
+    fn effective_pine_version_falls_back_to_metadata() {
+        let fixture = make_fixture(None, None, Some("from-meta"), None);
+        assert_eq!(
+            fixture.effective_pine_version().as_deref(),
+            Some("from-meta")
+        );
+    }
+
+    #[test]
+    fn effective_pine_version_both_none_returns_none() {
+        let fixture = make_fixture(None, None, None, None);
+        assert!(fixture.effective_pine_version().is_none());
+    }
+
+    // --- effective_tv_snapshot precedence ---
+
+    #[test]
+    fn effective_tv_snapshot_expect_wins_over_metadata() {
+        let fixture = make_fixture(None, Some("snap-expect"), None, Some("snap-meta"));
+        assert_eq!(
+            fixture.effective_tv_snapshot().as_deref(),
+            Some("snap-expect")
+        );
+    }
+
+    #[test]
+    fn effective_tv_snapshot_falls_back_to_metadata() {
+        let fixture = make_fixture(None, None, None, Some("snap-meta"));
+        assert_eq!(
+            fixture.effective_tv_snapshot().as_deref(),
+            Some("snap-meta")
+        );
+    }
+
+    #[test]
+    fn effective_tv_snapshot_both_none_returns_none() {
+        let fixture = make_fixture(None, None, None, None);
+        assert!(fixture.effective_tv_snapshot().is_none());
+    }
+
+    // --- inner helpers used by load_listing_lenient ---
+
+    #[test]
+    fn inner_pine_version_expect_over_meta() {
+        let e = String::from("a");
+        let m = String::from("b");
+        assert_eq!(
+            effective_pine_version_inner(Some(&e), Some(&m)).as_deref(),
+            Some("a")
+        );
+    }
+
+    #[test]
+    fn inner_pine_version_falls_back_when_expect_none() {
+        let m = String::from("b");
+        assert_eq!(
+            effective_pine_version_inner(None, Some(&m)).as_deref(),
+            Some("b")
+        );
+    }
+
+    #[test]
+    fn inner_pine_version_both_none() {
+        assert!(effective_pine_version_inner(None, None).is_none());
+    }
+
+    // --- load_listing_lenient with malformed metadata.json ---
+    // The slug points to a fixture directory that exists in the embedded
+    // INDICATORS dir; if it does not exist the listing still returns a
+    // IndicatorListing with default values (no panic).
+    #[test]
+    fn load_listing_lenient_nonexistent_slug_returns_defaults() {
+        // A slug that doesn't exist in INDICATORS returns a default listing
+        // without panicking. This exercises the None path of all optional_utf8
+        // branches.
+        let listing = load_listing_lenient("nonexistent-fixture-xyz");
+        assert_eq!(listing.slug, "nonexistent-fixture-xyz");
+        assert_eq!(listing.baseline, BaselineKind::Smoke);
+        assert!(listing.pine_version.is_none());
+        assert!(listing.tv_snapshot.is_none());
+        assert!(listing.bar_count.is_none());
+        assert!(listing.output_count.is_none());
+    }
 }

@@ -52,16 +52,8 @@ pub(super) fn run_fixture(fixture: &IndicatorFixture) -> Result<IndicatorReport>
         mismatch_count,
         tolerance: fixture.expect.tolerance,
         test_range: fixture.expect.test_range.clone(),
-        pine_version: fixture
-            .expect
-            .pine_version
-            .clone()
-            .or_else(|| fixture.metadata.pine_version.clone()),
-        tv_snapshot: fixture
-            .expect
-            .tv_snapshot
-            .clone()
-            .or_else(|| fixture.metadata.tv_snapshot.clone()),
+        pine_version: fixture.effective_pine_version(),
+        tv_snapshot: fixture.effective_tv_snapshot(),
         runtime_error: actual.runtime_error,
         stub_dependencies: actual.stub_dependencies,
         mismatches,

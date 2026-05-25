@@ -38,9 +38,15 @@ pub(crate) fn run(
                     eprintln!("      (no --strict) for IDE-quality errors when iterating.");
                 }
                 for d in &report.diagnostics {
+                    // Wildcard arm exists because `validate::Severity` is
+                    // `#[non_exhaustive]` across crate boundaries; future
+                    // variants render as cyan placeholders until classified.
+                    #[allow(clippy::match_same_arms)]
                     let sev = match d.severity {
                         validate::Severity::Error => style.red("error"),
                         validate::Severity::Warning => style.yellow("warning"),
+                        validate::Severity::Hint => style.cyan("hint"),
+                        _ => style.cyan("hint"),
                     };
                     let stage = style.dim(&format!(
                         "[{}]",
@@ -69,7 +75,15 @@ pub(crate) fn run(
                     }
                 }
                 if report.ok && !quiet {
-                    println!("{}", style.yellow("ok (warnings only)"));
+                    let has_warn = report
+                        .diagnostics
+                        .iter()
+                        .any(|d| matches!(d.severity, validate::Severity::Warning));
+                    if has_warn {
+                        println!("{}", style.yellow("ok (warnings only)"));
+                    } else {
+                        println!("{}", style.cyan("ok (hints only)"));
+                    }
                 }
             }
         }

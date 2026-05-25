@@ -9,6 +9,13 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 pub const EXPECT_SCHEMA_VERSION: u32 = 1;
 pub(super) const DEFAULT_RUNNER_EXPECT_TOLERANCE: f64 = 0.0;
 
+// Interchange tokens for special OutputValue variants. Defined once here so
+// Serialize, Deserialize, and Display all reference the same literal.
+pub(super) const TOKEN_NA: &str = "__NaN__";
+pub(super) const TOKEN_POS_INF: &str = "__Infinity__";
+pub(super) const TOKEN_NEG_INF: &str = "__-Infinity__";
+pub(super) const TOKEN_UNDEFINED: &str = "__undefined__";
+
 #[derive(Debug, Clone, Serialize)]
 pub struct IndicatorListing {
     pub slug: String,
@@ -174,6 +181,8 @@ pub struct IndicatorMismatch {
     pub actual_len: usize,
 }
 
+// New failure modes (e.g. key-name drift, tolerance class) can be added without breaking callers.
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MismatchReason {
@@ -187,6 +196,8 @@ pub enum MismatchReason {
 // no `baseline` field) gets classified as the lower tier. TV baselines must
 // be opted into explicitly because they additionally require pine_version +
 // tv_snapshot. No "unknown" third tier exists; serde rejects any other value.
+// Additional tiers (e.g. community-sourced captures) may be added later.
+#[non_exhaustive]
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BaselineKind {
@@ -280,10 +291,10 @@ impl Serialize for OutputValue {
         match self.kind {
             OutputValueKind::Number => serializer.serialize_f64(self.number),
             OutputValueKind::Bool => serializer.serialize_bool(self.bool_value),
-            OutputValueKind::Na => serializer.serialize_str("__NaN__"),
-            OutputValueKind::PosInfinity => serializer.serialize_str("__Infinity__"),
-            OutputValueKind::NegInfinity => serializer.serialize_str("__-Infinity__"),
-            OutputValueKind::Undefined => serializer.serialize_str("__undefined__"),
+            OutputValueKind::Na => serializer.serialize_str(TOKEN_NA),
+            OutputValueKind::PosInfinity => serializer.serialize_str(TOKEN_POS_INF),
+            OutputValueKind::NegInfinity => serializer.serialize_str(TOKEN_NEG_INF),
+            OutputValueKind::Undefined => serializer.serialize_str(TOKEN_UNDEFINED),
         }
     }
 }
@@ -301,10 +312,10 @@ impl<'de> Deserialize<'de> for OutputValue {
                 .ok_or_else(|| D::Error::custom("expected finite JSON number")),
             serde_json::Value::Bool(value) => Ok(Self::bool(value)),
             serde_json::Value::String(token) => match token.as_str() {
-                "__NaN__" => Ok(Self::special(OutputValueKind::Na)),
-                "__Infinity__" => Ok(Self::special(OutputValueKind::PosInfinity)),
-                "__-Infinity__" => Ok(Self::special(OutputValueKind::NegInfinity)),
-                "__undefined__" => Ok(Self::undefined()),
+                TOKEN_NA => Ok(Self::special(OutputValueKind::Na)),
+                TOKEN_POS_INF => Ok(Self::special(OutputValueKind::PosInfinity)),
+                TOKEN_NEG_INF => Ok(Self::special(OutputValueKind::NegInfinity)),
+                TOKEN_UNDEFINED => Ok(Self::undefined()),
                 _ => Err(D::Error::custom(format!(
                     "unknown indicator output token `{token}`"
                 ))),
@@ -321,10 +332,52 @@ impl fmt::Display for OutputValue {
         match self.kind {
             OutputValueKind::Number => write!(f, "{}", self.number),
             OutputValueKind::Bool => write!(f, "{}", self.bool_value),
-            OutputValueKind::Na => f.write_str("__NaN__"),
-            OutputValueKind::PosInfinity => f.write_str("__Infinity__"),
-            OutputValueKind::NegInfinity => f.write_str("__-Infinity__"),
-            OutputValueKind::Undefined => f.write_str("__undefined__"),
+            OutputValueKind::Na => f.write_str(TOKEN_NA),
+            OutputValueKind::PosInfinity => f.write_str(TOKEN_POS_INF),
+            OutputValueKind::NegInfinity => f.write_str(TOKEN_NEG_INF),
+            OutputValueKind::Undefined => f.write_str(TOKEN_UNDEFINED),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Confirm that each special OutputValue token constant matches what
+    // serde_json::to_string produces, so a typo in one constant is caught
+    // at compile/test time rather than silently diverging at runtime.
+    #[test]
+    fn output_value_token_constants_round_trip() {
+        let cases: &[(OutputValue, &str)] = &[
+            (OutputValue::special(OutputValueKind::Na), TOKEN_NA),
+            (
+                OutputValue::special(OutputValueKind::PosInfinity),
+                TOKEN_POS_INF,
+            ),
+            (
+                OutputValue::special(OutputValueKind::NegInfinity),
+                TOKEN_NEG_INF,
+            ),
+            (OutputValue::undefined(), TOKEN_UNDEFINED),
+        ];
+
+        for (value, expected_token) in cases {
+            // Serialize produces a JSON string like `"__NaN__"` (with quotes).
+            let serialized = serde_json::to_string(value).expect("serialize");
+            let quoted = format!("\"{expected_token}\"");
+            assert_eq!(
+                serialized, quoted,
+                "token constant mismatch for {value}: serialized to {serialized}, expected {quoted}"
+            );
+
+            // Deserialize round-trips back to the same value.
+            let round_tripped: OutputValue =
+                serde_json::from_str(&serialized).expect("deserialize");
+            assert_eq!(
+                &round_tripped, value,
+                "round-trip mismatch for token {expected_token}"
+            );
         }
     }
 }
