@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MPL-2.0
 
-use std::path::{Component, Path};
-
 use anyhow::{Context, Result, anyhow, bail};
 use include_dir::{Dir, include_dir};
+
+use crate::util::include_dir_io;
+use crate::util::slug;
 use piners_runner::Bar;
 use piners_runner::types::BarSeriesContext;
 use serde::{Deserialize, Serialize};
@@ -195,17 +196,19 @@ pub fn is_baseline_catalog_request(baseline: &str) -> bool {
 // Strict validation lives in `run_strict` (and the
 // `baked_fixtures_validate_strictly` test).
 fn load_listing_lenient(slug: &str) -> IndicatorListing {
-    let metadata: MetadataFile = optional_utf8(slug, "metadata.json")
-        .ok()
-        .flatten()
-        .map(serde_json::from_str::<MetadataFile>)
-        .transpose()
-        .unwrap_or_else(|e| {
-            eprintln!("warning: indicator fixture {slug}: metadata.json parse failed: {e}");
-            None
-        })
-        .unwrap_or_default();
-    let bars = optional_utf8(slug, "bars.json")
+    let noun = "indicator fixture";
+    let metadata: MetadataFile =
+        include_dir_io::optional_utf8(&INDICATORS, slug, "metadata.json", noun)
+            .ok()
+            .flatten()
+            .map(serde_json::from_str::<MetadataFile>)
+            .transpose()
+            .unwrap_or_else(|e| {
+                eprintln!("warning: indicator fixture {slug}: metadata.json parse failed: {e}");
+                None
+            })
+            .unwrap_or_default();
+    let bars = include_dir_io::optional_utf8(&INDICATORS, slug, "bars.json", noun)
         .ok()
         .flatten()
         .map(parse_bars)
@@ -214,23 +217,24 @@ fn load_listing_lenient(slug: &str) -> IndicatorListing {
             eprintln!("warning: indicator fixture {slug}: bars.json parse failed: {e}");
             None
         });
-    let (expect_pine, expect_tv, output_count, test_range) = optional_utf8(slug, "expect.json")
-        .ok()
-        .flatten()
-        .map(|json| parse_expect(slug, json))
-        .transpose()
-        .unwrap_or_else(|e| {
-            eprintln!("warning: indicator fixture {slug}: expect.json parse failed: {e}");
-            None
-        })
-        .map_or((None, None, None, None), |expect| {
-            (
-                expect.pine_version,
-                expect.tv_snapshot,
-                Some(expect.outputs.len()),
-                expect.test_range,
-            )
-        });
+    let (expect_pine, expect_tv, output_count, test_range) =
+        include_dir_io::optional_utf8(&INDICATORS, slug, "expect.json", noun)
+            .ok()
+            .flatten()
+            .map(|json| parse_expect(slug, json))
+            .transpose()
+            .unwrap_or_else(|e| {
+                eprintln!("warning: indicator fixture {slug}: expect.json parse failed: {e}");
+                None
+            })
+            .map_or((None, None, None, None), |expect| {
+                (
+                    expect.pine_version,
+                    expect.tv_snapshot,
+                    Some(expect.outputs.len()),
+                    expect.test_range,
+                )
+            });
     IndicatorListing {
         slug: slug.to_string(),
         baseline: metadata.baseline,
@@ -303,12 +307,17 @@ pub(super) fn filter_description(grep: Option<&str>, baseline_filter: Option<&st
     }
 }
 
-pub(super) fn load_fixture(slug: &str) -> Result<IndicatorFixture> {
-    let slug = sanitise_slug(slug)?;
-    let source = require_utf8(slug, "source.pine")?.to_string();
-    let bars_json = require_utf8(slug, "bars.json")?;
-    let expect_json = require_utf8(slug, "expect.json")?;
-    let metadata_json = optional_utf8(slug, "metadata.json")?;
+pub(super) fn load_fixture(slug_input: &str) -> Result<IndicatorFixture> {
+    let slug = sanitise_slug(slug_input)?;
+    let source =
+        include_dir_io::require_utf8(&INDICATORS, slug, "source.pine", "indicator fixture")?
+            .to_string();
+    let bars_json =
+        include_dir_io::require_utf8(&INDICATORS, slug, "bars.json", "indicator fixture")?;
+    let expect_json =
+        include_dir_io::require_utf8(&INDICATORS, slug, "expect.json", "indicator fixture")?;
+    let metadata_json =
+        include_dir_io::optional_utf8(&INDICATORS, slug, "metadata.json", "indicator fixture")?;
     parse_fixture(slug, source, bars_json, expect_json, metadata_json)
 }
 
@@ -504,42 +513,14 @@ fn positive_seconds(count: i64, unit_seconds: i64) -> Option<i64> {
     count.checked_mul(unit_seconds)
 }
 
-fn require_utf8(slug: &str, file_name: &str) -> Result<&'static str> {
-    optional_utf8(slug, file_name)?.ok_or_else(|| {
-        let available = list_fixtures().map(|items| items.len()).unwrap_or_default();
-        anyhow!(
-            "indicator fixture `{slug}` is missing {file_name}; {available} fixture(s) are baked"
-        )
-    })
-}
-
-fn optional_utf8(slug: &str, file_name: &str) -> Result<Option<&'static str>> {
-    let path = format!("{slug}/{file_name}");
-    INDICATORS
-        .get_file(&path)
-        .map(|file| {
-            file.contents_utf8()
-                .ok_or_else(|| anyhow!("{path} is not valid UTF-8"))
-        })
-        .transpose()
-}
-
-pub(super) fn sanitise_slug(slug: &str) -> Result<&str> {
-    let slug = slug
-        .trim()
-        .strip_prefix("indicators/")
-        .unwrap_or(slug.trim());
-    if slug.is_empty() {
-        bail!("indicator slug must not be empty");
-    }
-    let path = Path::new(slug);
-    for component in path.components() {
-        match component {
-            Component::Normal(part) if !part.is_empty() => {}
-            _ => bail!("invalid indicator slug `{slug}`"),
-        }
-    }
-    Ok(slug)
+/// Validate and normalise an indicator fixture slug.
+///
+/// Thin wrapper around [`crate::util::slug::sanitise_slug`] with the
+/// `"indicators"` prefix and indicator-specific error framing. Kept as a
+/// named function in this module so `tests.rs` can import it directly.
+pub(super) fn sanitise_slug(slug_input: &str) -> Result<&str> {
+    slug::sanitise_slug(slug_input, "indicators")
+        .map_err(|e| anyhow!("invalid indicator slug `{slug_input}`: {e}"))
 }
 
 fn default_tolerance() -> f64 {

@@ -5,4 +5,5 @@ pub mod diff;
 pub mod indicator;
 pub mod reference;
 pub mod search;
+pub(crate) mod util;
 pub mod validate;

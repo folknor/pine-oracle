@@ -24,10 +24,14 @@
 // override so probes with non-standard filenames (e.g. multi-mode probes
 // that ship several CSVs) load the correct one.
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, anyhow};
 use include_dir::{Dir, include_dir};
 use serde::Serialize;
 use std::sync::OnceLock;
+
+use crate::util::include_dir_io;
+use crate::util::pine_text;
+use crate::util::slug;
 
 static CORPUS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/vendor/pineforge-corpus/validation");
 
@@ -53,11 +57,11 @@ pub struct ProbeListing {
 /// per-probe by setting `"tv_trades_csv": "<filename>"` in `inputs.json`.
 /// If `inputs.json` is present but not valid JSON, the function fails with
 /// a clear error pointing at the slug.
-pub fn load_probe(slug: &str) -> Result<Probe> {
-    let slug = sanitise_slug(slug)?;
+pub fn load_probe(slug_input: &str) -> Result<Probe> {
+    let slug = slug::sanitise_slug(slug_input, "validation")?;
 
-    let strategy_pine = require_utf8(slug, "strategy.pine")?;
-    let inputs_json = optional_utf8(slug, "inputs.json")?;
+    let strategy_pine = include_dir_io::require_utf8(&CORPUS, slug, "strategy.pine", "probe")?;
+    let inputs_json = include_dir_io::optional_utf8(&CORPUS, slug, "inputs.json", "probe")?;
 
     // Derive the trade CSV filename: honour `tv_trades_csv` in inputs.json
     // if present; fall back to the corpus-wide default `tv_trades.csv`.
@@ -72,7 +76,7 @@ pub fn load_probe(slug: &str) -> Result<Probe> {
         "tv_trades.csv".to_string()
     };
 
-    let tv_trades_csv = require_utf8(slug, &csv_filename)?;
+    let tv_trades_csv = include_dir_io::require_utf8(&CORPUS, slug, &csv_filename, "probe")?;
 
     Ok(Probe {
         slug: slug.to_string(),
@@ -143,9 +147,7 @@ const FEATURE_CATALOG: &[FeatureSpec] = &[
     FeatureSpec {
         name: "trail",
         description: "Trailing-stop exits (trail_points / trail_offset / trail_price)",
-        detector: |s| {
-            s.contains("trail_points") || s.contains("trail_offset") || s.contains("trail_price")
-        },
+        detector: |s| pine_text::uses_trail_exits(s),
     },
     FeatureSpec {
         name: "pyramiding",
@@ -249,7 +251,7 @@ fn feature_index() -> &'static std::collections::HashMap<String, std::collection
             let Some(content) = file.contents_utf8() else {
                 continue;
             };
-            let stripped = strip_pine_comments(content);
+            let stripped = pine_text::strip_pine_comments(content);
             for spec in FEATURE_CATALOG {
                 if (spec.detector)(&stripped) {
                     out.get_mut(spec.name)
@@ -260,32 +262,6 @@ fn feature_index() -> &'static std::collections::HashMap<String, std::collection
         }
         out
     })
-}
-
-/// Strip Pine line (`//`) and block (`/* */`) comments. Local copy of
-/// the same routine in `diff.rs::detect_profile_from_source`; not worth
-/// extracting a shared module for two callers.
-fn strip_pine_comments(src: &str) -> String {
-    let mut out = String::with_capacity(src.len());
-    let bytes = src.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'*' {
-            i += 2;
-            while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
-                i += 1;
-            }
-            i = (i + 2).min(bytes.len());
-        } else if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'/' {
-            while i < bytes.len() && bytes[i] != b'\n' {
-                i += 1;
-            }
-        } else {
-            out.push(bytes[i] as char);
-            i += 1;
-        }
-    }
-    out
 }
 
 fn detect_real_pyramiding(src: &str) -> bool {
@@ -460,43 +436,6 @@ pub fn probe_summary_count() -> usize {
         .filter_map(|f| f.path().parent()?.to_str().map(str::to_string))
         .filter(|slug| summary_for(slug).is_some())
         .count()
-}
-
-fn sanitise_slug(slug: &str) -> Result<&str> {
-    let slug = slug.trim();
-    let slug = slug.strip_prefix("validation/").unwrap_or(slug);
-    if slug.is_empty() {
-        bail!("probe slug cannot be empty");
-    }
-    if slug.starts_with('/') || slug.starts_with('\\') {
-        bail!("probe slug cannot be absolute: `{slug}`");
-    }
-    for segment in slug.split(['/', '\\']) {
-        if segment.is_empty() || segment == "." || segment == ".." {
-            bail!("probe slug has invalid segment `{segment}` in `{slug}`");
-        }
-    }
-    Ok(slug)
-}
-
-fn require_utf8(slug: &str, filename: &str) -> Result<&'static str> {
-    let path = format!("{slug}/{filename}");
-    let file = CORPUS
-        .get_file(&path)
-        .ok_or_else(|| anyhow!("probe `{slug}` is missing {filename}"))?;
-    file.contents_utf8()
-        .ok_or_else(|| anyhow!("probe `{slug}/{filename}` is not valid UTF-8"))
-}
-
-fn optional_utf8(slug: &str, filename: &str) -> Result<Option<&'static str>> {
-    let path = format!("{slug}/{filename}");
-    let Some(file) = CORPUS.get_file(&path) else {
-        return Ok(None);
-    };
-    match file.contents_utf8() {
-        Some(s) => Ok(Some(s)),
-        None => bail!("probe `{slug}/{filename}` is not valid UTF-8"),
-    }
 }
 
 #[cfg(test)]
@@ -780,7 +719,7 @@ mod tests {
     #[test]
     fn strip_pine_comments_drops_line_and_block_comments() {
         let src = "real // commented out\n/* block */more real\n// only comment\n";
-        let out = strip_pine_comments(src);
+        let out = pine_text::strip_pine_comments(src);
         assert!(out.contains("real "));
         assert!(out.contains("more real"));
         assert!(!out.contains("commented out"));

@@ -52,6 +52,7 @@ use chrono::{DateTime, FixedOffset, NaiveDateTime, TimeZone, Utc};
 use serde::Serialize;
 
 use crate::corpus;
+use crate::util::pine_text;
 
 // ---------- thresholds (lifted verbatim from verify_corpus.py) ----------
 
@@ -600,39 +601,8 @@ fn resolve_profile(pine_source: &str, meta: &InputsMeta) -> Profile {
 }
 
 fn detect_profile_from_source(pine_source: &str) -> bool {
-    // Strip block + line comments, then look for any trail_(points|offset|price)= token.
-    let mut stripped = String::with_capacity(pine_source.len());
-    let bytes = pine_source.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'*' {
-            // skip block comment
-            i += 2;
-            while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
-                i += 1;
-            }
-            i = (i + 2).min(bytes.len());
-        } else if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'/' {
-            // skip line comment
-            while i < bytes.len() && bytes[i] != b'\n' {
-                i += 1;
-            }
-        } else {
-            stripped.push(bytes[i] as char);
-            i += 1;
-        }
-    }
-    let lower = stripped.to_ascii_lowercase();
-    for needle in ["trail_points", "trail_offset", "trail_price"] {
-        if let Some(pos) = lower.find(needle) {
-            let rest = &lower[pos + needle.len()..];
-            // require `=` after optional whitespace
-            if rest.trim_start().starts_with('=') {
-                return true;
-            }
-        }
-    }
-    false
+    let stripped = pine_text::strip_pine_comments(pine_source);
+    pine_text::uses_trail_exits(&stripped)
 }
 
 fn classify_tier(
