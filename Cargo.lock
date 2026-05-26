@@ -2098,7 +2098,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tantivy",
- "thiserror",
  "ureq",
  "walkdir",
 ]

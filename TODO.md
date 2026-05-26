@@ -9,43 +9,36 @@ The migration is complete: `src/syntax/` is gone, `piners-syntax` is on
 a path dependency, and `validate`, `parse`, and `tokens` all flow through
 `piners_syntax::*`. Remaining cleanup items:
 
-- Drop `thiserror` from `Cargo.toml` once `piners-syntax` exports its own
-  error types publicly and no local code needs `thiserror` directly.
-- Update `docs/pine-oracle.md` Architecture section + `AGENTS.md` to drop
-  any remaining "lifted from pinecone, temporary" framing.
+- Replace `{script:#?}` Debug output in `pine parse` text mode
+  (`src/commands/parse.rs:18`) with a stable structured printer once
+  piners-syntax exposes a Display / pretty-printer for AST nodes.
+  `ast.rs` currently has no Display impl. JSON is already the stable AST
+  surface.
 
-## Waiting on OHLCV bake
+## OHLCV wiring
 
-- `pine indicator --strict <slug>`: runner substrate is shipped; real
-  TradingView-captured `expect.json` baselines are pending. Existing
-  `smoke-*` fixtures are deterministic substrate checks, not oracle-grade
-  captures. Bake TV baselines per indicator before treating `--strict` as
-  an oracle.
-- `pine diff` interior trim: `trim_bars` / `warmup_bars` honouring needs
-  `ohlcv_first_ms` + `ohlcv_last_ms` + `bar_ms`. Currently skipped; full
-  common-window trim used instead. Will land alongside the OHLCV bake.
-  Also blocked: cross-symbol / cross-timeframe `request.security(...)` TV
-  fixtures (OHLCV feed not yet baked).
+`piners-data` (in the piners workspace) ships full OHLCV machinery:
+`load_ohlcv` / `load_ohlcv_multi`, parquet cache, provider sources
+(Binance / Coinbase / Dukascopy / yfinance), timeframe aggregation. The
+remaining work is in-repo wiring:
 
-## Waiting on pine-tools schema evolutions
+- Add `piners-data` as a path dependency.
+- Bake TradingView-captured `expect.json` baselines under `indicators/`
+  using real OHLCV bars. Existing `smoke-*` fixtures are deterministic
+  substrate checks, not oracle-grade captures. Real TV baselines unlock
+  treating `pine indicator --strict` as an oracle.
+- Wire `trim_bars` / `warmup_bars` in `pine diff` (needs
+  `ohlcv_first_ms` + `ohlcv_last_ms` + `bar_ms`). Currently skipped; full
+  common-window trim used instead.
+- Add cross-symbol / cross-timeframe `request.security(...)` TV fixtures
+  once baseline OHLCV is in place.
 
-- Whenever `pine-tools/pine-data/v6/*.json` adds fields, re-vendor by
-  copy and verify `src/behavior.rs` consumes them. `#[serde(default)]`
-  on every optional field absorbs additions for free; removals or
-  renames need code changes.
-- If `examples: string[]` ever changes shape again (currently per-function
-  array of strings with `\n` preserved), update `RawFunction::examples`
-  and the `print_behavior_text` enumeration.
+## Quick wins (doable now)
 
-## Internal polish (small)
-
-- Replace `Box::leak`-per-summary in `corpus::build_summary_index` with
-  a single arena allocator (e.g. `&'static [u8]` slab) if leak count
-  ever becomes a memory concern. Bounded today at 239 entries with
-  median ~650 chars each (~150 KB total); not urgent.
-- `pine parse` text mode uses `{:#?}` Debug output because piners-syntax
-  has no stable pretty-printer yet. When piners-syntax exposes a
-  structured printer, replace Debug with it.
+- Write `docs/diagnostics.md` mapping `pine validate` diagnostic codes
+  (`PINE0101`-`PINE0408`, defined in
+  `piners-syntax/src/diagnostic.rs`) to human-readable explanations.
+  The stable `code` field on `Diagnostic` is already shipped.
 
 ## Distribution
 
@@ -69,6 +62,3 @@ a path dependency, and `validate`, `parse`, and `tokens` all flow through
 - Per-subcommand worked example in the README or a separate
   `docs/examples.md`. Show `pine lookup math.max --format json`,
   `pine behavior input`, `pine search magnifier --kind docs`, etc.
-- `docs/diagnostics.md` mapping `pine validate` diagnostic codes to
-  human-readable explanations - lands when piners-syntax brings the
-  stable `code` field on `Diagnostic`.
