@@ -1,5 +1,5 @@
 use anyhow::{Result, bail};
-use pine_cli::reference;
+use pine_oracle::reference;
 
 use crate::output::{ResolvedFormat, Style, print_json};
 

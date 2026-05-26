@@ -9,7 +9,7 @@ The migration is complete: `src/syntax/` is gone, `piners-syntax` is on
 a path dependency, and `validate`, `parse`, and `tokens` all flow through
 `piners_syntax::*`. Remaining cleanup items:
 
-- Replace `{script:#?}` Debug output in `pine parse` text mode
+- Replace `{script:#?}` Debug output in `po parse` text mode
   (`src/commands/parse.rs:18`) with a stable structured printer once
   piners-syntax exposes a Display / pretty-printer for AST nodes.
   `ast.rs` currently has no Display impl. JSON is already the stable AST
@@ -44,25 +44,8 @@ are already available via the corpus-data clone path used by the
 span bake; replay them through piners-runner once a TV-captured
 `expect.json` exists.
 
-## Distribution
-
-- Homebrew tap setup. Tap name TBD.
-- Pre-built binaries on GitHub Releases (linux-x86_64, macos-arm64,
-  macos-x86_64, windows-x86_64). Cross-compile via cargo + matrix CI.
-- `cargo install pine-cli` from crates.io publication. Requires final
-  license confirmation (Open Q9 + Q10 already resolved; this is the
-  publish step itself).
-
-## CI
-
-- GitHub Actions workflow: `brokkr check` on push + PR. Matrix: linux
-  + macos at least. Cache the cargo registry + `vendor/pineforge-corpus/`
-  to keep build under a minute.
-- Release automation that builds the four-target binary matrix on tag
-  push.
-
 ## Documentation
 
 - Per-subcommand worked example in the README or a separate
-  `docs/examples.md`. Show `pine lookup math.max --format json`,
-  `pine behavior input`, `pine search magnifier --kind docs`, etc.
+  `docs/examples.md`. Show `po lookup math.max --format json`,
+  `po behavior input`, `po search magnifier --kind docs`, etc.

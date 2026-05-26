@@ -47,7 +47,7 @@ pub fn load_fixture_detail(slug: &str) -> Result<IndicatorFixtureDetail> {
 
 /// Load fixture metadata and expected-output summary for `<slug>`, also
 /// running the piners runner to collect actual output keys. Suitable for the
-/// default `pine indicator <slug>` authoring view. `actual_outputs_checked` is
+/// default `po indicator <slug>` authoring view. `actual_outputs_checked` is
 /// `true` on the returned detail.
 pub fn load_fixture_detail_with_actual(slug: &str) -> Result<IndicatorFixtureDetail> {
     let fixture = fixture::load_fixture(slug)?;

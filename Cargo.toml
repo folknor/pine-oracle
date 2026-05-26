@@ -48,7 +48,7 @@ dbg_macro = "deny"
 todo = "deny"
 
 [package]
-name = "pine-cli"
+name = "pine-oracle"
 version = "0.0.1"
 edition = "2024"
 rust-version = "1.92"
@@ -59,7 +59,7 @@ license = "MPL-2.0"
 workspace = true
 
 [[bin]]
-name = "pine"
+name = "po"
 path = "src/main.rs"
 
 [dependencies]

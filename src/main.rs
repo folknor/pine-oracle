@@ -1,6 +1,6 @@
 use anyhow::{Result, bail};
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use pine_cli::{behavior, corpus, indicator, reference, search};
+use pine_oracle::{behavior, corpus, indicator, reference, search};
 use std::io::{IsTerminal, Read};
 use std::path::{Path, PathBuf};
 
@@ -411,7 +411,7 @@ fn cmd_version(format: ResolvedFormat, quiet: bool) -> Result<()> {
             }))?;
         }
         ResolvedFormat::Text => {
-            println!("pine {binary}");
+            println!("po {binary}");
             if quiet {
                 return Ok(());
             }
@@ -535,7 +535,7 @@ mod tests {
     #[test]
     fn cmd_version_json_shape() {
         use crate::output::versioned_json;
-        use pine_cli::{behavior, corpus, indicator, reference, search};
+        use pine_oracle::{behavior, corpus, indicator, reference, search};
 
         let binary = env!("CARGO_PKG_VERSION");
         let categories = reference::categories();

@@ -95,7 +95,7 @@ pub fn load_probe(slug_input: &str) -> Result<Probe> {
 ///
 /// Canonical slug rules:
 /// - The `validation/` directory root is never part of the canonical slug.
-///   `pine probe validation/oca-multi-bracket-isolation-01` loads correctly
+///   `po probe validation/oca-multi-bracket-isolation-01` loads correctly
 ///   but the returned `Probe.slug` is `oca-multi-bracket-isolation-01`.
 /// - Nested slugs (under `symbol-specified/<SYMBOL>/`) retain the full
 ///   relative path as the canonical slug: `symbol-specified/AAPL/foo-01`.
@@ -797,7 +797,7 @@ mod tests {
     fn feature_catalog_every_entry_has_nonempty_description() {
         // Every feature must have a non-empty human-readable description.
         // A missing or empty description would show up as a blank line in
-        // `pine probes --feature ?` output.
+        // `po probes --feature ?` output.
         let cat = feature_catalog();
         let empty: Vec<&str> = cat
             .iter()

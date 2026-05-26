@@ -1,4 +1,4 @@
 project = "pine-oracle"
 
 [test]
-default_package = "pine-cli"
+default_package = "pine-oracle"

@@ -187,7 +187,7 @@ pub fn baseline_catalog() -> Result<Vec<IndicatorBaselineInfo>> {
 }
 
 /// Returns `true` when `baseline` is the catalog sentinel `"?"`.
-/// Thin delegate kept for library consumers that import `pine_cli::indicator`
+/// Thin delegate kept for library consumers that import `pine_oracle::indicator`
 /// directly; the binary uses `output::is_catalog_request` instead.
 #[must_use]
 pub fn is_baseline_catalog_request(baseline: &str) -> bool {

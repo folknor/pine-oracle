@@ -1,5 +1,5 @@
 use anyhow::{Result, bail};
-use pine_cli::indicator;
+use pine_oracle::indicator;
 
 use crate::output::{ResolvedFormat, Style, is_catalog_request, print_catalog, print_json};
 
@@ -21,47 +21,47 @@ pub(crate) fn run(args: &Args<'_>, format: ResolvedFormat, _style: Style) -> Res
     }
     if args.list {
         if args.strict {
-            bail!("`pine indicator --list` cannot combine with `--strict`");
+            bail!("`po indicator --list` cannot combine with `--strict`");
         }
         if args.actual {
-            bail!("`pine indicator --list` cannot combine with `--actual`");
+            bail!("`po indicator --list` cannot combine with `--actual`");
         }
         if args.metadata_only {
-            bail!("`pine indicator --list` cannot combine with `--metadata-only`");
+            bail!("`po indicator --list` cannot combine with `--metadata-only`");
         }
         let grep = resolve_list_grep(args.slug, args.grep)?;
         if args.all {
-            bail!("`pine indicator --list` cannot combine with `--all`");
+            bail!("`po indicator --list` cannot combine with `--all`");
         }
         return print_fixture_list(grep, args.baseline, format, args.quiet);
     }
     if args.all {
         if args.slug.is_some() {
-            bail!("`pine indicator --strict --all` cannot combine with a fixture slug");
+            bail!("`po indicator --strict --all` cannot combine with a fixture slug");
         }
         if args.actual {
-            bail!("`pine indicator --strict --all` cannot combine with `--actual`");
+            bail!("`po indicator --strict --all` cannot combine with `--actual`");
         }
         if args.metadata_only {
-            bail!("`pine indicator --strict --all` cannot combine with `--metadata-only`");
+            bail!("`po indicator --strict --all` cannot combine with `--metadata-only`");
         }
         if !args.strict {
-            bail!("`pine indicator --all` requires `--strict`");
+            bail!("`po indicator --all` requires `--strict`");
         }
         return print_batch_report(args.grep, args.baseline, format);
     }
     if args.grep.is_some() || args.baseline.is_some() {
-        bail!("`pine indicator --grep/--baseline` requires `--list` or `--all`");
+        bail!("`po indicator --grep/--baseline` requires `--list` or `--all`");
     }
     let Some(slug) = args.slug else {
-        bail!("`pine indicator` requires a fixture slug, `--strict --all`, or `--list`");
+        bail!("`po indicator` requires a fixture slug, `--strict --all`, or `--list`");
     };
     if args.actual {
         if args.strict {
-            bail!("`pine indicator --actual` cannot combine with `--strict`");
+            bail!("`po indicator --actual` cannot combine with `--strict`");
         }
         if args.metadata_only {
-            bail!("`pine indicator --actual` cannot combine with `--metadata-only`");
+            bail!("`po indicator --actual` cannot combine with `--metadata-only`");
         }
         return print_actual_report(slug, format);
     }
@@ -69,7 +69,7 @@ pub(crate) fn run(args: &Args<'_>, format: ResolvedFormat, _style: Style) -> Res
         return print_fixture_detail(slug, args.metadata_only, format);
     }
     if args.metadata_only {
-        bail!("`pine indicator --metadata-only` cannot combine with `--strict`");
+        bail!("`po indicator --metadata-only` cannot combine with `--strict`");
     }
     let report = indicator::run_strict(slug)?;
     match format {
@@ -106,7 +106,7 @@ fn print_fixture_detail(slug: &str, metadata_only: bool, format: ResolvedFormat)
 
 fn resolve_list_grep<'a>(slug: Option<&'a str>, grep: Option<&'a str>) -> Result<Option<&'a str>> {
     match (slug, grep) {
-        (Some(_), Some(_)) => bail!("`pine indicator <slug> --list` cannot combine with `--grep`"),
+        (Some(_), Some(_)) => bail!("`po indicator <slug> --list` cannot combine with `--grep`"),
         (Some(slug), None) => Ok(Some(slug)),
         (None, grep) => Ok(grep),
     }

@@ -1,6 +1,6 @@
-# `pine validate` diagnostic codes
+# `po validate` diagnostic codes
 
-Stable codes emitted by `pine validate` (local tier). Every diagnostic
+Stable codes emitted by `po validate` (local tier). Every diagnostic
 carries a `code: Option<DiagnosticCode>` field in JSON output; the
 source of truth is `piners-syntax/src/diagnostic.rs` and the per-stage
 sites in `error.rs`, `typecheck/`, and `semantic.rs`.

@@ -474,7 +474,7 @@ pub fn kind_catalog() -> Vec<BehaviorKindInfo> {
 }
 
 /// Returns `true` when `kind` is the catalog sentinel `"?"`.
-/// Thin delegate kept for library consumers that import `pine_cli::behavior`
+/// Thin delegate kept for library consumers that import `pine_oracle::behavior`
 /// directly; the binary uses `output::is_catalog_request` instead.
 pub fn is_kind_catalog_request(kind: &str) -> bool {
     kind == "?"

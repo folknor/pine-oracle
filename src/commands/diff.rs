@@ -1,5 +1,5 @@
 use anyhow::Result;
-use pine_cli::diff;
+use pine_oracle::diff;
 
 use crate::output::{ResolvedFormat, Style, print_json};
 

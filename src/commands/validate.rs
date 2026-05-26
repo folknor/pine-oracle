@@ -1,7 +1,7 @@
 use std::io::Write as _;
 
 use anyhow::Result;
-use pine_cli::validate;
+use pine_oracle::validate;
 
 use crate::output::{ResolvedFormat, Style, print_json};
 

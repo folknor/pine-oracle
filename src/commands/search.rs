@@ -1,5 +1,5 @@
 use anyhow::Result;
-use pine_cli::search;
+use pine_oracle::search;
 
 use crate::output::{ResolvedFormat, Style, is_catalog_request, print_catalog, print_json};
 

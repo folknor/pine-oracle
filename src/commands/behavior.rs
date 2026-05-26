@@ -1,5 +1,5 @@
 use anyhow::{Result, bail};
-use pine_cli::behavior;
+use pine_oracle::behavior;
 
 use crate::output::{ResolvedFormat, Style, is_catalog_request, print_catalog, print_json};
 
@@ -20,10 +20,10 @@ pub(crate) fn run(
         return print_behavior_list(kind, grep, format);
     }
     if kind.is_some() || grep.is_some() {
-        bail!("`pine behavior --kind/--grep` requires `--list`");
+        bail!("`po behavior --kind/--grep` requires `--list`");
     }
     let Some(name) = name else {
-        bail!("`pine behavior` requires a name or `--list`");
+        bail!("`po behavior` requires a name or `--list`");
     };
     let Some(b) = behavior::lookup(name) else {
         bail!("no behavior data for `{name}`");
@@ -39,7 +39,7 @@ pub(crate) fn run(
 
 fn resolve_list_grep<'a>(name: Option<&'a str>, grep: Option<&'a str>) -> Result<Option<&'a str>> {
     match (name, grep) {
-        (Some(_), Some(_)) => bail!("`pine behavior <name> --list` cannot combine with `--grep`"),
+        (Some(_), Some(_)) => bail!("`po behavior <name> --list` cannot combine with `--grep`"),
         (Some(name), None) => Ok(Some(name)),
         (None, grep) => Ok(grep),
     }

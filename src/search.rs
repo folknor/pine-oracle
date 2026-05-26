@@ -9,7 +9,7 @@
 // "rsi" therefore puts `ta.rsi` ahead of any prose paragraph that
 // happens to mention RSI. Probes get indexed with their slug as `name` and
 // their author-extracted summary (or slug-as-fallback when no summary is
-// available) as `content`. A query like `pine search oca` surfaces both
+// available) as `content`. A query like `po search oca` surfaces both
 // the reference's `oca_name=` parameter docs and the corpus's OCA probes.
 
 use anyhow::{Result, bail};
@@ -144,7 +144,7 @@ fn build() -> Result<Engine> {
     }
 
     // Source 3: vendored PineForge audit doc. Each H2 / H3 section becomes
-    // one doc so a query like `pine search fallthrough` surfaces the exact
+    // one doc so a query like `po search fallthrough` surfaces the exact
     // class of divergence the section discusses. Category="Audit",
     // kind="audit". The doc-level table-of-contents H2 ("Headline" etc.) is
     // indexed too; those sections tend to score lower because their content
@@ -163,7 +163,7 @@ fn build() -> Result<Engine> {
     }
 
     // Source 5: structured pine-data behavior exports. Exact lookup remains
-    // `pine behavior <name>`; search indexes signatures, param prose,
+    // `po behavior <name>`; search indexes signatures, param prose,
     // examples, and polymorphism notes so users can discover a symbol when
     // they only remember a behavior or concept.
     for entry in behavior::search_entries() {
@@ -189,7 +189,7 @@ fn build() -> Result<Engine> {
 }
 
 pub fn query(q: &str, limit: usize, kind_filter: Option<&str>) -> Result<Vec<SearchHit>> {
-    // Validate the kind filter first so `pine search "" --kind bogus` returns
+    // Validate the kind filter first so `po search "" --kind bogus` returns
     // the "unknown search kind" error rather than an empty-vec no-op. The empty
     // query short-circuit is still below this so a valid-but-empty query still
     // returns an empty slice without building the index.
@@ -313,7 +313,7 @@ pub fn kind_catalog() -> Vec<SearchKindInfo> {
 
 /// Returns `true` when `kind` is the catalog sentinel `"?"`.
 /// Thin delegate to the binary's `output::CATALOG_MARKER`; kept here so
-/// library consumers that depend on the `pine_cli::search` surface don't
+/// library consumers that depend on the `pine_oracle::search` surface don't
 /// need to import the binary-internal `output` module.
 pub fn is_kind_catalog_request(kind: &str) -> bool {
     kind == "?"

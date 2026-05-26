@@ -1,5 +1,5 @@
 use anyhow::Result;
-use pine_cli::corpus;
+use pine_oracle::corpus;
 
 use crate::output::{ResolvedFormat, Style, print_json};
 

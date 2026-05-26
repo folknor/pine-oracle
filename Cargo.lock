@@ -2083,7 +2083,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
-name = "pine-cli"
+name = "pine-oracle"
 version = "0.0.1"
 dependencies = [
  "anyhow",
