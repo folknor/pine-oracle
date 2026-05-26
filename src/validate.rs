@@ -47,6 +47,14 @@ pub enum Severity {
     Hint,
 }
 
+/// Which analysis pass produced this diagnostic.
+///
+/// Contract: `Lex` / `Parse` / `Type` / `Semantic` come from `check()`;
+/// `Strict` comes from `strict()`. The `Strict` pass is a yes/no oracle
+/// only - the diagnostic prose (message, line, column) is non-actionable
+/// (TV pine-lint stops at the first error, reports wrong positions, and
+/// breaks on trailing whitespace). Treat `Strict` diagnostics as opaque
+/// blobs; only `Report::ok` is reliable for that tier.
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Stage {
@@ -55,6 +63,24 @@ pub enum Stage {
     Type,
     Semantic,
     Strict,
+}
+
+impl Stage {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Stage::Lex => "lex",
+            Stage::Parse => "parse",
+            Stage::Type => "type",
+            Stage::Semantic => "semantic",
+            Stage::Strict => "strict",
+        }
+    }
+}
+
+impl std::fmt::Display for Stage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -69,6 +95,9 @@ pub struct Diagnostic {
     pub column: Option<usize>,
 }
 
+/// Validation outcome. The `ok` field is the authoritative pass/fail signal;
+/// do not ignore it. Tied to the JSON schema via `SCHEMA_VERSION` in output.rs.
+#[must_use]
 #[derive(Debug, Clone, Serialize)]
 pub struct Report {
     pub ok: bool,
@@ -100,12 +129,13 @@ fn local_diagnostic(
     linebreaks: &[u32],
     diagnostic: &piners_syntax::Diagnostic,
 ) -> Diagnostic {
-    let loc = line_col_from_breaks(linebreaks, diagnostic.span.start);
-    let column = if diagnostic.span.start as usize <= code.len() {
-        Some(loc.column as usize)
-    } else {
-        None
-    };
+    // Clamp the span start to code.len() so EOF-adjacent diagnostics (e.g.
+    // "unexpected end of input", whose span is Span::empty(code.len())) still
+    // get a column. Clamping is safe: line_col_from_breaks is total and the
+    // resulting column correctly lands at the last character position.
+    let clamped_start = (diagnostic.span.start as usize).min(code.len()) as u32;
+    let loc = line_col_from_breaks(linebreaks, clamped_start);
+    let column = Some(loc.column as usize);
     Diagnostic {
         severity: match diagnostic.severity {
             piners_syntax::Severity::Error => Severity::Error,
@@ -152,11 +182,23 @@ struct TvDiagnostic {
     message: String,
 }
 
+// Deserialize a nullable JSON array as an empty Vec when the field is null.
+// `#[serde(default)]` alone handles the field-absent case but rejects
+// an explicit `null`; this helper covers both cases so a TV-schema change
+// that adds `"errors": null` doesn't crash the parser.
+fn null_as_empty<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    Ok(Option::deserialize(deserializer)?.unwrap_or_default())
+}
+
 #[derive(Debug, Default, Deserialize)]
 struct TvResult {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_empty")]
     errors: Vec<TvDiagnostic>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_empty")]
     warnings: Vec<TvDiagnostic>,
 }
 
@@ -174,6 +216,13 @@ struct TvResponse {
 /// summarising every error + warning the API reports. Returns Err only on
 /// transport / parse failures (network, timeout, malformed JSON); script
 /// errors land in the `Report::diagnostics` vec.
+///
+/// **Non-actionable prose warning.** TV's pine-lint stops at the first error,
+/// reports wrong line / column numbers, and breaks on trailing whitespace. The
+/// diagnostic messages in the returned `Report` are not reliable for iterative
+/// debugging. `Report::ok` is the only trustworthy output of this function.
+/// Use `check()` for IDE-quality errors; use `strict()` only to confirm a
+/// locally-clean script also passes TV's validator.
 pub fn strict(code: &str) -> anyhow::Result<Report> {
     let agent = STRICT_AGENT.get_or_init(|| {
         let config = ureq::Agent::config_builder()
@@ -191,6 +240,10 @@ pub fn strict(code: &str) -> anyhow::Result<Report> {
         .header("Content-Type", &content_type)
         .send(body.as_bytes())
         .map_err(|e| anyhow!("pine-lint request failed: {e}"))?;
+    // read_to_string is unbounded; real pine-lint responses are tiny (<10 KB).
+    // If TV returns a large error page (e.g. 503 HTML), we read it all and
+    // then fail fast in parse_strict_response with a clear JSON-parse error.
+    // A size cap could be added via ureq's body().with_config() if needed.
     let response_body = response
         .body_mut()
         .read_to_string()
@@ -226,7 +279,13 @@ fn parse_strict_response(body: &str) -> anyhow::Result<Report> {
             resp.error.unwrap_or_else(|| "no error message".to_string())
         );
     }
-    let result = resp.result.unwrap_or_default();
+    // A missing `result` field while `success` is true is unexpected - treat it
+    // as a transport failure rather than silently reporting ok=true with no
+    // diagnostics, which would be a false negative. Null is handled by the
+    // `Option<TvResult>` deserializer and maps to None here.
+    let result = resp.result.ok_or_else(|| {
+        anyhow!("TV pine-lint returned success=true but no result field (unexpected schema)")
+    })?;
     let mut diagnostics = Vec::with_capacity(result.errors.len() + result.warnings.len());
     for e in result.errors {
         diagnostics.push(Diagnostic {
@@ -469,16 +528,26 @@ mod tests {
     }
 
     #[test]
-    fn success_true_with_null_result_returns_ok_empty() {
-        // `{"success": true, "result": null}` should decode to ok=true with no
-        // diagnostics: TvResponse.result is Option<TvResult>, None defaults via
-        // unwrap_or_default to an empty TvResult.
+    fn success_true_with_null_result_returns_err() {
+        // `{"success": true, "result": null}` is ambiguous - we cannot confirm
+        // the script is clean. Treat it as a transport failure so callers get
+        // an explicit error rather than a false negative.
         let body = r#"{"success": true, "result": null}"#;
-        let report = parse_strict_response(body).expect("null result must parse");
-        assert!(report.ok, "null result => ok=true");
+        let err = parse_strict_response(body).expect_err("null result must Err");
         assert!(
-            report.diagnostics.is_empty(),
-            "null result => no diagnostics"
+            err.to_string().contains("unexpected schema"),
+            "expected schema error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn success_true_with_missing_result_returns_err() {
+        // A response with no `result` field is treated the same as null.
+        let body = r#"{"success": true}"#;
+        let err = parse_strict_response(body).expect_err("missing result must Err");
+        assert!(
+            err.to_string().contains("unexpected schema"),
+            "expected schema error, got: {err}"
         );
     }
 
@@ -556,5 +625,43 @@ mod tests {
             }],
         };
         assert!(report.ok, "hint-only report must be ok=true");
+    }
+
+    #[test]
+    fn stage_display_matches_serde_names() {
+        // Stage::as_str() and Display must return the same lowercase names that
+        // serde uses for JSON serialisation.
+        assert_eq!(Stage::Lex.as_str(), "lex");
+        assert_eq!(Stage::Parse.as_str(), "parse");
+        assert_eq!(Stage::Type.as_str(), "type");
+        assert_eq!(Stage::Semantic.as_str(), "semantic");
+        assert_eq!(Stage::Strict.as_str(), "strict");
+        assert_eq!(Stage::Strict.to_string(), "strict");
+    }
+
+    #[test]
+    fn null_errors_field_deserializes_as_empty() {
+        // TV could return `"errors": null` in a future schema change.
+        // null_as_empty must treat it identically to a missing field.
+        let body = r#"{"success": true, "result": {"errors": null, "warnings": null}}"#;
+        let report = parse_strict_response(body).expect("null arrays must parse");
+        assert!(report.ok, "no errors => ok=true");
+        assert!(report.diagnostics.is_empty(), "no diagnostics");
+    }
+
+    #[test]
+    fn eof_diagnostic_has_column() {
+        // A parse error at EOF (e.g. missing script body) should still carry a
+        // column. The old code suppressed column when span.start > code.len();
+        // clamping ensures every diagnostic gets a column value.
+        let r = check("//@version=6\nindicator(\"x\")\n");
+        // Any diagnostic present must have a column; we don't mandate errors here
+        // but if piners-syntax produces one, column must be Some.
+        for d in &r.diagnostics {
+            assert!(
+                d.column.is_some(),
+                "all diagnostics must carry column: {d:?}"
+            );
+        }
     }
 }

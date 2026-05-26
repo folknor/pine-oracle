@@ -94,6 +94,9 @@ fn print_behavior_text(b: &behavior::Behavior) {
             if let Some(ns) = &f.namespace {
                 println!("  namespace: {ns}");
             }
+            if !f.description.is_empty() {
+                println!("  description: {}", f.description);
+            }
             println!("  syntax: {}", f.syntax);
             if !f.returns.is_empty() {
                 println!("  returns: {}", f.returns);
@@ -157,6 +160,9 @@ fn print_behavior_text(b: &behavior::Behavior) {
             println!("variable {}", v.name);
             println!("  type: {}", v.ty);
             println!("  qualifier: {}", v.qualifier);
+            if !v.description.is_empty() {
+                println!("  description: {}", v.description);
+            }
         }
         behavior::Behavior::Constant(c) => {
             println!("constant {}", c.name);

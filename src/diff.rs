@@ -114,6 +114,31 @@ pub enum Tier {
     EngineOnly,
 }
 
+impl std::fmt::Display for Profile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Profile::Strict => f.write_str("strict"),
+            Profile::Production => f.write_str("production"),
+        }
+    }
+}
+
+impl std::fmt::Display for Tier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Each arm mirrors the serde snake_case rename so text and JSON output
+        // use the same spelling (e.g. "engine_only", not "engineonly").
+        match self {
+            Tier::Excellent => f.write_str("excellent"),
+            Tier::Strong => f.write_str("strong"),
+            Tier::Moderate => f.write_str("moderate"),
+            Tier::Weak => f.write_str("weak"),
+            Tier::Minimal => f.write_str("minimal"),
+            Tier::Anomaly => f.write_str("anomaly"),
+            Tier::EngineOnly => f.write_str("engine_only"),
+        }
+    }
+}
+
 #[must_use]
 #[derive(Debug, Clone, Serialize)]
 pub struct DiffReport {
@@ -152,6 +177,9 @@ pub struct Thresholds {
     pub pnl: f64,
 }
 
+/// Options for `diff`. Construct via `DiffOptions::default()` then chain
+/// builder methods (`.with_show_diffs(n)`) to set fields. The builder pattern
+/// keeps call sites forward-compatible as new fields land.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DiffOptions {
     /// If non-zero, the worst N matched pairs (ranked descending by
@@ -160,6 +188,14 @@ pub struct DiffOptions {
     /// trimmed window are listed in `tv_orphans` / `user_orphans`.
     /// `usize::MAX` keeps every matched pair.
     pub show_diffs: usize,
+}
+
+impl DiffOptions {
+    #[must_use]
+    pub fn with_show_diffs(mut self, n: usize) -> Self {
+        self.show_diffs = n;
+        self
+    }
 }
 
 /// One matched (TV, user) trade pair, normalized for display.
@@ -547,13 +583,13 @@ fn trim_to_common_window(
         .iter()
         .map(|&(ti, ui)| tv[ti].entry_time.min(eng[ui].entry_time))
         .min()
-        .unwrap()
+        .expect("matched checked non-empty above")
         - MATCH_WINDOW_SECONDS;
     let hi = matched
         .iter()
         .map(|&(ti, ui)| tv[ti].entry_time.max(eng[ui].entry_time))
         .max()
-        .unwrap()
+        .expect("matched checked non-empty above")
         + MATCH_WINDOW_SECONDS;
     let tv_trim = tv
         .iter()
@@ -667,6 +703,17 @@ fn classify_tier(
 
 // ---------- inputs.json metadata ----------
 
+// Recognised inputs.json fields used by pine-oracle:
+//   - parity_profile: "strict" | "production" - force a profile (default: auto-detect)
+//   - tv_trades_csv_tz: timezone string for interpreting TV CSV timestamps
+//   - expected_tier: "anomaly" | "engine_only" - override tier when below excellent
+//   - validation_overrides.expect_tv_match: false -> always EngineOnly when below excellent
+//
+// Additional fields present in some corpus probes that are silently ignored here
+// (used by the PineForge engine, not by pine-oracle):
+//   - _comment: free-form annotation string
+//   - runtime_overrides: engine runtime parameter overrides
+//   - ohlcv_start_ms: OHLCV window start for the engine's interior trim
 #[derive(Debug, Default)]
 struct InputsMeta {
     parity_profile: Option<String>,
@@ -1407,5 +1454,142 @@ mod tests {
             "+1 must not collapse to the UTC+8 default"
         );
         assert_eq!(tv_csv_tz_offset(&meta), 1);
+    }
+
+    // ---------- percentile boundary tests ----------
+
+    #[test]
+    fn percentile_boundary_p0_returns_min() {
+        assert_eq!(percentile(&[1.0, 2.0, 3.0], 0.0), 1.0);
+    }
+
+    #[test]
+    fn percentile_boundary_p1_returns_max() {
+        assert_eq!(percentile(&[1.0, 2.0, 3.0], 1.0), 3.0);
+    }
+
+    #[test]
+    fn percentile_two_element_midpoint() {
+        // For [1.0, 2.0] at p=0.5: k = 1*0.5 = 0.5, f=0, c=1, frac=0.5
+        // result = 1.0*(1-0.5) + 2.0*0.5 = 1.5
+        assert!((percentile(&[1.0, 2.0], 0.5) - 1.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn percentile_singleton_any_p_returns_sole_value() {
+        assert_eq!(percentile(&[42.0], 0.0), 42.0);
+        assert_eq!(percentile(&[42.0], 0.5), 42.0);
+        assert_eq!(percentile(&[42.0], 1.0), 42.0);
+    }
+
+    // ---------- relative_max coverage ----------
+
+    #[test]
+    fn relative_max_positive_nonzero() {
+        // |100 - 0| / max(100, 0, 1e-9) = 100/100 = 1.0
+        assert!((relative_max(100.0, 0.0) - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn relative_max_both_equal_nonzero() {
+        // |50 - 50| / 50 = 0
+        assert!(relative_max(50.0, 50.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn relative_max_asymmetric() {
+        // |100 - 200| / max(100, 200) = 100/200 = 0.5
+        assert!((relative_max(100.0, 200.0) - 0.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn relative_max_floor_prevents_div_by_zero_for_tiny_values() {
+        // Both values very small: denom clamped to 1e-9; result is near zero.
+        let r = relative_max(1e-12, 1e-12);
+        assert!(r.abs() < 1e-6);
+    }
+
+    // ---------- BOM-stripping ----------
+
+    #[test]
+    fn parse_trades_handles_utf8_bom() {
+        // TV CSV exports often carry a UTF-8 BOM (U+FEFF). The parser must
+        // strip it before reading the header row so "Trade #" is recognised.
+        let csv = "\u{feff}Trade #,Type,Date and time,Price USDT,Net P&L USD\n\
+                   1,Entry Long,2024-01-15 10:30,100.00,\n\
+                   1,Exit Long,2024-01-15 11:00,101.00,1.00\n";
+        let trades = parse_trades(csv, 0).expect("BOM-prefixed CSV must parse");
+        assert_eq!(trades.len(), 1);
+        assert!((trades[0].entry_price - 100.0).abs() < 1e-9);
+    }
+
+    // ---------- column alias tests ----------
+
+    #[test]
+    fn parse_trades_accepts_date_slash_time_column() {
+        let csv = "Trade #,Type,Date/time,Price USDT,Net P&L USD\n\
+                   1,Entry Long,2024-01-15 10:30,100.00,\n\
+                   1,Exit Long,2024-01-15 11:00,101.00,1.00\n";
+        let trades = parse_trades(csv, 0).expect("Date/time column alias must parse");
+        assert_eq!(trades.len(), 1);
+    }
+
+    #[test]
+    fn parse_trades_accepts_time_column() {
+        let csv = "Trade #,Type,Time,Price USDT,Net P&L USD\n\
+                   1,Entry Long,2024-01-15 10:30,100.00,\n\
+                   1,Exit Long,2024-01-15 11:00,101.00,1.00\n";
+        let trades = parse_trades(csv, 0).expect("Time column alias must parse");
+        assert_eq!(trades.len(), 1);
+    }
+
+    // ---------- missing Trade # edge cases ----------
+
+    #[test]
+    fn parse_trades_entry_only_trade_is_dropped() {
+        // A Trade # with only an Entry row (no Exit) is filtered out because
+        // exit_price is None.
+        let csv = "Trade #,Type,Date and time,Price USDT,Net P&L USD\n\
+                   1,Entry Long,2024-01-15 10:30,100.00,\n\
+                   2,Entry Long,2024-01-15 11:00,101.00,\n\
+                   2,Exit Long,2024-01-15 12:00,102.00,1.00\n";
+        let trades = parse_trades(csv, 0).expect("must parse");
+        // Trade 1 has no exit -> filtered; trade 2 is complete.
+        assert_eq!(trades.len(), 1);
+        assert!((trades[0].entry_price - 101.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn parse_trades_exit_only_trade_is_dropped() {
+        // A Trade # with only an Exit row (no Entry) is filtered out because
+        // entry_time and entry_price are None.
+        let csv = "Trade #,Type,Date and time,Price USDT,Net P&L USD\n\
+                   1,Exit Long,2024-01-15 11:00,101.00,1.00\n\
+                   2,Entry Long,2024-01-15 10:00,100.00,\n\
+                   2,Exit Long,2024-01-15 12:00,102.00,2.00\n";
+        let trades = parse_trades(csv, 0).expect("must parse");
+        // Trade 1 exit-only -> filtered; trade 2 complete.
+        assert_eq!(trades.len(), 1);
+        assert!((trades[0].entry_price - 100.0).abs() < 1e-9);
+    }
+
+    // ---------- combined expected_tier + expect_tv_match ----------
+
+    #[test]
+    fn expected_tier_anomaly_with_expect_tv_match_false_yields_engine_only() {
+        // When both expected_tier="anomaly" and expect_tv_match=false are set,
+        // expect_tv_match=false takes precedence and the result is EngineOnly,
+        // not Anomaly. This matches upstream verify_corpus.py behaviour where
+        // the expect_tv_match check happens first.
+        let meta = InputsMeta {
+            expected_tier: Some("anomaly".into()),
+            expect_tv_match: Some(false),
+            ..InputsMeta::default()
+        };
+        // Distinct from the engine_only+expect_tv_match test: here the
+        // expected_tier disagrees (anomaly) but expect_tv_match still wins.
+        assert_eq!(apply_overrides(Tier::Weak, &meta), Tier::EngineOnly);
+        // Excellent is always preserved.
+        assert_eq!(apply_overrides(Tier::Excellent, &meta), Tier::Excellent);
     }
 }

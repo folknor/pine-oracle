@@ -92,6 +92,12 @@ pub(crate) fn run(code: &str, format: ResolvedFormat) -> Result<()> {
 fn token_text<'a>(code: &'a str, token: &piners_syntax::Token) -> &'a str {
     let start = token.span.start as usize;
     let end = token.span.end as usize;
+    // `get` returns None only when the byte range is out of bounds or
+    // crosses a UTF-8 char boundary. piners-syntax spans are always
+    // valid UTF-8 boundaries in practice; the empty fallback is a
+    // defensive guard, not a normal path. If callers observe an empty
+    // lexeme on a token that should have text, it indicates a
+    // piners-syntax span invariant violation.
     code.get(start..end).unwrap_or("")
 }
 

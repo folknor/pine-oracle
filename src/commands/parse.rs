@@ -12,6 +12,9 @@ pub(crate) fn run(code: &str, format: ResolvedFormat) -> Result<()> {
         ResolvedFormat::Text => {
             // piners-syntax has no stable pretty-printer yet; JSON is the
             // stable AST surface, while Debug keeps text mode inspectable.
+            // Note: text mode output is Rust Debug format and is NOT stable
+            // across piners-syntax versions. Use --format json for a stable,
+            // machine-consumable AST representation.
             println!("{script:#?}");
         }
     }

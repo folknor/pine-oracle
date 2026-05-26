@@ -157,7 +157,7 @@ Global flags:
 
 - `--format json|text` (default: `text` for tty, `json` for pipes)
 - `--no-color` (suppress ANSI styling in text mode; also auto-suppressed when `NO_COLOR=1` is set, when output is JSON, or when stdout isn't a tty; applies to styled text emitters such as `pine search` and `pine validate`)
-- `--quiet` (suppress non-data status/note text where a text-mode command emits it; JSON output is unchanged)
+- `--quiet` (suppress non-data status/note text where a text-mode command emits it; JSON output is unchanged; effectively a no-op for `pine parse`, `pine tokens`, and `pine diff` because those commands emit only data -- there is no status/note text to suppress)
 
 ## Output format
 

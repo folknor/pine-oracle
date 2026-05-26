@@ -22,7 +22,7 @@ pub(crate) fn run(slug: &str, format: ResolvedFormat, quiet: bool) -> Result<()>
             let trade_lines = probe.tv_trades_csv.lines().count();
             let trade_bytes = probe.tv_trades_csv.len();
             println!(
-                "tv_trades.csv: {trade_lines} lines, {trade_bytes} bytes (use --format json for full content)"
+                "tv_trades.csv: {trade_lines} lines, {trade_bytes} bytes (use --format json for structured fields + full CSV)"
             );
             println!(
                 "inputs.json: {}",

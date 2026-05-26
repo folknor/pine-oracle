@@ -7,7 +7,11 @@ use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 pub const EXPECT_SCHEMA_VERSION: u32 = 1;
-pub(super) const DEFAULT_RUNNER_EXPECT_TOLERANCE: f64 = 0.0;
+// Zero tolerance is the intentional default for runner-emitted expect.json
+// templates (via `--actual`). Callers verifying that `runner_expect.tolerance`
+// was not accidentally carried over from a non-zero fixture tolerance can
+// compare against this constant.
+pub const DEFAULT_RUNNER_EXPECT_TOLERANCE: f64 = 0.0;
 
 // Interchange tokens for special OutputValue variants. Defined once here so
 // Serialize, Deserialize, and Display all reference the same literal.
@@ -80,6 +84,9 @@ pub struct IndicatorFixtureDetail {
     pub output_count: usize,
     pub expected_outputs: Vec<IndicatorExpectedOutput>,
     pub actual_outputs_checked: bool,
+    // Empty when `actual_outputs_checked` is false (--metadata-only path).
+    // An empty vec here means "runner was not invoked", not "runner produced
+    // no keys". Consumers should read `actual_outputs_checked` first.
     pub actual_output_keys: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub missing_expected_output_keys: Vec<String>,

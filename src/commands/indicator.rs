@@ -578,4 +578,188 @@ mod tests {
         .expect_err("must reject");
         assert!(err.to_string().contains("cannot combine"));
     }
+
+    #[test]
+    fn list_rejects_actual_flag() {
+        let err = run(
+            &Args {
+                slug: None,
+                strict: false,
+                list: true,
+                all: false,
+                actual: true,
+                metadata_only: false,
+                quiet: false,
+                grep: None,
+                baseline: None,
+            },
+            ResolvedFormat::Text,
+        )
+        .expect_err("must reject");
+        assert!(err.to_string().contains("cannot combine"));
+    }
+
+    #[test]
+    fn list_rejects_metadata_only_flag() {
+        let err = run(
+            &Args {
+                slug: None,
+                strict: false,
+                list: true,
+                all: false,
+                actual: false,
+                metadata_only: true,
+                quiet: false,
+                grep: None,
+                baseline: None,
+            },
+            ResolvedFormat::Text,
+        )
+        .expect_err("must reject");
+        assert!(err.to_string().contains("cannot combine"));
+    }
+
+    #[test]
+    fn list_rejects_all_flag() {
+        let err = run(
+            &Args {
+                slug: None,
+                strict: false,
+                list: true,
+                all: true,
+                actual: false,
+                metadata_only: false,
+                quiet: false,
+                grep: None,
+                baseline: None,
+            },
+            ResolvedFormat::Text,
+        )
+        .expect_err("must reject");
+        assert!(err.to_string().contains("cannot combine"));
+    }
+
+    #[test]
+    fn all_without_strict_rejected() {
+        let err = run(
+            &Args {
+                slug: None,
+                strict: false,
+                list: false,
+                all: true,
+                actual: false,
+                metadata_only: false,
+                quiet: false,
+                grep: None,
+                baseline: Some("smoke"),
+            },
+            ResolvedFormat::Text,
+        )
+        .expect_err("must reject");
+        assert!(err.to_string().contains("requires `--strict`"));
+    }
+
+    #[test]
+    fn all_with_slug_rejected() {
+        let err = run(
+            &Args {
+                slug: Some("smoke-close"),
+                strict: true,
+                list: false,
+                all: true,
+                actual: false,
+                metadata_only: false,
+                quiet: false,
+                grep: None,
+                baseline: None,
+            },
+            ResolvedFormat::Text,
+        )
+        .expect_err("must reject");
+        assert!(err.to_string().contains("cannot combine"));
+    }
+
+    #[test]
+    fn all_with_actual_rejected() {
+        let err = run(
+            &Args {
+                slug: None,
+                strict: true,
+                list: false,
+                all: true,
+                actual: true,
+                metadata_only: false,
+                quiet: false,
+                grep: None,
+                baseline: Some("smoke"),
+            },
+            ResolvedFormat::Text,
+        )
+        .expect_err("must reject");
+        assert!(err.to_string().contains("cannot combine"));
+    }
+
+    #[test]
+    fn all_with_metadata_only_rejected() {
+        let err = run(
+            &Args {
+                slug: None,
+                strict: true,
+                list: false,
+                all: true,
+                actual: false,
+                metadata_only: true,
+                quiet: false,
+                grep: None,
+                baseline: Some("smoke"),
+            },
+            ResolvedFormat::Text,
+        )
+        .expect_err("must reject");
+        assert!(err.to_string().contains("cannot combine"));
+    }
+
+    #[test]
+    fn grep_without_list_or_all_rejected() {
+        let err = run(
+            &Args {
+                slug: None,
+                strict: false,
+                list: false,
+                all: false,
+                actual: false,
+                metadata_only: false,
+                quiet: false,
+                grep: Some("smoke"),
+                baseline: None,
+            },
+            ResolvedFormat::Text,
+        )
+        .expect_err("must reject");
+        assert!(err.to_string().contains("requires `--list` or `--all`"));
+    }
+
+    #[test]
+    fn baseline_catalog_request_does_not_error() {
+        // Exercises the `--baseline ?` dispatch path (print_baseline_catalog).
+        let result = run(
+            &Args {
+                slug: None,
+                strict: false,
+                list: false,
+                all: false,
+                actual: false,
+                metadata_only: false,
+                quiet: true,
+                grep: None,
+                baseline: Some("?"),
+            },
+            ResolvedFormat::Text,
+        );
+        assert!(
+            result.is_ok(),
+            "baseline=? catalog request should succeed: {:?}",
+            result.err()
+        );
+    }
 }

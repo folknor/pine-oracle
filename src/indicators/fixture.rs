@@ -434,6 +434,9 @@ fn validate_baseline_metadata(
 }
 
 fn validate_bars(slug: &str, bars: &BarsFile) -> Result<()> {
+    if bars.bars.is_empty() {
+        bail!("{slug}/bars.json must contain at least one bar");
+    }
     let mut previous_timestamp = None;
     for (index, bar) in bars.bars.iter().enumerate() {
         if bar.has_nan() {

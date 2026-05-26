@@ -11,7 +11,11 @@ pub(crate) fn run(
 ) -> Result<()> {
     let user_csv = std::fs::read_to_string(trades_csv_path)
         .map_err(|e| anyhow::anyhow!("reading {trades_csv_path}: {e}"))?;
-    let report = diff::diff(probe_slug, &user_csv, diff::DiffOptions { show_diffs })?;
+    let report = diff::diff(
+        probe_slug,
+        &user_csv,
+        diff::DiffOptions::default().with_show_diffs(show_diffs),
+    )?;
     match format {
         ResolvedFormat::Json => {
             print_json(&report)?;
@@ -23,7 +27,9 @@ pub(crate) fn run(
 
 fn print_diff_text(r: &diff::DiffReport) {
     println!("probe:       {}", r.probe_slug);
-    println!("profile:     {:?}", r.profile);
+    // Tier is the headline answer; emit it first so users see it without scrolling.
+    println!("tier:        {}", r.tier);
+    println!("profile:     {}", r.profile);
     println!(
         "TV trades:   {}  user trades: {}  matched: {}",
         r.tv_trade_count, r.user_trade_count, r.matched_count
@@ -48,7 +54,6 @@ fn print_diff_text(r: &diff::DiffReport) {
         r.pnl_p90_delta * 100.0,
         r.thresholds.pnl * 100.0
     );
-    println!("tier:        {:?}", r.tier);
     print_diff_details(r);
 }
 

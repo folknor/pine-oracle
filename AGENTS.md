@@ -29,8 +29,10 @@ The library crate (`src/lib.rs`, surface = `pine_cli::*`) owns the domain module
   - **Local (`validate::check`)**: lex + parse + type + semantic analysis via piners-syntax, backed by piners-runtime builtins plus pine-data gap-fill. Returns every diagnostic piners-syntax can recover as `Diagnostic { severity, stage, code, message, line, column }`.
   - **Strict (`validate::strict`)**: POSTs the source as `multipart/form-data` to `pine-facade.tradingview.com/pine-facade/translate_light` via `ureq`, maps every error + warning the API returns into Diagnostics with `Stage::Strict`. **Yes / no oracle only - the diagnostic prose is non-actionable**. TV's pine-lint stops at the first error, breaks on trailing whitespace, and reports wrong line / column numbers; the `success` bit is the only trustworthy output. Use after the local tier reports clean, not for iterative debugging. No auth (endpoint is open), no on-disk cache, 10s timeout. Response decoding pinned by inline fixture tests; never hits the network in CI.
 - `behavior`: structured signature + polymorphism lookup over pine-tools' JSON exports (`vendor/pine-data/v6/{functions,variables,constants,keywords,function-behavior}.json`). Public API: `lookup(name) -> Option<Behavior>`, `list(kind, grep)`, `kind_catalog()`, `search_entries()`, and `snapshot()`. `Behavior` is one of `Function` / `Variable` / `Constant` / `Keyword`. Function entries optionally carry a `RawBehaviorEntry` with polymorphism markers + argument-ordering. Lenient deserialization (serde defaults on optional fields) so pine-tools schema tweaks don't break the binary.
-- `diff`: trade-list parity scorer, port of PineForge's `scripts/verify_corpus.py`. Public API: `diff(probe_slug, user_csv, opts) -> DiffReport`. Parses both CSVs into entry / exit pairs (Trade # joined, TV's "Date and time" interpreted in the chart timezone with default Asia/Taipei +8), aligns by direction + 1h window + $3 entry-price gate, trims to common window, computes 4-dim p90 deltas, classifies as excellent / strong / moderate / weak / minimal. Honours `inputs.json::expected_tier` ("anomaly", "engine_only") and `validation_overrides.expect_tv_match`. Strict vs production profile is auto-detected from `trail_*` parameters in `strategy.pine` (or forced via `inputs.json::parity_profile`). Threshold values mirror `verify_corpus.py` exactly. `DiffOptions::show_diffs > 0` populates `pair_diffs` (worst-N matched pairs, ranked descending by per-pair `max(entry_delta, exit_delta, pnl_delta)`) + `tv_orphans` / `user_orphans` (all unmatched trades from the trimmed window); default 0 keeps the report headline-only. V1 does not implement interior trim (`trim_bars` / `warmup_bars`) since the OHLCV feed isn't baked.
+- `diff`: trade-list parity scorer, port of PineForge's `scripts/verify_corpus.py`. Public API: `diff(probe_slug, user_csv, opts) -> DiffReport`. Parses both CSVs into entry / exit pairs (Trade # joined, TV's "Date and time" interpreted in the chart timezone). The chart timezone defaults to Asia/Taipei (+8) and can be overridden per-probe via `inputs.json::tv_trades_csv_tz`, which accepts IANA timezone names (e.g. "America/New_York") or fixed-offset strings (e.g. "+05:30"). Aligns by direction + 1h window + $3 entry-price gate (absolute USD; the gate is faithful to `verify_corpus.py` and is not relative). Trims to common window, computes 4-dim p90 deltas, classifies as excellent / strong / moderate / weak / minimal. Honours `inputs.json::expected_tier` ("anomaly", "engine_only") and `validation_overrides.expect_tv_match`. Strict vs production profile is auto-detected from `trail_*` parameters in `strategy.pine` (or forced via `inputs.json::parity_profile`). Threshold values mirror `verify_corpus.py` exactly. `DiffOptions::show_diffs > 0` populates `pair_diffs` (worst-N matched pairs, ranked descending by per-pair `max(entry_delta, exit_delta, pnl_delta)`) + `tv_orphans` / `user_orphans` (all unmatched trades from the trimmed window); default 0 keeps the report headline-only. V1 does not implement interior trim (`trim_bars` / `warmup_bars`) since the OHLCV feed isn't baked.
 - `indicator`: per-bar indicator fixture replay. Fixtures live under `indicators/<slug>/` (`source.pine`, `bars.json`, `expect.json`, optional `metadata.json`) and are embedded with `include_dir`. Public API: `list_fixtures()`, `list_fixtures_filtered(grep, baseline)`, `baseline_catalog()`, `load_fixture_detail(slug) -> IndicatorFixtureDetail`, `load_fixture_detail_with_actual(slug) -> IndicatorFixtureDetail`, `run_actual(slug) -> IndicatorActualReport`, `run_strict(slug) -> IndicatorReport`, and `run_strict_filtered(grep, baseline) -> IndicatorBatchReport`. Runs source through piners-runner, compares plot outputs against `expect.json` using the documented `__NaN__` / `__Infinity__` / `__-Infinity__` / `__undefined__` tokens, honors optional `test_range` windows, and reports output + bar-index mismatches. Expected output keys may use plot titles when the Pine call supplies one; duplicate titles use `#1`, `#2`, etc. Fixture validation rejects empty expected keys/series, tolerance above `0.001`, smoke `tv_snapshot`, and obvious timeframe/bar-spacing mismatches (including conservative month-timeframe checks). `list_fixtures()` reports symbol/timeframe, bar count, output count, and optional range window. `pine indicator <slug>` is the strict fixture authoring view: source, bar window, expected output keys/lengths, actual output keys, key drift, first/last expected values, tolerance, notes, and metadata without running value parity; `--metadata-only` skips the runner key check. `pine indicator <slug> --actual` runs once and reports actual runner output keys + series without comparing against `expect.json`; JSON includes `runner_expect`, an `expect.json`-shaped object for deterministic smoke fixture authoring that omits fixture metadata and uses zero tolerance. The `smoke-*` fixtures are deterministic substrate checks covering basic plot replay, title-based matching, duplicate-title disambiguation, warmup `na`, ranged comparison, bool `plotshape`, and same-symbol `request.security`; real TV baselines are still pending.
+
+**`--kind` namespace note.** Two subcommands expose a `--kind` filter but they cover different namespaces. `pine search --kind` accepts the search source kinds: "reference", "probe", "audit", "docs", "behavior". `pine behavior --kind` accepts the behavior entry kinds: "function", "variable", "constant", "keyword". These are disjoint; passing a search kind to `pine behavior --kind` (or vice versa) is an error. Both subcommands accept `--kind ?` to list their own catalog.
 
 Planned changes:
 
@@ -53,7 +55,7 @@ Canonical homes (so cross-module duplicates collapse to one):
 
 - A `LICENSE` copy of the upstream license.
 - A `NOTICE` naming the upstream, the path lifted, and the snapshot date / git ref.
-- Per-file `SPDX-License-Identifier` header on every lifted source file.
+- Per-file `SPDX-License-Identifier` header on every lifted source file that has comment syntax. Files with no comment syntax (e.g. JSON) satisfy attribution via the adjacent LICENSE and NOTICE instead.
 
 Current vendors:
 
@@ -70,7 +72,11 @@ Current vendors:
 - Don't remind the user of the rules. They wrote them, so they know them.
 - The user can exempt you from any rule at any time.
 
+**Exit-code convention.** Most failure paths use `bail!` (anyhow renders the error and exits 1 with a message). Commands that print their own structured failure report (`validate`, `indicator`) call `std::process::exit(1)` directly after printing, so stderr stays clean and no redundant anyhow error string appears. The asymmetry is intentional: `bail!` is for unexpected failures; `process::exit(1)` is for expected "the check failed" outcomes that the command has already reported in full.
+
 ### Bash rules
+
+This is the single source of truth for Bash rules in this project. The project CLAUDE.md imports these via `@AGENTS.md`.
 
 - Never chain commands with `&&`.
 - Never chain commands with `;`.
@@ -78,6 +84,10 @@ Current vendors:
 - Never capture stdout into env vars (`UUID=$(...)`).
 - Never read or write from `/tmp`. All data lives in the project.
 - Never run raw `cargo`, `curl`, `pkill`. Use `brokkr`.
+- Never use `sed`, `find`, `awk`, `head`, `tail`, or complex bash commands.
+- Never run `find /` (scans the full filesystem).
+- Never run `git` with `-C <path>`.
+- One Bash() invocation === one command.
 
 ### git commit rules
 
@@ -91,7 +101,7 @@ Current vendors:
 ### Vendoring rules
 
 - New vendored sources go under `vendor/<name>/` with a LICENSE copy and a NOTICE file describing source path + snapshot date.
-- Every lifted source file carries an `SPDX-License-Identifier` header pointing back to the upstream.
+- Every lifted source file carries an `SPDX-License-Identifier` header pointing back to the upstream. Exception: binary or structured-data files with no comment syntax (e.g. JSON, compiled assets) cannot carry an inline header; the adjacent `LICENSE` file and the vendor `NOTICE` satisfy attribution for those files.
 - The `research/` tree is read-only consultation material. Never edit it, never depend on its paths at runtime.
 
 ### Testing rules

@@ -76,7 +76,7 @@ chrono = { version = "0.4", default-features = false, features = ["std", "clock"
 csv = "1"
 tantivy = "0.26"
 thiserror = "2"
-ureq = { version = "3", default-features = false, features = ["rustls", "json"] }
+ureq = { version = "3", default-features = false, features = ["rustls"] }
 
 [dev-dependencies]
 walkdir = "2"

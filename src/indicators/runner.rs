@@ -17,8 +17,10 @@ use super::types::{
 };
 
 pub(super) fn run_fixture(fixture: &IndicatorFixture) -> Result<IndicatorReport> {
-    let actual = run_fixture_actual(fixture)?;
+    // Validate the comparison plan first so a malformed test_range does not
+    // waste a full runner pass before the error is surfaced.
     let comparison = comparison_plan(fixture)?;
+    let actual = run_fixture_actual(fixture)?;
     let expected_output_keys = fixture.expect.outputs.keys().cloned().collect::<Vec<_>>();
     let mismatches = diff_outputs(
         &fixture.expect.outputs,

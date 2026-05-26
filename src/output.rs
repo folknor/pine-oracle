@@ -63,7 +63,7 @@ pub(crate) fn print_catalog<T: Serialize>(
 }
 
 #[must_use]
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ResolvedFormat {
     Text,
     Json,

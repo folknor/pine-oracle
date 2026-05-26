@@ -92,6 +92,17 @@ pub fn load_probe(slug_input: &str) -> Result<Probe> {
 /// when present, restricts to probes whose `strategy.pine` source uses
 /// the named Pine feature (see `FEATURE_CATALOG`); unknown feature names
 /// return an error with the catalog included.
+///
+/// Canonical slug rules:
+/// - The `validation/` directory root is never part of the canonical slug.
+///   `pine probe validation/oca-multi-bracket-isolation-01` loads correctly
+///   but the returned `Probe.slug` is `oca-multi-bracket-isolation-01`.
+/// - Nested slugs (under `symbol-specified/<SYMBOL>/`) retain the full
+///   relative path as the canonical slug: `symbol-specified/AAPL/foo-01`.
+///   The `symbol-specified/` prefix is NOT stripped because it is part of
+///   the structural layout, not a user-convenience alias.
+/// - `load_probe` accepts both forms; the round-trip canonical identifier
+///   is always the slug without a `validation/` leader.
 pub fn list_probes(grep: Option<&str>, feature: Option<&str>) -> Result<Vec<ProbeListing>> {
     let needle = grep.map(str::to_ascii_lowercase);
     let feature_set = match feature {
@@ -702,6 +713,23 @@ mod tests {
     }
 
     #[test]
+    fn feature_catalog_every_entry_has_nonempty_description() {
+        // Every feature must have a non-empty human-readable description.
+        // A missing or empty description would show up as a blank line in
+        // `pine probes --feature ?` output.
+        let cat = feature_catalog();
+        let empty: Vec<&str> = cat
+            .iter()
+            .filter(|(_, desc)| desc.trim().is_empty())
+            .map(|(name, _)| *name)
+            .collect();
+        assert!(
+            empty.is_empty(),
+            "feature(s) with empty description: {empty:?}"
+        );
+    }
+
+    #[test]
     fn unknown_feature_errors_with_catalog() {
         let err = list_probes(None, Some("totallymadeup")).expect_err("unknown feature must error");
         let msg = err.to_string();
@@ -719,10 +747,17 @@ mod tests {
             !oca.is_empty(),
             "expected at least one oca probe in the corpus"
         );
-        // OCA is rare - typical corpus has ~5 probes. If it ever balloons,
-        // the catalog detector is probably false-positive.
+        // OCA is rare: the current corpus has exactly ~5 probes with oca_name
+        // in their source (oca-multi-bracket, oca-exit-bracket, oca-raw, plus
+        // bracket-tp-sl-oca and composite-bracket-cap). Pin a tight window so
+        // a detector regression is flagged immediately when a new probe is added.
         assert!(
-            oca.len() < 50,
+            oca.len() >= 3,
+            "oca filter returned only {} probes - detector may be too narrow",
+            oca.len()
+        );
+        assert!(
+            oca.len() <= 15,
             "oca filter returned {} probes - detector is probably too broad",
             oca.len()
         );
@@ -852,10 +887,18 @@ mod tests {
     fn feature_filter_pyramiding_excludes_pyramiding_eq_one() {
         // pyramiding=1 is the corpus-wide default (~95% of probes).
         // The `pyramiding` feature is reserved for real (N>=2) usage.
+        // Current count: 8 flat probes (pyramid-*, order-close-all-*, etc.)
+        // with pyramiding >= 2. Pin a tight window so accidental detector
+        // broadening surfaces when probes are added.
         let pyr = list_probes(None, Some("pyramiding")).expect("pyramiding");
         assert!(
-            pyr.len() < 50,
-            "pyramiding feature returned {} probes - detector is matching pyramiding=1 noise",
+            pyr.len() >= 5,
+            "pyramiding feature returned only {} probes - detector may be too narrow",
+            pyr.len()
+        );
+        assert!(
+            pyr.len() <= 20,
+            "pyramiding feature returned {} probes - detector is probably matching pyramiding=1 noise",
             pyr.len()
         );
     }

@@ -769,3 +769,459 @@ fn output_value_serializes_tokens() {
         r#""__undefined__""#
     );
 }
+
+// --- script_kind != Indicator rejection (test gap) ---
+
+#[test]
+fn strategy_source_is_rejected_as_non_indicator_fixture() {
+    let fixture = parse_fixture(
+        "not-an-indicator",
+        // strategy() causes piners-runner to classify as Strategy, not Indicator
+        "strategy(\"Foo\")\nplot(close)\n".to_string(),
+        BARS,
+        r#"{"schema_version": 1, "indicator_slug": "not-an-indicator", "outputs": {"plot": [10.0, 11.0]}}"#,
+        None,
+    )
+    .expect("parse_fixture should not reject at the fixture stage");
+    let result = run_fixture_actual(&fixture);
+    // piners-runner bails because script_kind != Indicator.
+    // If compilation also fails (hypothetically), the test still passes -- the
+    // important invariant is that a non-indicator source is never silently
+    // accepted as a fixture.
+    assert!(
+        result.is_err(),
+        "strategy source must be rejected by the runner"
+    );
+    let msg = result.unwrap_err().to_string();
+    assert!(
+        msg.contains("is not an indicator fixture") || msg.contains("not-an-indicator"),
+        "error must identify the fixture or reason: {msg}"
+    );
+}
+
+// --- validate_bars: empty bars rejection (correctness finding) ---
+
+#[test]
+fn validate_bars_rejects_empty_bars() {
+    let err = parse_fixture(
+        "empty-bars",
+        "indicator(\"fixture\")\nplot(close)\n".to_string(),
+        r#"{"symbol": "TEST:SYM", "timeframe": "1D", "source": "test", "bars": []}"#,
+        r#"{"schema_version": 1, "indicator_slug": "empty-bars", "outputs": {"plot": [1.0]}}"#,
+        None,
+    )
+    .expect_err("must reject empty bars");
+    assert!(
+        err.to_string().contains("must contain at least one bar"),
+        "unexpected error: {err}"
+    );
+}
+
+// --- TV baseline validation tests (test gap findings) ---
+
+#[test]
+fn tv_baseline_requires_pine_version() {
+    let err = parse_fixture(
+        "tv-no-pine-version",
+        "indicator(\"fixture\")\nplot(close)\n".to_string(),
+        BARS,
+        r#"{"schema_version": 1, "indicator_slug": "tv-no-pine-version", "tv_snapshot": "2026-01-01", "outputs": {"plot": [10.0, 11.0]}}"#,
+        Some(r#"{"baseline": "tv"}"#),
+    )
+    .expect_err("must require pine_version for tv baseline");
+    assert!(
+        err.to_string().contains("pine_version"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn tv_baseline_requires_tv_snapshot() {
+    let err = parse_fixture(
+        "tv-no-snapshot",
+        "indicator(\"fixture\")\nplot(close)\n".to_string(),
+        BARS,
+        r#"{"schema_version": 1, "indicator_slug": "tv-no-snapshot", "pine_version": "6.0.0", "outputs": {"plot": [10.0, 11.0]}}"#,
+        Some(r#"{"baseline": "tv"}"#),
+    )
+    .expect_err("must require tv_snapshot for tv baseline");
+    assert!(
+        err.to_string().contains("tv_snapshot"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn tv_baseline_accepts_pine_version_from_metadata_only() {
+    // pine_version in metadata, not in expect.json -- should succeed
+    let result = parse_fixture(
+        "tv-meta-pine-version",
+        "indicator(\"fixture\")\nplot(close)\n".to_string(),
+        BARS,
+        r#"{"schema_version": 1, "indicator_slug": "tv-meta-pine-version", "outputs": {"plot": [10.0, 11.0]}}"#,
+        Some(r#"{"baseline": "tv", "pine_version": "6.0.0", "tv_snapshot": "2026-01-01"}"#),
+    );
+    assert!(result.is_ok(), "expected ok, got: {:?}", result.err());
+    let fixture = result.unwrap();
+    assert_eq!(fixture.effective_pine_version().as_deref(), Some("6.0.0"));
+    assert_eq!(
+        fixture.effective_tv_snapshot().as_deref(),
+        Some("2026-01-01")
+    );
+}
+
+// --- parse_test_range validation tests (test gap findings) ---
+
+#[test]
+fn parse_test_range_rejects_start_after_end() {
+    // parse_fixture succeeds; the test_range is validated by comparison_plan inside run_fixture
+    let fixture = parse_fixture(
+        "bad-range",
+        "indicator(\"fixture\")\nplot(close)\n".to_string(),
+        RANGE_BARS,
+        r#"{
+            "schema_version": 1,
+            "indicator_slug": "bad-range",
+            "outputs": {"plot": [10.0]},
+            "test_range": {
+                "start": "2025-01-03T00:00:00Z",
+                "end": "2025-01-02T00:00:00Z"
+            }
+        }"#,
+        None,
+    )
+    .expect("parse ok");
+    let result = run_fixture(&fixture);
+    assert!(
+        result.is_err(),
+        "expected run_fixture to fail for start > end"
+    );
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("start must be before or equal to end"),
+        "error must mention start-before-end constraint"
+    );
+}
+
+#[test]
+fn parse_test_range_rejects_malformed_rfc3339() {
+    let fixture = parse_fixture(
+        "bad-date",
+        "indicator(\"fixture\")\nplot(close)\n".to_string(),
+        RANGE_BARS,
+        r#"{
+            "schema_version": 1,
+            "indicator_slug": "bad-date",
+            "outputs": {"plot": [10.0]},
+            "test_range": {
+                "start": "not a date",
+                "end": "2025-01-03T00:00:00Z"
+            }
+        }"#,
+        None,
+    )
+    .expect("parse ok");
+    let result = run_fixture(&fixture);
+    assert!(result.is_err(), "expected run_fixture to fail for bad date");
+    assert!(
+        result.unwrap_err().to_string().contains("test_range.start"),
+        "error must mention test_range.start"
+    );
+}
+
+#[test]
+fn parse_test_range_rejects_no_bars_selected() {
+    let fixture = parse_fixture(
+        "far-future-range",
+        "indicator(\"fixture\")\nplot(close)\n".to_string(),
+        RANGE_BARS,
+        r#"{
+            "schema_version": 1,
+            "indicator_slug": "far-future-range",
+            "outputs": {"plot": [10.0]},
+            "test_range": {
+                "start": "1900-01-01T00:00:00Z",
+                "end": "1900-01-02T00:00:00Z"
+            }
+        }"#,
+        None,
+    )
+    .expect("parse ok");
+    let result = run_fixture(&fixture);
+    assert!(
+        result.is_err(),
+        "expected run_fixture to fail when no bars match"
+    );
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("test_range selects no bars"),
+        "error must mention no-bars selection"
+    );
+}
+
+// --- comparison_plan: output length neither full nor window (test gap) ---
+
+#[test]
+fn comparison_plan_rejects_output_length_mismatch() {
+    // 3 bars, range covers 2, expected has 1 value: neither full (3) nor window (2)
+    let fixture = parse_fixture(
+        "wrong-len",
+        "indicator(\"fixture\")\nplot(close)\n".to_string(),
+        RANGE_BARS,
+        r#"{
+            "schema_version": 1,
+            "indicator_slug": "wrong-len",
+            "outputs": {"plot": [10.0]},
+            "test_range": {
+                "start": "2025-01-02T00:00:00Z",
+                "end": "2025-01-03T00:00:00Z"
+            }
+        }"#,
+        None,
+    )
+    .expect("parse ok");
+    let result = run_fixture(&fixture);
+    assert!(
+        result.is_err(),
+        "expected run_fixture to fail for wrong output length"
+    );
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("output lengths must match"),
+        "error must mention output lengths"
+    );
+}
+
+// --- tolerance validation tests (test gap) ---
+
+#[test]
+fn rejects_negative_tolerance() {
+    let err = parse_expect(
+        "neg-tolerance",
+        r#"{"schema_version": 1, "indicator_slug": "neg-tolerance", "tolerance": -0.001, "outputs": {"plot": [1.0]}}"#,
+    )
+    .expect_err("must reject negative tolerance");
+    assert!(
+        err.to_string().contains("finite non-negative"),
+        "unexpected error: {err}"
+    );
+}
+
+// --- output_value_from_text: full coverage (test gap) ---
+
+#[test]
+fn parses_all_runner_output_text_variants() {
+    // float
+    assert!(values_match(
+        output_value_from_text("2.5"),
+        OutputValue::number(2.5),
+        1e-9
+    ));
+    // na / NaN
+    assert!(values_match(
+        output_value_from_text("na"),
+        OutputValue::Na,
+        0.0
+    ));
+    assert!(values_match(
+        output_value_from_text("NaN"),
+        OutputValue::Na,
+        0.0
+    ));
+    // positive infinity
+    assert!(values_match(
+        output_value_from_text("inf"),
+        OutputValue::PosInfinity,
+        0.0
+    ));
+    assert!(values_match(
+        output_value_from_text("Infinity"),
+        OutputValue::PosInfinity,
+        0.0
+    ));
+    // negative infinity
+    assert!(values_match(
+        output_value_from_text("-inf"),
+        OutputValue::NegInfinity,
+        0.0
+    ));
+    assert!(values_match(
+        output_value_from_text("-Infinity"),
+        OutputValue::NegInfinity,
+        0.0
+    ));
+    // bool
+    assert!(values_match(
+        output_value_from_text("false"),
+        OutputValue::bool(false),
+        0.0
+    ));
+    assert!(values_match(
+        output_value_from_text("true"),
+        OutputValue::bool(true),
+        0.0
+    ));
+    // unknown text falls to Undefined
+    assert!(values_match(
+        output_value_from_text("Value::Series(...)"),
+        OutputValue::undefined(),
+        0.0
+    ));
+}
+
+// --- indicator_output_key: literal-#N title collision (test gap) ---
+
+#[test]
+fn duplicate_literal_hash_titles_get_chained_suffixes() {
+    let mut keys = HashMap::new();
+    // First allocation of "Signal#1" by literal title
+    let k1 = indicator_output_key(&mut keys, "Signal#1", Some(10));
+    assert_eq!(k1, "Signal#1");
+    // Second distinct call site with the same literal title
+    let k2 = indicator_output_key(&mut keys, "Signal#1", Some(20));
+    // The algorithm increments ordinal until a free slot is found.
+    // "Signal#1" is taken, ordinal 0 = "Signal#1" (taken), ordinal 1 = "Signal#1#1".
+    assert_eq!(k2, "Signal#1#1", "second call site gets chained suffix");
+    // Same call site again must return the same key
+    let k3 = indicator_output_key(&mut keys, "Signal#1", Some(10));
+    assert_eq!(k3, "Signal#1", "same call site returns same key");
+}
+
+// --- length mismatch reported (test gap) ---
+
+#[test]
+fn length_mismatch_reported_when_expected_shorter() {
+    // expected has 1 value, actual has 2 -- LengthMismatch must appear first.
+    // A ValueMismatch may also appear for the out-of-bounds bar; we only
+    // assert the first mismatch here, which must be the LengthMismatch.
+    let expected = BTreeMap::from([("plot".to_string(), vec![OutputValue::number(1.0)])]);
+    let mut actual = BTreeMap::new();
+    actual.insert(
+        "plot".to_string(),
+        vec![OutputValue::number(1.0), OutputValue::number(2.0)],
+    );
+    let mismatches = diff_outputs(&expected, &actual, 0.0, &ComparisonPlan::full(2));
+    assert!(
+        mismatches
+            .iter()
+            .any(|m| m.reason == MismatchReason::LengthMismatch),
+        "LengthMismatch must be present"
+    );
+    let lm = mismatches
+        .iter()
+        .find(|m| m.reason == MismatchReason::LengthMismatch)
+        .unwrap();
+    assert_eq!(lm.expected_len, 1);
+    assert_eq!(lm.actual_len, 2);
+}
+
+#[test]
+fn length_mismatch_reported_when_expected_longer() {
+    // expected has 2 values, actual has 1 -- LengthMismatch must appear.
+    let expected = BTreeMap::from([(
+        "plot".to_string(),
+        vec![OutputValue::number(1.0), OutputValue::number(2.0)],
+    )]);
+    let mut actual = BTreeMap::new();
+    actual.insert("plot".to_string(), vec![OutputValue::number(1.0)]);
+    let mismatches = diff_outputs(&expected, &actual, 0.0, &ComparisonPlan::full(2));
+    assert!(
+        mismatches
+            .iter()
+            .any(|m| m.reason == MismatchReason::LengthMismatch),
+        "LengthMismatch must be present"
+    );
+    let lm = mismatches
+        .iter()
+        .find(|m| m.reason == MismatchReason::LengthMismatch)
+        .unwrap();
+    assert_eq!(lm.expected_len, 2);
+    assert_eq!(lm.actual_len, 1);
+}
+
+// --- TV fixture round-trips through fixture_counts / baseline_catalog (test gap) ---
+
+#[test]
+fn tv_fixture_routes_to_tv_bucket_in_counts() {
+    // Build a valid TV fixture inline and verify it is classified as Tv baseline.
+    // This pins the routing logic without requiring a real baked TV fixture.
+    let tv_fixture = parse_fixture(
+        "tv-count-test",
+        "indicator(\"fixture\")\nplot(close)\n".to_string(),
+        BARS,
+        r#"{"schema_version": 1, "indicator_slug": "tv-count-test", "pine_version": "6.0.0", "outputs": {"plot": [10.0, 11.0]}}"#,
+        Some(r#"{"baseline": "tv", "tv_snapshot": "2026-01-01"}"#),
+    )
+    .expect("tv fixture must parse ok");
+    assert_eq!(tv_fixture.metadata.baseline, BaselineKind::Tv);
+    assert_eq!(
+        tv_fixture.effective_pine_version().as_deref(),
+        Some("6.0.0")
+    );
+    assert_eq!(
+        tv_fixture.effective_tv_snapshot().as_deref(),
+        Some("2026-01-01")
+    );
+}
+
+// --- filter_description format (test gap) ---
+
+#[test]
+fn filter_description_no_filters() {
+    use super::fixture::filter_description as fd;
+    assert_eq!(fd(None, None), "no filters");
+}
+
+#[test]
+fn filter_description_grep_only() {
+    use super::fixture::filter_description as fd;
+    assert_eq!(fd(Some("foo"), None), "grep=foo");
+}
+
+#[test]
+fn filter_description_baseline_only() {
+    use super::fixture::filter_description as fd;
+    assert_eq!(fd(None, Some("smoke")), "baseline=smoke");
+}
+
+#[test]
+fn filter_description_both() {
+    use super::fixture::filter_description as fd;
+    assert_eq!(fd(Some("foo"), Some("tv")), "grep=foo baseline=tv");
+}
+
+// --- IndicatorGeneratedExpect round-trips as ExpectFile (test gap) ---
+
+#[test]
+fn runner_expect_round_trips_as_expect_file() {
+    // Run a real fixture to produce a runner_expect
+    let report = run_actual("smoke-close").expect("actual run");
+    let generated = &report.runner_expect;
+
+    // Serialize to JSON, deserialize as ExpectFile
+    let json = serde_json::to_string(generated).expect("serialize runner_expect");
+    let reparsed = parse_expect("smoke-close", &json)
+        .expect("runner_expect JSON must be valid as an ExpectFile");
+    assert_eq!(
+        reparsed.outputs, generated.outputs,
+        "outputs must round-trip"
+    );
+    assert_eq!(
+        reparsed.tolerance, generated.tolerance,
+        "tolerance must round-trip"
+    );
+    assert_eq!(
+        reparsed.schema_version, generated.schema_version,
+        "schema_version must round-trip"
+    );
+    assert_eq!(
+        reparsed.indicator_slug, generated.indicator_slug,
+        "indicator_slug must round-trip"
+    );
+}

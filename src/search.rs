@@ -13,8 +13,6 @@
 // the reference's `oca_name=` parameter docs and the corpus's OCA probes.
 
 use anyhow::{Result, bail};
-use comrak::nodes::{AstNode, NodeValue};
-use comrak::{Arena, Options, parse_document};
 use include_dir::{Dir, include_dir};
 use serde::Serialize;
 use std::sync::OnceLock;
@@ -23,7 +21,7 @@ use tantivy::query::{BooleanQuery, BoostQuery, Query, QueryParser, TermQuery};
 use tantivy::schema::{Field, IndexRecordOption, STORED, STRING, Schema, TEXT};
 use tantivy::{Index, IndexReader, ReloadPolicy, TantivyDocument, Term};
 
-use crate::{behavior, corpus, reference};
+use crate::{behavior, corpus, reference, util::markdown};
 
 const AUDIT_MARKDOWN: &str = include_str!("../vendor/pineforge-docs/pine_v6_audit_master.md");
 static DOCS_PAGES: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/vendor/pineforge-docs/pages");
@@ -80,6 +78,9 @@ pub struct SearchKindInfo {
 }
 
 struct Engine {
+    // `index` is retained solely so `QueryParser::for_index(&e.index, ...)` can
+    // be called cheaply inside `query()` without re-opening the index on every
+    // call. The reader/searcher does not need the Index directly.
     index: Index,
     reader: IndexReader,
     name_field: Field,
@@ -110,15 +111,25 @@ fn build() -> Result<Engine> {
     let index = Index::create_in_ram(schema);
     let mut writer = index.writer(15_000_000)?;
 
+    // Local helper: build and add one document from its four semantic parts.
+    // Every source uses the same five-field layout (name, category, kind,
+    // content [STORED], content_search [TEXT]). The closure centralises the
+    // boilerplate so adding a sixth source in the future requires only a new
+    // call site, not a new copy of the pattern.
+    let add_doc = |name: &str, category: &str, kind: &str, content: &str| -> Result<()> {
+        let mut doc = TantivyDocument::default();
+        doc.add_text(name_field, name);
+        doc.add_text(category_field, category);
+        doc.add_text(kind_field, kind);
+        doc.add_text(content_field, content);
+        doc.add_text(content_query_field, content);
+        writer.add_document(doc)?;
+        Ok(())
+    };
+
     // Source 1: vendored v6 reference (941 entries).
     for entry in reference::all_entries() {
-        let mut doc = TantivyDocument::default();
-        doc.add_text(name_field, &entry.name);
-        doc.add_text(category_field, &entry.category);
-        doc.add_text(kind_field, KIND_REFERENCE);
-        doc.add_text(content_field, &entry.content);
-        doc.add_text(content_query_field, &entry.content);
-        writer.add_document(doc)?;
+        add_doc(&entry.name, &entry.category, KIND_REFERENCE, &entry.content)?;
     }
 
     // Source 2: baked PineForge corpus probes (239 entries). Probes without
@@ -127,14 +138,8 @@ fn build() -> Result<Engine> {
     // ...). list_probes(None, None) is the same path `pine probes` uses.
     if let Ok(probes) = corpus::list_probes(None, None) {
         for p in probes {
-            let mut doc = TantivyDocument::default();
-            doc.add_text(name_field, &p.slug);
-            doc.add_text(category_field, "Corpus");
-            doc.add_text(kind_field, KIND_PROBE);
             let content = p.summary.unwrap_or(&p.slug);
-            doc.add_text(content_field, content);
-            doc.add_text(content_query_field, content);
-            writer.add_document(doc)?;
+            add_doc(&p.slug, "Corpus", KIND_PROBE, content)?;
         }
     }
 
@@ -146,13 +151,7 @@ fn build() -> Result<Engine> {
     // is shorter, which matches their intent as navigation rather than
     // forensic substance.
     for (title, body) in parse_md_sections(AUDIT_MARKDOWN) {
-        let mut doc = TantivyDocument::default();
-        doc.add_text(name_field, &title);
-        doc.add_text(category_field, "Audit");
-        doc.add_text(kind_field, KIND_AUDIT);
-        doc.add_text(content_field, &body);
-        doc.add_text(content_query_field, &body);
-        writer.add_document(doc)?;
+        add_doc(&title, "Audit", KIND_AUDIT, &body)?;
     }
 
     // Source 4: vendored PineForge narrative pages. 18 markdown files
@@ -160,13 +159,7 @@ fn build() -> Result<Engine> {
     // lifecycle, report schema, examples, tutorials). Each H2 / H3 section
     // becomes one doc. Category="Docs", kind="docs".
     for (title, body) in pages_sections() {
-        let mut doc = TantivyDocument::default();
-        doc.add_text(name_field, &title);
-        doc.add_text(category_field, "Docs");
-        doc.add_text(kind_field, KIND_DOCS);
-        doc.add_text(content_field, &body);
-        doc.add_text(content_query_field, &body);
-        writer.add_document(doc)?;
+        add_doc(&title, "Docs", KIND_DOCS, &body)?;
     }
 
     // Source 5: structured pine-data behavior exports. Exact lookup remains
@@ -174,13 +167,7 @@ fn build() -> Result<Engine> {
     // examples, and polymorphism notes so users can discover a symbol when
     // they only remember a behavior or concept.
     for entry in behavior::search_entries() {
-        let mut doc = TantivyDocument::default();
-        doc.add_text(name_field, &entry.name);
-        doc.add_text(category_field, entry.category);
-        doc.add_text(kind_field, KIND_BEHAVIOR);
-        doc.add_text(content_field, &entry.content);
-        doc.add_text(content_query_field, &entry.content);
-        writer.add_document(doc)?;
+        add_doc(&entry.name, entry.category, KIND_BEHAVIOR, &entry.content)?;
     }
 
     writer.commit()?;
@@ -202,13 +189,17 @@ fn build() -> Result<Engine> {
 }
 
 pub fn query(q: &str, limit: usize, kind_filter: Option<&str>) -> Result<Vec<SearchHit>> {
-    if q.trim().is_empty() {
-        return Ok(Vec::new());
-    }
+    // Validate the kind filter first so `pine search "" --kind bogus` returns
+    // the "unknown search kind" error rather than an empty-vec no-op. The empty
+    // query short-circuit is still below this so a valid-but-empty query still
+    // returns an empty slice without building the index.
     let kind_filter = kind_filter.map(str::to_ascii_lowercase);
     let kind_filter = kind_filter.as_deref();
     if let Some(kind) = kind_filter {
         validate_kind(kind)?;
+    }
+    if q.trim().is_empty() {
+        return Ok(Vec::new());
     }
     let e = engine();
     let searcher = e.reader.searcher();
@@ -222,10 +213,20 @@ pub fn query(q: &str, limit: usize, kind_filter: Option<&str>) -> Result<Vec<Sea
     let boosted_name: Box<dyn Query> = Box::new(BoostQuery::new(name_q, NAME_BOOST));
     let scored: Box<dyn Query> = Box::new(BooleanQuery::union(vec![boosted_name, content_q]));
 
-    // Push the kind filter down into tantivy as an AND clause so the
-    // searcher returns exactly `limit` matching docs - no over-fetch +
-    // post-filter dance (which could silently under-deliver when the
-    // filtered kind is a small fraction of top-ranked hits).
+    // With a kind filter: push the filter into tantivy as an AND clause so the
+    // searcher returns exactly `limit` matching docs without any post-filter
+    // dance (which could silently under-deliver when the filtered kind is a
+    // small fraction of the top-ranked BM25 hits).
+    //
+    // Without a kind filter: over-fetch 4x from tantivy, then apply the
+    // BEHAVIOR_UNFILTERED_DAMPEN multiplier and re-sort. The 4x factor gives
+    // the dampening step enough headroom to reorder behavior hits without
+    // starving the final `limit`-length result set. If behavior entries
+    // dominate the raw BM25 top-N (common for rich-content queries), dampening
+    // may push them far enough down that the final slice would be empty without
+    // the extra candidates. 4x was chosen empirically: large enough that
+    // behavior-heavy queries still deliver `limit` non-behavior hits after
+    // dampening, small enough that the per-query tantivy traversal stays cheap.
     let final_query: Box<dyn Query> = match kind_filter {
         Some(kind) => {
             let term = Term::from_field_text(e.kind_field, kind);
@@ -238,6 +239,7 @@ pub fn query(q: &str, limit: usize, kind_filter: Option<&str>) -> Result<Vec<Sea
     let collect_limit = if kind_filter.is_some() {
         limit
     } else {
+        // 4x over-fetch: see comment above.
         limit.saturating_mul(4).max(limit)
     };
     let collector = TopDocs::with_limit(collect_limit).order_by_score();
@@ -334,86 +336,35 @@ fn first_text(doc: &TantivyDocument, field: Field) -> Option<String> {
         .map(String::from)
 }
 
-/// Count of indexed sections in the vendored audit doc. Cheap accessor for
-/// `pine version`; re-parses the markdown each call (~sub-millisecond).
+/// Count of indexed sections in the vendored audit doc.
+/// Computed once and cached; `pine version` calls this on every invocation.
 pub fn audit_section_count() -> usize {
-    parse_md_sections(AUDIT_MARKDOWN).len()
+    static COUNT: OnceLock<usize> = OnceLock::new();
+    *COUNT.get_or_init(|| parse_md_sections(AUDIT_MARKDOWN).len())
 }
 
 /// Count of indexed sections across the vendored narrative pages.
+/// Computed once and cached; `pine version` calls this on every invocation.
 pub fn docs_section_count() -> usize {
-    pages_sections().len()
+    static COUNT: OnceLock<usize> = OnceLock::new();
+    *COUNT.get_or_init(|| pages_sections().len())
 }
 
+/// Count of behavior-kind documents indexed in the BM25 engine.
+/// Computed once and cached; `pine version` calls this on every invocation.
 pub fn behavior_doc_count() -> usize {
-    behavior::search_entries().len()
+    static COUNT: OnceLock<usize> = OnceLock::new();
+    *COUNT.get_or_init(|| behavior::search_entries().len())
 }
 
 /// Split markdown into `(heading_text, body_text)` pairs for each H2 / H3
-/// section. Body is everything from the heading line to (but not including)
-/// the next heading at any level.
+/// section. Thin adapter over `util::markdown::sections` that discards the
+/// level field (search.rs callers only need title + body).
 fn parse_md_sections(markdown: &str) -> Vec<(String, String)> {
-    let arena = Arena::new();
-    let opts = Options::default();
-    let root = parse_document(&arena, markdown, &opts);
-    let lines: Vec<&str> = markdown.lines().collect();
-
-    // Depth-first walk that concatenates all Text and Code literals that are
-    // descendants of `node`. Recurses into Emph, Strong, Link, etc. so that
-    // inline markup inside headings (e.g. backtick code spans) is not dropped.
-    fn inline_text<'a>(node: &'a AstNode<'a>) -> String {
-        let mut out = String::new();
-        for child in node.children() {
-            match &child.data.borrow().value {
-                NodeValue::Text(t) => out.push_str(t),
-                NodeValue::Code(code) => out.push_str(&code.literal),
-                _ => out.push_str(&inline_text(child)),
-            }
-        }
-        out
-    }
-
-    // Each entry stores (title, level, heading_end_0) where heading_end_0 is
-    // the 0-based index of the heading's last source line (comrak sourcepos is
-    // 1-based, so heading_end_0 = sourcepos.end.line - 1). The body of a
-    // section starts at heading_end_0 + 1. For single-line headings (the
-    // normal case) heading_end_0 == sourcepos.start.line - 1.
-    fn collect<'a>(node: &'a AstNode<'a>, out: &mut Vec<(String, u8, usize)>) {
-        if let NodeValue::Heading(h) = &node.data.borrow().value
-            && (h.level == 2 || h.level == 3)
-        {
-            let text = inline_text(node);
-            let heading_end_0 = node.data.borrow().sourcepos.end.line - 1;
-            out.push((text, h.level, heading_end_0));
-        }
-        for child in node.children() {
-            collect(child, out);
-        }
-    }
-
-    let mut headings = Vec::new();
-    collect(root, &mut headings);
-
-    let mut out = Vec::with_capacity(headings.len());
-    for (i, (title, _, heading_end_0)) in headings.iter().enumerate() {
-        // Body ends just before the next heading's first line. Since we store
-        // heading_end_0 (0-based last line of the heading), for single-line
-        // headings that equals the 0-based start line, which is exactly the
-        // exclusive upper bound we need for the preceding section's body.
-        let end = if i + 1 < headings.len() {
-            headings[i + 1].2
-        } else {
-            lines.len()
-        };
-        // Body starts at the line immediately after the heading ends.
-        let body: String = lines[heading_end_0 + 1..end]
-            .to_vec()
-            .join("\n")
-            .trim()
-            .to_string();
-        out.push((title.trim().to_string(), body));
-    }
-    out
+    markdown::sections(markdown)
+        .into_iter()
+        .map(|s| (s.title, s.body))
+        .collect()
 }
 
 /// Walk every `.md` file in `vendor/pineforge-docs/pages/` and yield section
@@ -507,9 +458,13 @@ mod tests {
     #[test]
     fn audit_sections_parse() {
         let s = parse_md_sections(AUDIT_MARKDOWN);
+        // The audit doc has >= 18 H2/H3 sections (raw grep: 20). We use a
+        // floor of 18 to tolerate any H2/H3 lines inside fenced code blocks
+        // that comrak correctly ignores. If a scrape ever drops large swathes
+        // of the audit doc, this test will catch it.
         assert!(
-            s.len() >= 5,
-            "expected several audit sections, got {}",
+            s.len() >= 18,
+            "expected >= 18 audit sections, got {}",
             s.len()
         );
         // Every section should have a non-empty title.
@@ -519,9 +474,12 @@ mod tests {
     #[test]
     fn pages_sections_yield_multiple_files() {
         let s = pages_sections();
+        // 19 page files, raw grep yields 118 H2/H3 lines total. Some of those
+        // may fall inside fenced code blocks (comrak ignores them), so we use
+        // >= 80 as the floor rather than the raw count.
         assert!(
-            s.len() >= 30,
-            "expected dozens of page sections across 18 files, got {}",
+            s.len() >= 80,
+            "expected >= 80 page sections across 19 files, got {}",
             s.len()
         );
     }

@@ -1,3 +1,5 @@
+use std::io::Write as _;
+
 use anyhow::Result;
 use pine_cli::validate;
 
@@ -48,16 +50,7 @@ pub(crate) fn run(
                         validate::Severity::Hint => style.cyan("hint"),
                         _ => style.cyan("hint"),
                     };
-                    let stage = style.dim(&format!(
-                        "[{}]",
-                        match d.stage {
-                            validate::Stage::Lex => "lex",
-                            validate::Stage::Parse => "parse",
-                            validate::Stage::Type => "type",
-                            validate::Stage::Semantic => "semantic",
-                            validate::Stage::Strict => "strict",
-                        }
-                    ));
+                    let stage = style.dim(&format!("[{}]", d.stage));
                     let loc = match d.column {
                         Some(col) => format!("{}:{}", d.line, col),
                         None => format!("{}", d.line),
@@ -70,7 +63,13 @@ pub(crate) fn run(
                         style.bold(&loc),
                         d.message
                     );
-                    if let Some(frame) = diagnostic_frame(source, d) {
+                    // Skip caret frame for Strict diagnostics: TV's pine-lint
+                    // reports wrong line / column numbers by design, so
+                    // rendering a frame would visually claim accuracy that
+                    // the tier explicitly disavows.
+                    if !matches!(d.stage, validate::Stage::Strict)
+                        && let Some(frame) = diagnostic_frame(source, d)
+                    {
                         print_diagnostic_frame(&frame, style);
                     }
                 }
@@ -89,6 +88,10 @@ pub(crate) fn run(
         }
     }
     if !report.ok {
+        // Flush stdout before process::exit so block-buffered output
+        // (e.g. piped to a file) is not truncated. Ignore flush errors;
+        // we are exiting anyway.
+        std::io::stdout().flush().ok();
         std::process::exit(1);
     }
     Ok(())

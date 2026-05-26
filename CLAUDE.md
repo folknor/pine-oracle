@@ -32,7 +32,4 @@ Do not use your Memory functionality. Do not read, write, or update memories. Do
 
 ### Bash rules
 
-- Never use `sed`, `find`, `awk`, `head`, `tail`, or complex bash commands.
-- Never `find /`.
-- Never run `git` with `-C <path>`
-- One Bash() invocation === one command
+All Bash rules live in AGENTS.md under "Bash rules". CLAUDE.md imports AGENTS.md via `@AGENTS.md`, so those rules apply here too. Do not add Bash rules here; extend the list in AGENTS.md.

@@ -10,19 +10,23 @@
 //   - Cached the parsed section table behind OnceLock.
 //   - Added lookup(name) and search(query) that span all categories.
 
-use anyhow::Result;
-use comrak::nodes::{AstNode, NodeValue};
-use comrak::{Arena, Options, parse_document};
 use serde::Serialize;
 use std::sync::OnceLock;
 
+use crate::util::markdown;
+
 const REFERENCE_MARKDOWN: &str = include_str!("../vendor/pine-reference/spec/v6.md");
 
+/// A parsed section from the v6 reference. Only used internally; the public
+/// API surface is `Entry` (via `lookup` / `all_entries` / `prefix_search`).
+///
+/// Prefer `all_entries()` for the common case of iterating over every
+/// reference entry with its parent category.
 #[derive(Debug, Clone)]
-pub struct Section {
-    pub title: String,
-    pub level: u8,
-    pub content: String,
+pub(crate) struct Section {
+    pub(crate) title: String,
+    pub(crate) level: u8,
+    pub(crate) content: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -32,82 +36,19 @@ pub struct Entry {
     pub content: String,
 }
 
-fn parse_sections(markdown_content: &str) -> Result<Vec<Section>> {
-    let arena = Arena::new();
-    let options = Options::default();
-    let root = parse_document(&arena, markdown_content, &options);
-
-    let lines: Vec<&str> = markdown_content.lines().collect();
-
-    // Depth-first walk that concatenates all Text and Code literals that are
-    // descendants of `node`. Recurses into Emph, Strong, Link, etc. so that
-    // inline markup inside headings (e.g. backtick code spans) is not dropped.
-    fn inline_text<'a>(node: &'a AstNode<'a>) -> String {
-        let mut out = String::new();
-        for child in node.children() {
-            match &child.data.borrow().value {
-                NodeValue::Text(t) => out.push_str(t),
-                NodeValue::Code(code) => out.push_str(&code.literal),
-                _ => out.push_str(&inline_text(child)),
-            }
-        }
-        out
-    }
-
-    // Each entry stores (title, level, heading_end_0) where heading_end_0 is
-    // the 0-based index of the heading's last source line (comrak sourcepos is
-    // 1-based, so heading_end_0 = sourcepos.end.line - 1). The body of a
-    // section starts at heading_end_0 + 1. For single-line headings (the
-    // normal case in v6.md) heading_end_0 == sourcepos.start.line - 1.
-    fn collect_headings<'a>(node: &'a AstNode<'a>, headings: &mut Vec<(String, u8, usize)>) {
-        if let NodeValue::Heading(heading) = &node.data.borrow().value {
-            let level = heading.level;
-            if level == 2 || level == 3 {
-                let heading_text = inline_text(node);
-                let heading_end_0 = node.data.borrow().sourcepos.end.line - 1;
-                headings.push((canonicalize_title(&heading_text), level, heading_end_0));
-            }
-        }
-        for child in node.children() {
-            collect_headings(child, headings);
-        }
-    }
-
-    let mut headings = Vec::new();
-    collect_headings(root, &mut headings);
-
-    let mut sections = Vec::with_capacity(headings.len());
-    for (i, (title, level, heading_end_0)) in headings.iter().enumerate() {
-        // Body ends just before the next heading's first line. Since we store
-        // heading_end_0 (0-based last line of the heading), for single-line
-        // headings that equals the 0-based start line, which is exactly the
-        // exclusive upper bound we need for the preceding section's body.
-        let end_line = if i + 1 < headings.len() {
-            headings[i + 1].2
-        } else {
-            lines.len()
-        };
-
-        // Body starts at the line immediately after the heading ends.
-        let content: Vec<String> = lines[heading_end_0 + 1..end_line]
-            .iter()
-            .map(|s| (*s).to_string())
-            .collect();
-
-        sections.push(Section {
-            title: title.clone(),
-            level: *level,
-            content: content.join("\n").trim_end().to_string(),
-        });
-    }
-
-    Ok(sections)
-}
-
 fn sections() -> &'static [Section] {
     static SECTIONS: OnceLock<Vec<Section>> = OnceLock::new();
     SECTIONS
-        .get_or_init(|| parse_sections(REFERENCE_MARKDOWN).expect("vendored v6.md must parse"))
+        .get_or_init(|| {
+            markdown::sections(REFERENCE_MARKDOWN)
+                .into_iter()
+                .map(|s| Section {
+                    title: canonicalize_title(&s.title),
+                    level: s.level,
+                    content: s.body,
+                })
+                .collect()
+        })
         .as_slice()
 }
 
@@ -120,22 +61,30 @@ pub fn categories() -> Vec<&'static str> {
 }
 
 /// Every level-3 entry with its parent category. Used by `search` to build
-/// the BM25 index.
-pub fn all_entries() -> Vec<Entry> {
-    let mut out = Vec::with_capacity(1024);
-    let mut current_cat: &str = "";
-    for s in sections() {
-        if s.level == 2 {
-            current_cat = &s.title;
-        } else if s.level == 3 {
-            out.push(Entry {
-                category: current_cat.to_string(),
-                name: s.title.clone(),
-                content: s.content.clone(),
-            });
-        }
-    }
-    out
+/// the BM25 index and by `kind_catalog` for the reference document count.
+///
+/// The `Vec<Entry>` is built once and cached behind a `OnceLock`; subsequent
+/// calls return a borrow of the static slice without any allocation.
+pub fn all_entries() -> &'static [Entry] {
+    static ENTRIES: OnceLock<Vec<Entry>> = OnceLock::new();
+    ENTRIES
+        .get_or_init(|| {
+            let mut out = Vec::with_capacity(1024);
+            let mut current_cat: &str = "";
+            for s in sections() {
+                if s.level == 2 {
+                    current_cat = &s.title;
+                } else if s.level == 3 {
+                    out.push(Entry {
+                        category: current_cat.to_string(),
+                        name: s.title.clone(),
+                        content: s.content.clone(),
+                    });
+                }
+            }
+            out
+        })
+        .as_slice()
 }
 
 /// Exact-match lookup across every category. First hit wins.
@@ -174,7 +123,14 @@ pub fn prefix_search(prefix: &str) -> Vec<Entry> {
 }
 
 fn starts_with_ci(haystack: &str, needle: &str) -> bool {
-    haystack.len() >= needle.len() && haystack[..needle.len()].eq_ignore_ascii_case(needle)
+    // Use `get(..needle.len())` rather than a direct slice so we never panic
+    // when `needle.len()` falls on a multi-byte UTF-8 boundary. The slice
+    // length matches iff `needle` is purely ASCII (which is the common case
+    // for Pine identifiers); non-ASCII needles simply fall through to None
+    // and return false.
+    haystack
+        .get(..needle.len())
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(needle))
 }
 
 /// Canonicalise a heading text into the name users actually type.
@@ -193,14 +149,32 @@ fn canonicalize_title(raw: &str) -> String {
 mod tests {
     use super::*;
 
+    /// v6.md has exactly 7 H2 category headings: Variables, Constants,
+    /// Functions, Keywords, Types, Operators, Annotations. Pin the exact count
+    /// so a dropped category fails the test rather than a loose `>= 7` mask.
     #[test]
-    fn parses_at_least_seven_categories() {
+    fn parses_exactly_seven_categories() {
         let cats = categories();
-        assert!(
-            cats.len() >= 7,
-            "expected >= 7 categories, got {}: {:?}",
+        assert_eq!(
+            cats.len(),
+            7,
+            "expected exactly 7 categories, got {}: {:?}",
             cats.len(),
             cats
+        );
+        // Pin the canonical names so a rename also fails the test.
+        let expected = [
+            "Variables",
+            "Constants",
+            "Functions",
+            "Keywords",
+            "Types",
+            "Operators",
+            "Annotations",
+        ];
+        assert_eq!(
+            cats, expected,
+            "category names or order changed; expected {expected:?}, got {cats:?}"
         );
     }
 
@@ -224,42 +198,70 @@ mod tests {
         assert!(hits.len() > 10, "math. prefix should hit many functions");
     }
 
-    // Bug-1 regression: heading immediately followed by a body line (no blank
-    // line between) must not drop the first body line.
+    // Escaped-underscore regression: v6.md writes `### bar\_index` (backslash
+    // escapes the underscore to suppress inline italic). Comrak unescapes `\_`
+    // to `_` in Text nodes, so lookup("bar_index") must succeed. If a future
+    // comrak upgrade changes unescaping behavior, this test catches it.
     #[test]
-    fn body_not_dropped_when_heading_has_no_blank_line() {
-        let md = "## Category\n### Entry\nFirst body line\nSecond body line\n";
-        let sections = parse_sections(md).expect("must parse");
-        let entry = sections
-            .iter()
-            .find(|s| s.title == "Entry")
-            .expect("Entry section must exist");
+    fn looks_up_escaped_underscore_identifier() {
+        let e = lookup("bar_index").expect("bar_index must exist");
+        assert_eq!(e.category, "Variables");
+        // Canonicalized name must not contain the backslash.
         assert!(
-            entry.content.contains("First body line"),
-            "first body line must not be dropped; got: {:?}",
-            entry.content
-        );
-        assert!(
-            entry.content.contains("Second body line"),
-            "second body line must not be dropped; got: {:?}",
-            entry.content
+            !e.name.contains('\\'),
+            "name must not contain backslash; got: {:?}",
+            e.name
         );
     }
 
-    // Bug-2 regression: inline code spans inside headings must be captured in
-    // the section title.
+    // Second underscore-escaped name pin.
     #[test]
-    fn heading_inline_code_included_in_title() {
-        let md = "## Category\n### Entry with `inline_code`\nsome body\n";
-        let sections = parse_sections(md).expect("must parse");
-        let entry = sections
-            .iter()
-            .find(|s| s.title.contains("Entry with"))
-            .expect("section must exist");
+    fn looks_up_last_bar_index() {
+        let e = lookup("last_bar_index").expect("last_bar_index must exist");
+        assert_eq!(e.category, "Variables");
+    }
+
+    // Bug-1 regression: heading immediately followed by a body line (no blank
+    // line between) must not drop the first body line.
+    // Now exercises util::markdown::sections through sections() -> all_entries().
+    // The canonical regression pin lives in util/markdown.rs; this test pins
+    // the reference-layer mapping (canonicalize_title + OnceLock accumulation)
+    // against the real vendored data.
+    #[test]
+    fn body_not_dropped_for_real_entry() {
+        // `close` is followed immediately by body text with no blank line.
+        let e = lookup("close").expect("close must exist");
         assert!(
-            entry.title.contains("inline_code"),
-            "inline code token must appear in title; got: {:?}",
-            entry.title
+            !e.content.is_empty(),
+            "close entry must have non-empty body"
+        );
+    }
+
+    // Bug-2 regression: inline code spans inside headings must be captured.
+    // Verified against the shared util::markdown::sections tests; this layer
+    // asserts that canonicalize_title doesn't destroy inline code content.
+    #[test]
+    fn inline_code_in_heading_survives_canonicalization() {
+        // math.max() -> "math.max" (strip `()` suffix, keep the name)
+        let e = lookup("math.max").expect("math.max must exist");
+        assert!(
+            e.name.contains("math.max"),
+            "canonicalized name must preserve identifier; got: {:?}",
+            e.name
+        );
+    }
+
+    // starts_with_ci must not panic when given a multi-byte UTF-8 needle.
+    #[test]
+    fn starts_with_ci_non_ascii_needle_does_not_panic() {
+        // The current vendored data has no non-ASCII H3 titles, but the helper
+        // must not panic when a caller passes a multi-byte needle. An empty
+        // result (not a panic) is the correct outcome.
+        let hits = prefix_search("\u{2192}"); // U+2192 RIGHTWARDS ARROW
+        // No heading starts with an arrow, so we expect no hits - but no panic.
+        assert!(
+            hits.is_empty(),
+            "no heading should start with an arrow; got: {hits:?}"
         );
     }
 }

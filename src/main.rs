@@ -9,18 +9,36 @@ mod output;
 
 use output::{ResolvedFormat, Style, print_json};
 
+/// pine: Pine v6 oracle CLI. Answers semantic questions about Pine script
+/// across every Pine-adjacent project. Vendors the TradingView v6 reference
+/// and the PineForge cross-validation corpus; exposes them as one-shot
+/// subcommands.
 #[derive(Parser)]
 #[command(name = "pine", version, about = "Pine v6 oracle CLI", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
 
+    /// Output format. Defaults to `text` when stdout is a TTY, `json` when
+    /// stdout is redirected or piped. Pass `--format json` to force machine-
+    /// readable output, or `--format text` to force human-readable output.
     #[arg(long, global = true, value_enum, default_value_t = OutputFormat::Auto)]
     format: OutputFormat,
 
+    /// Suppress ANSI styling in text mode. Honoured automatically when
+    /// `NO_COLOR` is set or stdout is not a TTY. Has no effect in `--format
+    /// json` mode (JSON output is never styled).
+    ///
+    /// Note: `--no-color` is currently wired through `pine search` and
+    /// `pine validate`, the two commands that emit ANSI color today. Other
+    /// commands emit plain text and are unaffected.
     #[arg(long, global = true)]
     no_color: bool,
 
+    /// Suppress non-data status/note text in text mode. JSON output is
+    /// unchanged regardless of this flag. The exact effect is per-subcommand;
+    /// commands whose entire text output is data (e.g. `pine parse`,
+    /// `pine tokens`, `pine diff`) treat `--quiet` as a no-op.
     #[arg(long, global = true)]
     quiet: bool,
 }
@@ -69,10 +87,20 @@ impl PineSourceArgs {
             (_, Some(_), Some(_)) => bail!("`--code` cannot combine with `--file`"),
             (_, Some(code), None) => Ok(code.clone()),
             (_, None, Some(path)) => read_source_file(path),
-            (Some(input), None, None) if input == "-" => read_source_stdin(),
+            (Some(input), None, None) if input == "-" => {
+                // Explicit `-` means "read from stdin". Guard against an
+                // accidental hang: if the caller typed `-` but stdin is still
+                // a TTY, bail with the same helpful message as the implicit
+                // stdin branch. Callers that genuinely want to pipe into `-`
+                // will have stdin redirected (not a TTY).
+                if std::io::stdin().is_terminal() {
+                    bail!("Pine source required: pass CODE_OR_FILE, `--code`, `--file`, or `-`")
+                }
+                read_source_stdin()
+            }
             (Some(input), None, None) => {
                 let path = Path::new(input);
-                if path.is_file() || looks_like_source_path(input) {
+                if path.is_file() || looks_like_pine_file(input) {
                     read_source_file(path)
                 } else {
                     Ok(input.clone())
@@ -93,13 +121,33 @@ fn read_source_file(path: &Path) -> Result<String> {
         .map_err(|err| anyhow::anyhow!("reading Pine source {}: {err}", path.display()))
 }
 
-fn looks_like_source_path(input: &str) -> bool {
-    let path = Path::new(input);
-    path.extension().is_some_and(|ext| ext == "pine")
-        || ((input.contains('/') || input.contains('\\')) && !looks_like_inline_source(input))
+/// Returns `true` when the positional input looks more like a Pine file path
+/// than inline source. Two cases are accepted:
+///
+/// 1. Ends with `.pine` AND has no inline-syntax characters (the latter
+///    guard prevents `plot(close, title="my-script.pine")` from being
+///    mistaken for a file path).
+/// 2. Contains a path separator (`/` or `\`) AND has no inline-syntax
+///    characters (the guard prevents `bar(x / 2)` from matching on `/`).
+///
+/// If the heuristic is wrong, users can force interpretation via `--file`
+/// (always a path) or `--code` (always inline). These two flags bypass
+/// the heuristic entirely.
+fn looks_like_pine_file(input: &str) -> bool {
+    let has_pine_ext = Path::new(input)
+        .extension()
+        .is_some_and(|ext| ext == "pine");
+    let has_separator = input.contains('/') || input.contains('\\');
+    let inline = looks_like_inline_pine_source(input);
+    (has_pine_ext || has_separator) && !inline
 }
 
-fn looks_like_inline_source(input: &str) -> bool {
+/// Returns `true` when the positional input looks like inline Pine source
+/// rather than a file path. Any of the following characters indicate source:
+/// whitespace, parentheses, `=`, double-quote, or single-quote. These
+/// characters are common in Pine expressions and rare (or illegal) in file
+/// names used on the command line without quoting.
+fn looks_like_inline_pine_source(input: &str) -> bool {
     input.contains('\n')
         || input.contains('(')
         || input.contains(')')
@@ -278,6 +326,9 @@ fn main() -> Result<()> {
             trades_csv,
             show_diffs,
         } => commands::diff::run(&probe, &trades_csv, show_diffs, format),
+        // `indicator` uses an `Args` struct rather than a positional arg list
+        // because it has 8+ flags. Other subcommands use positional lists;
+        // this is the only exception and is intentional.
         Command::Indicator {
             slug,
             strict,
@@ -397,28 +448,85 @@ fn cmd_version(format: ResolvedFormat, quiet: bool) -> Result<()> {
 mod tests {
     use super::*;
 
+    /// Pin matrix for `looks_like_pine_file`. The key property: `.pine`
+    /// extension alone is NOT enough -- the input must also lack inline-source
+    /// characters (so `plot(close, title="my.pine")` stays inline).
     #[test]
-    fn looks_like_source_path_positive_and_negative() {
-        // .pine extension -> path
-        assert!(looks_like_source_path("foo.pine"));
-        // path with separator -> path
-        assert!(looks_like_source_path("path/to/file"));
-        // inline Pine with parens -> not a path
-        assert!(!looks_like_source_path("indicator(\"x\")"));
-        // inline Pine with function call -> not a path
-        assert!(!looks_like_source_path("plot(close)"));
+    fn looks_like_pine_file_pin_matrix() {
+        // .pine extension with no inline chars -> path
+        assert!(looks_like_pine_file("foo.pine"), "bare .pine slug");
+        assert!(looks_like_pine_file("dir/foo.pine"), "dir + .pine");
+
+        // .pine extension BUT has inline chars -> NOT a path (was a bug before the &&)
+        assert!(
+            !looks_like_pine_file("plot(close, title=\"my.pine\")"),
+            ".pine inside inline expression must stay inline"
+        );
+        assert!(
+            !looks_like_pine_file("x = something.pine"),
+            ".pine in assignment must stay inline"
+        );
+
+        // path with separator and no inline chars -> path
+        assert!(looks_like_pine_file("path/to/file"), "slash-separated path");
+
+        // separator BUT has inline chars -> not a path (slash in expression)
+        assert!(
+            !looks_like_pine_file("bar(x / 2)"),
+            "slash inside function call must stay inline"
+        );
+        assert!(
+            !looks_like_pine_file("plot(close / 2)"),
+            "slash inside plot call must stay inline"
+        );
+
+        // no extension, no separator, no inline chars -> not a path
+        assert!(!looks_like_pine_file("identifier"), "bare identifier");
+        assert!(!looks_like_pine_file("plotshape"), "bare built-in name");
     }
 
+    /// Pin matrix for `looks_like_inline_pine_source`.
     #[test]
-    fn looks_like_inline_source_positive_and_negative() {
-        // newline -> inline
-        assert!(looks_like_inline_source("\n"));
-        // assignment -> inline
-        assert!(looks_like_inline_source("x = 1"));
-        // space -> inline (file paths usually don't contain spaces)
-        assert!(looks_like_inline_source("just text"));
-        // bare identifier -> not inline (could be a slug or filename)
-        assert!(!looks_like_inline_source("identifier"));
+    fn looks_like_inline_pine_source_pin_matrix() {
+        // Characters that signal source code
+        assert!(
+            looks_like_inline_pine_source("\n"),
+            "newline signals multi-line source"
+        );
+        assert!(
+            looks_like_inline_pine_source("x = 1"),
+            "assignment signals source"
+        );
+        assert!(
+            looks_like_inline_pine_source("just text"),
+            "space signals source (paths rarely have spaces on CLI)"
+        );
+        assert!(
+            looks_like_inline_pine_source("plot(close)"),
+            "parens signal function call"
+        );
+        assert!(
+            looks_like_inline_pine_source("indicator(\"x\")"),
+            "parens + quotes signal source"
+        );
+        assert!(
+            looks_like_inline_pine_source("f = 'hi'"),
+            "single-quote signals string literal"
+        );
+
+        // Plain identifiers: not inline (could be a slug, filename, probe name)
+        assert!(
+            !looks_like_inline_pine_source("identifier"),
+            "bare identifier is not inline"
+        );
+        assert!(
+            !looks_like_inline_pine_source("ema"),
+            "bare built-in name is not inline"
+        );
+        assert!(
+            !looks_like_inline_pine_source("foo.pine"),
+            "bare .pine filename is not inline"
+        );
     }
 
     #[test]
@@ -857,5 +965,111 @@ mod tests {
             }
             _ => panic!("expected indicator command"),
         }
+    }
+
+    // --- OutputFormat + global flag parsing pins ---
+
+    /// Pin that `--format json` parses to the Json variant.
+    #[test]
+    fn format_flag_json_parses() {
+        let cli = Cli::try_parse_from(["pine", "--format", "json", "lookup", "plot"])
+            .expect("--format json should parse");
+        assert_eq!(cli.format, OutputFormat::Json);
+    }
+
+    /// Pin that `--format text` parses to the Text variant.
+    #[test]
+    fn format_flag_text_parses() {
+        let cli = Cli::try_parse_from(["pine", "--format", "text", "lookup", "plot"])
+            .expect("--format text should parse");
+        assert_eq!(cli.format, OutputFormat::Text);
+    }
+
+    /// Pin that the default variant is Auto (no --format flag given).
+    #[test]
+    fn format_flag_defaults_to_auto() {
+        let cli =
+            Cli::try_parse_from(["pine", "lookup", "plot"]).expect("no --format should parse");
+        assert_eq!(cli.format, OutputFormat::Auto);
+    }
+
+    /// Pin that `--no-color` sets the flag.
+    #[test]
+    fn no_color_flag_sets_field() {
+        let cli = Cli::try_parse_from(["pine", "--no-color", "lookup", "plot"])
+            .expect("--no-color should parse");
+        assert!(cli.no_color);
+    }
+
+    /// Pin that `--quiet` sets the flag.
+    #[test]
+    fn quiet_flag_sets_field() {
+        let cli = Cli::try_parse_from(["pine", "--quiet", "lookup", "plot"])
+            .expect("--quiet should parse");
+        assert!(cli.quiet);
+    }
+
+    /// Pin that the explicit `-` positional is parsed into PineSourceArgs.input
+    /// as the string "-". The actual stdin read (and TTY guard) is not tested
+    /// here since stdin cannot be mocked in unit tests; the parse-level
+    /// structural pin is sufficient to guard against accidental removal of
+    /// the special case.
+    #[test]
+    fn validate_dash_stdin_sentinel_parses() {
+        let cli = Cli::try_parse_from(["pine", "validate", "-"]).expect("-  should parse");
+
+        match cli.command {
+            Command::Validate { source, strict: _ } => {
+                assert_eq!(
+                    source.input.as_deref(),
+                    Some("-"),
+                    "explicit - must land in input field"
+                );
+                assert!(source.code.is_none());
+                assert!(source.file.is_none());
+            }
+            _ => panic!("expected validate command"),
+        }
+    }
+
+    /// Pin that `--code X --file Y` (both exclusive flags together) is
+    /// rejected at read time, not at parse time.
+    #[test]
+    fn source_rejects_code_and_file_flag_together() {
+        let cli =
+            Cli::try_parse_from(["pine", "validate", "--code", "plot(1)", "--file", "x.pine"])
+                .expect("parse should succeed; conflict detected at read time");
+
+        match cli.command {
+            Command::Validate { source, strict: _ } => {
+                let err = source.read().expect_err("--code + --file must be rejected");
+                assert!(
+                    err.to_string().contains("cannot combine"),
+                    "error must mention 'cannot combine', got: {err}"
+                );
+            }
+            _ => panic!("expected validate command"),
+        }
+    }
+
+    /// Pin that `OutputFormat::resolve` returns Json for Auto when stdout is
+    /// not a TTY, and Text when it is a TTY.
+    #[test]
+    fn output_format_auto_resolves_by_tty() {
+        assert_eq!(
+            OutputFormat::Auto.resolve(false),
+            ResolvedFormat::Json,
+            "Auto + not-a-tty -> Json"
+        );
+        assert_eq!(
+            OutputFormat::Auto.resolve(true),
+            ResolvedFormat::Text,
+            "Auto + is-a-tty -> Text"
+        );
+        // Non-Auto variants are identity regardless of TTY.
+        assert_eq!(OutputFormat::Json.resolve(false), ResolvedFormat::Json);
+        assert_eq!(OutputFormat::Json.resolve(true), ResolvedFormat::Json);
+        assert_eq!(OutputFormat::Text.resolve(false), ResolvedFormat::Text);
+        assert_eq!(OutputFormat::Text.resolve(true), ResolvedFormat::Text);
     }
 }

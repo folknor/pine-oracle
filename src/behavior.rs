@@ -182,6 +182,9 @@ pub struct FunctionBehavior {
     pub namespace: Option<String>,
     pub syntax: String,
     pub returns: String,
+    /// Human-readable description from pine-data. Empty string when the source
+    /// JSON carries no description.
+    pub description: String,
     pub parameters: Vec<FunctionParameter>,
     pub examples: Vec<String>,
     pub flags: FunctionFlags,
@@ -194,6 +197,9 @@ pub struct VariableBehavior {
     pub name: String,
     pub ty: String,
     pub qualifier: String,
+    /// Human-readable description from pine-data. Empty string when the source
+    /// JSON carries no description.
+    pub description: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -209,6 +215,33 @@ pub struct KeywordBehavior {
     pub name: String,
 }
 
+impl Behavior {
+    /// Return the `BehaviorKind` tag for this variant.
+    #[must_use]
+    pub fn kind(&self) -> BehaviorKind {
+        match self {
+            Self::Function(_) => BehaviorKind::Function,
+            Self::Variable(_) => BehaviorKind::Variable,
+            Self::Constant(_) => BehaviorKind::Constant,
+            Self::Keyword(_) => BehaviorKind::Keyword,
+        }
+    }
+
+    /// Return `true` if this is a function that carries polymorphism markers.
+    ///
+    /// Equivalent to `if let Behavior::Function(f) = self { f.behavior.as_ref().is_some_and(|b| b.polymorphic.is_polymorphic()) }`.
+    #[must_use]
+    pub fn is_polymorphic(&self) -> bool {
+        if let Self::Function(f) = self {
+            f.behavior
+                .as_ref()
+                .is_some_and(|b| b.polymorphic.is_polymorphic())
+        } else {
+            false
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum BehaviorKind {
@@ -219,7 +252,7 @@ pub enum BehaviorKind {
 }
 
 impl BehaviorKind {
-    fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Function => "function",
             Self::Variable => "variable",
@@ -228,7 +261,7 @@ impl BehaviorKind {
         }
     }
 
-    fn description(self) -> &'static str {
+    pub fn description(self) -> &'static str {
         match self {
             Self::Function => "Built-in functions with signatures and behavior metadata",
             Self::Variable => "Built-in variables such as OHLCV series",
@@ -333,9 +366,36 @@ fn map_get_ci<'a, V>(map: &'a HashMap<String, V>, name: &str) -> Option<&'a V> {
 
 /// First-hit lookup across functions, variables, constants, keywords.
 /// Case-insensitive: `lookup("CLOSE")` and `lookup("close")` both work.
+///
+/// Generic-placeholder fallback: pine-data stores generic constructor functions
+/// under names like `array.new<type>`, `matrix.new<type>`, `map.new<type,type>`.
+/// When an exact-name miss occurs, `lookup` probes the two conventional suffixes
+/// so that `lookup("array.new")` resolves to `array.new<type>`.
 pub fn lookup(name: &str) -> Option<Behavior> {
     let idx = index();
+    // Primary lookup: functions / variables / constants / keywords.
+    if let Some(result) = lookup_in(idx, name) {
+        return Some(result);
+    }
+    if idx.keywords.iter().any(|k| k.eq_ignore_ascii_case(name)) {
+        return Some(Behavior::Keyword(KeywordBehavior {
+            name: name.to_string(),
+        }));
+    }
+    // Generic-placeholder fallback: try conventional suffixes in decreasing
+    // specificity order. `map.new<type,type>` must be tried before `<type>`.
+    for suffix in &["<type,type>", "<type>"] {
+        let candidate = format!("{name}{suffix}");
+        if let Some(result) = lookup_in(idx, &candidate) {
+            return Some(result);
+        }
+    }
+    None
+}
 
+/// Inner lookup over a pre-fetched index: functions, variables, constants only
+/// (not keywords, which require the caller to own the keyword name string).
+fn lookup_in(idx: &BehaviorIndex, name: &str) -> Option<Behavior> {
     if let Some(f) = map_get_ci(&idx.functions, name) {
         let behavior = map_get_ci(&idx.function_behaviors, &f.name).cloned();
         return Some(Behavior::Function(FunctionBehavior {
@@ -343,6 +403,7 @@ pub fn lookup(name: &str) -> Option<Behavior> {
             namespace: f.namespace.clone(),
             syntax: f.syntax.clone(),
             returns: f.returns.clone(),
+            description: f.description.clone(),
             parameters: f.parameters.clone(),
             examples: f.examples.clone(),
             flags: f.flags.clone().unwrap_or(FunctionFlags {
@@ -359,6 +420,7 @@ pub fn lookup(name: &str) -> Option<Behavior> {
             name: v.name.clone(),
             ty: v.ty.clone(),
             qualifier: v.qualifier.clone(),
+            description: v.description.clone(),
         }));
     }
     if let Some(c) = map_get_ci(&idx.constants, name) {
@@ -367,11 +429,6 @@ pub fn lookup(name: &str) -> Option<Behavior> {
             namespace: c.namespace.clone(),
             short_name: c.short_name.clone(),
             ty: c.ty.clone(),
-        }));
-    }
-    if idx.keywords.iter().any(|k| k.eq_ignore_ascii_case(name)) {
-        return Some(Behavior::Keyword(KeywordBehavior {
-            name: name.to_string(),
         }));
     }
     None
@@ -480,6 +537,9 @@ pub fn list(kind_filter: Option<&str>, grep: Option<&str>) -> Result<Vec<Behavio
     if let Some(needle) = needle {
         out.retain(|entry| behavior_listing_matches(entry, &needle));
     }
+    // HashMap iteration order is non-deterministic (hashbrown random seed).
+    // The sort below makes both text and JSON output stable regardless of
+    // which order the entries were pushed into `out`.
     out.sort_by(|a, b| a.kind.cmp(&b.kind).then_with(|| a.name.cmp(&b.name)));
     Ok(out)
 }
@@ -1126,5 +1186,103 @@ mod tests {
             }
             other => panic!("expected two Functions, got {other:?}"),
         }
+    }
+
+    // Regression: pine-data switched from `example: string` to `examples: string[]`.
+    // If upstream regresses, `#[serde(default)]` would silently drop examples.
+    // This test pins that `alert` -- which ships at least one example in the
+    // canonical v6 data -- continues to surface it.
+    #[test]
+    fn alert_has_at_least_one_example() {
+        let b = lookup("alert").expect("alert must exist in pine-data");
+        match b {
+            Behavior::Function(f) => {
+                assert!(
+                    !f.examples.is_empty(),
+                    "alert must have at least one example (upstream schema regression guard)"
+                );
+            }
+            other => panic!("expected Function, got {other:?}"),
+        }
+    }
+
+    // Generic-placeholder fallback: `array.new<type>` is stored under that exact
+    // name in pine-data. A bare `array.new` query must resolve via the fallback.
+    #[test]
+    fn lookup_generic_placeholder_array_new() {
+        let b =
+            lookup("array.new").expect("array.new must resolve via generic-placeholder fallback");
+        match b {
+            Behavior::Function(f) => {
+                assert!(
+                    f.name.starts_with("array.new"),
+                    "resolved name must start with array.new, got: {}",
+                    f.name
+                );
+            }
+            other => panic!("expected Function, got {other:?}"),
+        }
+    }
+
+    // map.new<type,type> has a two-type-param suffix; the fallback must prefer
+    // the `<type,type>` probe over `<type>` when both might match.
+    #[test]
+    fn lookup_generic_placeholder_map_new() {
+        let b = lookup("map.new").expect("map.new must resolve via generic-placeholder fallback");
+        match b {
+            Behavior::Function(f) => {
+                assert!(
+                    f.name.starts_with("map.new"),
+                    "resolved name must start with map.new, got: {}",
+                    f.name
+                );
+            }
+            other => panic!("expected Function, got {other:?}"),
+        }
+    }
+
+    // Verify that `Behavior::kind()` returns the correct discriminant.
+    #[test]
+    fn behavior_kind_accessor_round_trips() {
+        assert_eq!(
+            lookup("plot").unwrap().kind(),
+            BehaviorKind::Function,
+            "plot is a function"
+        );
+        assert_eq!(
+            lookup("close").unwrap().kind(),
+            BehaviorKind::Variable,
+            "close is a variable"
+        );
+        assert_eq!(
+            lookup("color.red").unwrap().kind(),
+            BehaviorKind::Constant,
+            "color.red is a constant"
+        );
+    }
+
+    // `Behavior::is_polymorphic` must return true for a known poly function.
+    // `input` carries a Dynamic polymorphic field in function-behavior.json.
+    #[test]
+    fn is_polymorphic_true_for_input() {
+        let b = lookup("input").expect("input must exist");
+        assert!(
+            b.is_polymorphic(),
+            "input should be polymorphic per behavior metadata"
+        );
+    }
+
+    // Non-polymorphic functions must return false.
+    #[test]
+    fn is_polymorphic_false_for_alert() {
+        let b = lookup("alert").expect("alert must exist");
+        assert!(!b.is_polymorphic(), "alert should not be polymorphic");
+    }
+
+    // Variables and non-functions are never polymorphic.
+    #[test]
+    fn is_polymorphic_false_for_variable() {
+        let b = lookup("close").expect("close must exist");
+        assert!(!b.is_polymorphic(), "variables are never polymorphic");
     }
 }

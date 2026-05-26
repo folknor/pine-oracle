@@ -215,6 +215,14 @@ impl ComparisonPlan {
         }
     }
 
+    // Count the number of bar_indices that fall within `values`.
+    // For actual outputs, `actual_plot_outputs` pre-pads with `OutputValue::undefined()`
+    // up to `bar_count`, so `values.len() == bar_count` is an invariant for actuals
+    // and this filter always returns `bar_indices.len()`. For full-series expected
+    // values the same holds because the fixture was validated to have the right length.
+    // The filter guards against hypothetical shorter slices, e.g. a WindowSeries
+    // expected array that is shorter than bar_indices.len() -- which is caught by
+    // `comparison_plan` before we get here, so this is belt-and-suspenders.
     fn accessible_window_values(&self, values: &[OutputValue]) -> usize {
         self.bar_indices
             .iter()
