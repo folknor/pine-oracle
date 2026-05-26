@@ -1,7 +1,7 @@
 use anyhow::{Result, bail};
 use pine_cli::indicator;
 
-use crate::output::{ResolvedFormat, is_catalog_request, print_catalog, print_json};
+use crate::output::{ResolvedFormat, Style, is_catalog_request, print_catalog, print_json};
 
 pub(crate) struct Args<'a> {
     pub(crate) slug: Option<&'a str>,
@@ -15,7 +15,7 @@ pub(crate) struct Args<'a> {
     pub(crate) baseline: Option<&'a str>,
 }
 
-pub(crate) fn run(args: &Args<'_>, format: ResolvedFormat) -> Result<()> {
+pub(crate) fn run(args: &Args<'_>, format: ResolvedFormat, _style: Style) -> Result<()> {
     if is_catalog_request(args.baseline) {
         return print_baseline_catalog(format, args.quiet);
     }
@@ -501,6 +501,7 @@ mod tests {
                 baseline: None,
             },
             ResolvedFormat::Text,
+            Style::forced(false),
         )
         .expect_err("must reject");
         assert!(err.to_string().contains("cannot combine"));
@@ -534,6 +535,7 @@ mod tests {
                 baseline: None,
             },
             ResolvedFormat::Text,
+            Style::forced(false),
         )
         .expect_err("must reject");
         assert!(err.to_string().contains("cannot combine"));
@@ -554,6 +556,7 @@ mod tests {
                 baseline: None,
             },
             ResolvedFormat::Text,
+            Style::forced(false),
         )
         .expect_err("must reject");
         assert!(err.to_string().contains("cannot combine"));
@@ -574,6 +577,7 @@ mod tests {
                 baseline: None,
             },
             ResolvedFormat::Text,
+            Style::forced(false),
         )
         .expect_err("must reject");
         assert!(err.to_string().contains("cannot combine"));
@@ -594,6 +598,7 @@ mod tests {
                 baseline: None,
             },
             ResolvedFormat::Text,
+            Style::forced(false),
         )
         .expect_err("must reject");
         assert!(err.to_string().contains("cannot combine"));
@@ -614,6 +619,7 @@ mod tests {
                 baseline: None,
             },
             ResolvedFormat::Text,
+            Style::forced(false),
         )
         .expect_err("must reject");
         assert!(err.to_string().contains("cannot combine"));
@@ -634,6 +640,7 @@ mod tests {
                 baseline: None,
             },
             ResolvedFormat::Text,
+            Style::forced(false),
         )
         .expect_err("must reject");
         assert!(err.to_string().contains("cannot combine"));
@@ -654,6 +661,7 @@ mod tests {
                 baseline: Some("smoke"),
             },
             ResolvedFormat::Text,
+            Style::forced(false),
         )
         .expect_err("must reject");
         assert!(err.to_string().contains("requires `--strict`"));
@@ -674,6 +682,7 @@ mod tests {
                 baseline: None,
             },
             ResolvedFormat::Text,
+            Style::forced(false),
         )
         .expect_err("must reject");
         assert!(err.to_string().contains("cannot combine"));
@@ -694,6 +703,7 @@ mod tests {
                 baseline: Some("smoke"),
             },
             ResolvedFormat::Text,
+            Style::forced(false),
         )
         .expect_err("must reject");
         assert!(err.to_string().contains("cannot combine"));
@@ -714,6 +724,7 @@ mod tests {
                 baseline: Some("smoke"),
             },
             ResolvedFormat::Text,
+            Style::forced(false),
         )
         .expect_err("must reject");
         assert!(err.to_string().contains("cannot combine"));
@@ -734,6 +745,7 @@ mod tests {
                 baseline: None,
             },
             ResolvedFormat::Text,
+            Style::forced(false),
         )
         .expect_err("must reject");
         assert!(err.to_string().contains("requires `--list` or `--all`"));
@@ -755,6 +767,7 @@ mod tests {
                 baseline: Some("?"),
             },
             ResolvedFormat::Text,
+            Style::forced(false),
         );
         assert!(
             result.is_ok(),

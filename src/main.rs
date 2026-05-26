@@ -27,11 +27,9 @@ struct Cli {
 
     /// Suppress ANSI styling in text mode. Honoured automatically when
     /// `NO_COLOR` is set or stdout is not a TTY. Has no effect in `--format
-    /// json` mode (JSON output is never styled).
-    ///
-    /// Note: `--no-color` is currently wired through `pine search` and
-    /// `pine validate`, the two commands that emit ANSI color today. Other
-    /// commands emit plain text and are unaffected.
+    /// json` mode (JSON output is never styled). The flag reaches every
+    /// command; only those that emit colored text today (`pine search`,
+    /// `pine validate`) act on it visibly.
     #[arg(long, global = true)]
     no_color: bool,
 
@@ -281,14 +279,13 @@ fn main() -> Result<()> {
     // PineSourceArgs::read -- it is a different stream.
     let stdout_is_tty = std::io::stdout().is_terminal();
     let format = cli.format.resolve(stdout_is_tty);
-    // Style is currently threaded into validate and search, the two commands
-    // that emit colored text today. TODO: extend to every command's run()
-    // signature for forward compat once a clean pass is made across all
-    // command modules.
+    // `Style` is `Copy` and threaded into every command's `run` so future
+    // colorization can be added without touching the dispatcher. Commands
+    // that don't emit colored text today take it as `_style`.
     let style = Style::resolve(cli.no_color, format, stdout_is_tty);
 
     match cli.command {
-        Command::Lookup { name } => commands::lookup::run(&name, format, cli.quiet),
+        Command::Lookup { name } => commands::lookup::run(&name, format, style, cli.quiet),
         Command::Search { query, limit, kind } => {
             commands::search::run(&query, limit, kind.as_deref(), format, style, cli.quiet)
         }
@@ -298,11 +295,11 @@ fn main() -> Result<()> {
         }
         Command::Parse { source } => {
             let code = source.read()?;
-            commands::parse::run(&code, format)
+            commands::parse::run(&code, format, style)
         }
         Command::Tokens { source } => {
             let code = source.read()?;
-            commands::tokens::run(&code, format)
+            commands::tokens::run(&code, format, style)
         }
         Command::Behavior {
             name,
@@ -315,17 +312,22 @@ fn main() -> Result<()> {
             kind.as_deref(),
             grep.as_deref(),
             format,
+            style,
             cli.quiet,
         ),
-        Command::Probe { slug } => commands::probe::run(&slug, format, cli.quiet),
-        Command::Probes { grep, feature } => {
-            commands::probes::run(grep.as_deref(), feature.as_deref(), format, cli.quiet)
-        }
+        Command::Probe { slug } => commands::probe::run(&slug, format, style, cli.quiet),
+        Command::Probes { grep, feature } => commands::probes::run(
+            grep.as_deref(),
+            feature.as_deref(),
+            format,
+            style,
+            cli.quiet,
+        ),
         Command::Diff {
             probe,
             trades_csv,
             show_diffs,
-        } => commands::diff::run(&probe, &trades_csv, show_diffs, format),
+        } => commands::diff::run(&probe, &trades_csv, show_diffs, format, style),
         // `indicator` uses an `Args` struct rather than a positional arg list
         // because it has 8+ flags. Other subcommands use positional lists;
         // this is the only exception and is intentional.
@@ -351,6 +353,7 @@ fn main() -> Result<()> {
                 baseline: baseline.as_deref(),
             },
             format,
+            style,
         ),
         Command::Version => cmd_version(format, cli.quiet),
     }

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use serde::Serialize;
 
-use crate::output::{ResolvedFormat, print_json};
+use crate::output::{ResolvedFormat, Style, print_json};
 
 #[derive(Serialize)]
 struct TokenOut<'a> {
@@ -28,7 +28,7 @@ struct TokensOutput<'a> {
     errors: Vec<LexErrorOut>,
 }
 
-pub(crate) fn run(code: &str, format: ResolvedFormat) -> Result<()> {
+pub(crate) fn run(code: &str, format: ResolvedFormat, _style: Style) -> Result<()> {
     let lexed = piners_syntax::lex_result(code);
 
     let tokens = lexed

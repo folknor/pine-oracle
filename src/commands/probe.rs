@@ -1,9 +1,9 @@
 use anyhow::Result;
 use pine_cli::corpus;
 
-use crate::output::{ResolvedFormat, print_json};
+use crate::output::{ResolvedFormat, Style, print_json};
 
-pub(crate) fn run(slug: &str, format: ResolvedFormat, quiet: bool) -> Result<()> {
+pub(crate) fn run(slug: &str, format: ResolvedFormat, _style: Style, quiet: bool) -> Result<()> {
     let probe = corpus::load_probe(slug)?;
     match format {
         ResolvedFormat::Json => {

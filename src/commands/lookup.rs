@@ -1,9 +1,9 @@
 use anyhow::{Result, bail};
 use pine_cli::reference;
 
-use crate::output::{ResolvedFormat, print_json};
+use crate::output::{ResolvedFormat, Style, print_json};
 
-pub(crate) fn run(name: &str, format: ResolvedFormat, quiet: bool) -> Result<()> {
+pub(crate) fn run(name: &str, format: ResolvedFormat, _style: Style, quiet: bool) -> Result<()> {
     if let Some(entry) = reference::lookup(name) {
         match format {
             ResolvedFormat::Json => {

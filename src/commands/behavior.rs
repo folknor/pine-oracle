@@ -1,7 +1,7 @@
 use anyhow::{Result, bail};
 use pine_cli::behavior;
 
-use crate::output::{ResolvedFormat, is_catalog_request, print_catalog, print_json};
+use crate::output::{ResolvedFormat, Style, is_catalog_request, print_catalog, print_json};
 
 pub(crate) fn run(
     name: Option<&str>,
@@ -9,6 +9,7 @@ pub(crate) fn run(
     kind: Option<&str>,
     grep: Option<&str>,
     format: ResolvedFormat,
+    _style: Style,
     quiet: bool,
 ) -> Result<()> {
     if is_catalog_request(kind) {

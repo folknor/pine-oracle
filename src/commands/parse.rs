@@ -1,8 +1,8 @@
 use anyhow::Result;
 
-use crate::output::{ResolvedFormat, print_json};
+use crate::output::{ResolvedFormat, Style, print_json};
 
-pub(crate) fn run(code: &str, format: ResolvedFormat) -> Result<()> {
+pub(crate) fn run(code: &str, format: ResolvedFormat, _style: Style) -> Result<()> {
     let script = piners_syntax::parse(code).map_err(format_parse_errors)?;
 
     match format {

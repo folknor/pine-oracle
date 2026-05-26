@@ -1,12 +1,13 @@
 use anyhow::Result;
 use pine_cli::corpus;
 
-use crate::output::{ResolvedFormat, is_catalog_request, print_catalog, print_json};
+use crate::output::{ResolvedFormat, Style, is_catalog_request, print_catalog, print_json};
 
 pub(crate) fn run(
     grep: Option<&str>,
     feature: Option<&str>,
     format: ResolvedFormat,
+    _style: Style,
     quiet: bool,
 ) -> Result<()> {
     if is_catalog_request(feature) {

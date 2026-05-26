@@ -1,13 +1,14 @@
 use anyhow::Result;
 use pine_cli::diff;
 
-use crate::output::{ResolvedFormat, print_json};
+use crate::output::{ResolvedFormat, Style, print_json};
 
 pub(crate) fn run(
     probe_slug: &str,
     trades_csv_path: &str,
     show_diffs: usize,
     format: ResolvedFormat,
+    _style: Style,
 ) -> Result<()> {
     let user_csv = std::fs::read_to_string(trades_csv_path)
         .map_err(|e| anyhow::anyhow!("reading {trades_csv_path}: {e}"))?;
