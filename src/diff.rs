@@ -28,10 +28,13 @@
 //   8. Override to anomaly / engine_only when inputs.json says so (but only
 //      when the computed tier is below excellent, so a real fix isn't masked).
 //
-// V1 limitations (vs upstream):
-//   - No interior trim until OHLCV is baked into the binary. The trim_bars /
-//     warmup_bars trimming that needs ohlcv_first_ms / last_ms is skipped.
-//     The headline stats use the full trim_to_common_window.
+// Interior trim (verify_corpus.py::interior_time_bounds): when
+// inputs.json carries `trim_bars` and/or `warmup_bars` plus an OHLCV
+// span (`ohlcv_first_ms`, `ohlcv_last_ms`, and either `bar_ms` or a
+// timeframe we can derive `bar_ms` from), the diff drops edge / warmup
+// trades from the headline stats. When any of those fields is absent
+// the diff falls back to the full common-window trim, matching the
+// pre-OHLCV-bake behaviour.
 //
 // Threshold values mirror verify_corpus.py exactly; bumping them here
 // without bumping them upstream is a regression flag.
@@ -166,6 +169,21 @@ pub struct DiffReport {
     /// trade. Empty unless `DiffOptions::show_diffs > 0`.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub user_orphans: Vec<TradeRow>,
+    /// Interior window `[lo_ms, hi_ms]` applied to drop edge/warmup
+    /// trades, populated when `inputs.json` declares trim_bars/warmup_bars
+    /// plus an OHLCV span. `None` when interior trim wasn't applied
+    /// (no metadata, trivial padding, or empty interior).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interior_window: Option<InteriorWindow>,
+}
+
+#[must_use]
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct InteriorWindow {
+    pub lo_ms: i64,
+    pub hi_ms: i64,
+    pub trim_bars: i32,
+    pub warmup_bars: i32,
 }
 
 #[must_use]
@@ -260,11 +278,53 @@ pub fn diff(probe_slug: &str, user_csv: &str, opts: DiffOptions) -> Result<DiffR
     let profile = resolve_profile(probe.strategy_pine, &meta);
     let thresh = thresholds_for(profile);
 
-    let count_delta = relative_max(tv_trim.len() as f64, user_trim.len() as f64);
-    let mut entry_deltas: Vec<f64> = Vec::with_capacity(final_indices.len());
-    let mut exit_deltas: Vec<f64> = Vec::with_capacity(final_indices.len());
-    let mut pnl_deltas: Vec<f64> = Vec::with_capacity(final_indices.len());
-    for &(ti, ui) in &final_indices {
+    let bounds = interior_time_bounds(
+        meta.trim_bars,
+        meta.warmup_bars,
+        meta.ohlcv_first_ms,
+        meta.ohlcv_last_ms,
+        meta.bar_ms,
+    );
+
+    // Per `verify_corpus.py`, the headline counts use interior-only
+    // totals when bounds are set, while the per-pair p90 metrics use
+    // gating_matched (interior-only when non-empty, all matched
+    // otherwise). The empty fallback preserves percentile data on
+    // pathological corner cases without smuggling edge bars back into
+    // the count delta.
+    let interior_indices: Vec<(usize, usize)> = bounds
+        .map(|b| {
+            final_indices
+                .iter()
+                .copied()
+                .filter(|&(ti, _)| is_interior(tv_trim[ti].entry_time, b))
+                .collect()
+        })
+        .unwrap_or_default();
+    let (tv_gate_count, user_gate_count) = match bounds {
+        Some(b) => (
+            tv_trim
+                .iter()
+                .filter(|t| is_interior(t.entry_time, b))
+                .count(),
+            user_trim
+                .iter()
+                .filter(|t| is_interior(t.entry_time, b))
+                .count(),
+        ),
+        None => (tv_trim.len(), user_trim.len()),
+    };
+    let gating_indices: &[(usize, usize)] = if bounds.is_some() && !interior_indices.is_empty() {
+        &interior_indices
+    } else {
+        &final_indices
+    };
+
+    let count_delta = relative_max(tv_gate_count as f64, user_gate_count as f64);
+    let mut entry_deltas: Vec<f64> = Vec::with_capacity(gating_indices.len());
+    let mut exit_deltas: Vec<f64> = Vec::with_capacity(gating_indices.len());
+    let mut pnl_deltas: Vec<f64> = Vec::with_capacity(gating_indices.len());
+    for &(ti, ui) in gating_indices {
         let tv_t = &tv_trim[ti];
         let eng_t = &user_trim[ui];
         entry_deltas.push(relative_max(tv_t.entry_price, eng_t.entry_price));
@@ -279,8 +339,8 @@ pub fn diff(probe_slug: &str, user_csv: &str, opts: DiffOptions) -> Result<DiffR
     let pnl_p90 = percentile(&pnl_deltas, 0.90);
 
     let tier = classify_tier(
-        final_indices.len(),
-        tv_trim.len(),
+        gating_indices.len(),
+        tv_gate_count,
         count_delta,
         entry_p90,
         exit_p90,
@@ -290,18 +350,25 @@ pub fn diff(probe_slug: &str, user_csv: &str, opts: DiffOptions) -> Result<DiffR
     let tier = apply_overrides(tier, &meta);
 
     let (pair_diffs, tv_orphans, user_orphans) = if opts.show_diffs > 0 {
-        build_details(&tv_trim, &user_trim, &final_indices, opts.show_diffs)
+        build_details(&tv_trim, &user_trim, gating_indices, opts.show_diffs)
     } else {
         (Vec::new(), Vec::new(), Vec::new())
     };
+
+    let interior_window = bounds.map(|(lo, hi)| InteriorWindow {
+        lo_ms: lo,
+        hi_ms: hi,
+        trim_bars: meta.trim_bars,
+        warmup_bars: meta.warmup_bars,
+    });
 
     Ok(DiffReport {
         probe_slug: probe.slug,
         profile,
         tier,
-        tv_trade_count: tv_trim.len(),
-        user_trade_count: user_trim.len(),
-        matched_count: final_indices.len(),
+        tv_trade_count: tv_gate_count,
+        user_trade_count: user_gate_count,
+        matched_count: gating_indices.len(),
         count_delta,
         entry_p90_delta: entry_p90,
         exit_p90_delta: exit_p90,
@@ -310,6 +377,7 @@ pub fn diff(probe_slug: &str, user_csv: &str, opts: DiffOptions) -> Result<DiffR
         pair_diffs,
         tv_orphans,
         user_orphans,
+        interior_window,
     })
 }
 
@@ -708,18 +776,29 @@ fn classify_tier(
 //   - tv_trades_csv_tz: timezone string for interpreting TV CSV timestamps
 //   - expected_tier: "anomaly" | "engine_only" - override tier when below excellent
 //   - validation_overrides.expect_tv_match: false -> always EngineOnly when below excellent
+//   - trim_bars: i32 (default 0) symmetric edge trim, in bars, applied to both ends
+//   - warmup_bars: i32 (default 0) extra asymmetric lead pad, in bars
+//   - ohlcv_first_ms, ohlcv_last_ms: OHLCV window bounds in milliseconds (epoch)
+//   - bar_ms: bar interval in milliseconds; required when ohlcv_*_ms are present
+//     and we have no other way to derive it
 //
 // Additional fields present in some corpus probes that are silently ignored here
 // (used by the PineForge engine, not by pine-oracle):
 //   - _comment: free-form annotation string
 //   - runtime_overrides: engine runtime parameter overrides
-//   - ohlcv_start_ms: OHLCV window start for the engine's interior trim
+//   - ohlcv_start_ms: PineForge engine override (single-sided); the oracle uses
+//     the explicit ohlcv_first_ms / ohlcv_last_ms pair instead
 #[derive(Debug, Default)]
 struct InputsMeta {
     parity_profile: Option<String>,
     tv_trades_csv_tz: Option<String>,
     expected_tier: Option<String>,
     expect_tv_match: Option<bool>,
+    trim_bars: i32,
+    warmup_bars: i32,
+    ohlcv_first_ms: Option<i64>,
+    ohlcv_last_ms: Option<i64>,
+    bar_ms: Option<i64>,
 }
 
 fn parse_inputs_json(raw: Option<&'static str>) -> Result<InputsMeta> {
@@ -744,12 +823,73 @@ fn parse_inputs_json(raw: Option<&'static str>) -> Result<InputsMeta> {
         .get("validation_overrides")
         .and_then(|o| o.get("expect_tv_match"))
         .and_then(serde_json::Value::as_bool);
+    let trim_bars = i32::try_from(
+        v.get("trim_bars")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0),
+    )
+    .unwrap_or(0)
+    .max(0);
+    let warmup_bars = i32::try_from(
+        v.get("warmup_bars")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0),
+    )
+    .unwrap_or(0)
+    .max(0);
+    let ohlcv_first_ms = v.get("ohlcv_first_ms").and_then(serde_json::Value::as_i64);
+    let ohlcv_last_ms = v.get("ohlcv_last_ms").and_then(serde_json::Value::as_i64);
+    let bar_ms = v.get("bar_ms").and_then(serde_json::Value::as_i64);
     Ok(InputsMeta {
         parity_profile,
         tv_trades_csv_tz,
         expected_tier,
         expect_tv_match,
+        trim_bars,
+        warmup_bars,
+        ohlcv_first_ms,
+        ohlcv_last_ms,
+        bar_ms,
     })
+}
+
+/// Backport of `verify_corpus.py::interior_time_bounds`. Returns
+/// `Some((lo_ms, hi_ms))` when `trim_bars`/`warmup_bars` are set AND
+/// we have a usable OHLCV span; `None` otherwise. `trim_bars`
+/// symmetrically excludes edge bars from both ends; `warmup_bars`
+/// is an extra asymmetric lead pad. Returns `None` if the resulting
+/// window is empty or inverted.
+fn interior_time_bounds(
+    trim_bars: i32,
+    warmup_bars: i32,
+    ohlcv_first_ms: Option<i64>,
+    ohlcv_last_ms: Option<i64>,
+    bar_ms: Option<i64>,
+) -> Option<(i64, i64)> {
+    if trim_bars <= 0 && warmup_bars <= 0 {
+        return None;
+    }
+    let first = ohlcv_first_ms?;
+    let last = ohlcv_last_ms?;
+    let bar = bar_ms?;
+    if bar <= 0 {
+        return None;
+    }
+    let lead_pad = (i64::from(trim_bars) + i64::from(warmup_bars.max(0))) * bar;
+    let tail_pad = i64::from(trim_bars) * bar;
+    let lo = first + lead_pad;
+    let hi = last - tail_pad;
+    if lo >= hi { None } else { Some((lo, hi)) }
+}
+
+/// Returns true when `entry_time_seconds` falls inside the interior
+/// window in milliseconds. Mirrors `verify_corpus.py::is_interior`
+/// which expects an entry-time-in-ms input; trades carry seconds, so
+/// the conversion happens here.
+fn is_interior(entry_time_seconds: i64, bounds: (i64, i64)) -> bool {
+    let entry_ms = entry_time_seconds.saturating_mul(1000);
+    let (lo, hi) = bounds;
+    lo <= entry_ms && entry_ms <= hi
 }
 
 /// Return the UTC offset in whole hours for the timezone string stored in
@@ -1591,5 +1731,93 @@ mod tests {
         assert_eq!(apply_overrides(Tier::Weak, &meta), Tier::EngineOnly);
         // Excellent is always preserved.
         assert_eq!(apply_overrides(Tier::Excellent, &meta), Tier::Excellent);
+    }
+
+    // ---------- interior trim ----------
+
+    const BAR_MS_1M: i64 = 60_000;
+
+    #[test]
+    fn interior_bounds_returns_none_when_no_trim_or_warmup() {
+        assert_eq!(
+            interior_time_bounds(0, 0, Some(1_000), Some(2_000), Some(BAR_MS_1M)),
+            None
+        );
+    }
+
+    #[test]
+    fn interior_bounds_returns_none_when_ohlcv_span_missing() {
+        assert_eq!(
+            interior_time_bounds(5, 0, None, Some(2_000), Some(BAR_MS_1M)),
+            None
+        );
+        assert_eq!(
+            interior_time_bounds(5, 0, Some(1_000), None, Some(BAR_MS_1M)),
+            None
+        );
+        assert_eq!(
+            interior_time_bounds(5, 0, Some(1_000), Some(2_000), None),
+            None
+        );
+    }
+
+    #[test]
+    fn interior_bounds_pads_symmetrically_for_trim_bars() {
+        // 100 bars at 1m: first_ms=0, last_ms=99 * 60_000 = 5_940_000.
+        // trim_bars=2 => lead_pad = tail_pad = 120_000.
+        // lo=120_000, hi=5_820_000.
+        let bounds = interior_time_bounds(2, 0, Some(0), Some(5_940_000), Some(BAR_MS_1M)).unwrap();
+        assert_eq!(bounds, (120_000, 5_820_000));
+    }
+
+    #[test]
+    fn interior_bounds_adds_warmup_to_lead_only() {
+        // trim_bars=2, warmup_bars=3 -> lead_pad=(2+3)*60_000, tail_pad=2*60_000.
+        let bounds = interior_time_bounds(2, 3, Some(0), Some(5_940_000), Some(BAR_MS_1M)).unwrap();
+        assert_eq!(bounds, (300_000, 5_820_000));
+    }
+
+    #[test]
+    fn interior_bounds_returns_none_when_window_collapses() {
+        // Pads exceed total span -> lo >= hi -> None.
+        assert_eq!(
+            interior_time_bounds(50, 50, Some(0), Some(60_000), Some(BAR_MS_1M)),
+            None
+        );
+    }
+
+    #[test]
+    fn is_interior_treats_endpoints_as_inside() {
+        let bounds = (1_000, 2_000);
+        assert!(is_interior(1, bounds)); // 1 sec == 1_000 ms == lo
+        assert!(is_interior(2, bounds)); // 2 sec == 2_000 ms == hi
+        assert!(!is_interior(0, bounds));
+        assert!(!is_interior(3, bounds));
+    }
+
+    #[test]
+    fn parses_trim_warmup_and_ohlcv_span_from_inputs_json() {
+        let raw = r#"{
+            "trim_bars": 4,
+            "warmup_bars": 2,
+            "ohlcv_first_ms": 1700000000000,
+            "ohlcv_last_ms": 1700003600000,
+            "bar_ms": 60000
+        }"#;
+        let meta = parse_inputs_json(Some(raw)).expect("parse");
+        assert_eq!(meta.trim_bars, 4);
+        assert_eq!(meta.warmup_bars, 2);
+        assert_eq!(meta.ohlcv_first_ms, Some(1_700_000_000_000));
+        assert_eq!(meta.ohlcv_last_ms, Some(1_700_003_600_000));
+        assert_eq!(meta.bar_ms, Some(60_000));
+    }
+
+    #[test]
+    fn parses_negative_trim_bars_as_zero() {
+        // Defensive: negative values clamp rather than panic / propagate as i32::MIN.
+        let raw = r#"{ "trim_bars": -5, "warmup_bars": -3 }"#;
+        let meta = parse_inputs_json(Some(raw)).expect("parse");
+        assert_eq!(meta.trim_bars, 0);
+        assert_eq!(meta.warmup_bars, 0);
     }
 }
