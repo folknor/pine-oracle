@@ -1,0 +1,22 @@
+{
+  "ohlcv_ETH-USDT-USDT_15m": {
+    "bar_ms": 900000,
+    "first_ms": 1745182800000,
+    "last_ms": 1777906800000
+  },
+  "ohlcv_ETH-USDT-USDT_15m_warmup6m": {
+    "bar_ms": 900000,
+    "first_ms": 1729371600000,
+    "last_ms": 1777906800000
+  },
+  "ohlcv_ETH-USDT-USDT_1m": {
+    "bar_ms": 60000,
+    "first_ms": 1745182800000,
+    "last_ms": 1777907640000
+  },
+  "ohlcv_ETH-USDT-USDT_1m_warmup6m": {
+    "bar_ms": 60000,
+    "first_ms": 1729371600000,
+    "last_ms": 1777907640000
+  }
+}

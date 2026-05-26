@@ -9,8 +9,10 @@
 #   - validation/<slug>/inputs.json       (optional, per-probe config)
 #
 # Dropped:
-#   - data/                          (OHLCV feeds; needed for diff / indicator
-#                                    --strict v2 work, not baked today)
+#   - data/*.csv                     (~75 MB of OHLCV feeds; we keep only the
+#                                    derived ohlcv_spans.json baked by
+#                                    scripts/bake-ohlcv-spans.py, which must
+#                                    run BEFORE this prune)
 #   - validation/<slug>/generated.cpp   (PineForge transpiler output, not used)
 #   - validation/<slug>/engine_trades.csv (PineForge's own engine output, not used)
 #   - validation_report.{html,md,pdf}   (output artefacts)
@@ -25,7 +27,17 @@ if [[ ! -d "$ROOT" ]]; then
     exit 1
 fi
 
-rm -rf "$ROOT/data"
+shopt -s nullglob
+
+if [[ -d "$ROOT/data" ]]; then
+    if [[ ! -f "$ROOT/data/ohlcv_spans.json" ]]; then
+        echo "ERROR: $ROOT/data exists but ohlcv_spans.json is missing." >&2
+        echo "Run scripts/bake-ohlcv-spans.py before pruning, or the trim" >&2
+        echo "metadata for pine diff will be lost." >&2
+        exit 1
+    fi
+    rm -f "$ROOT/data/"*.csv
+fi
 rm -rf "$ROOT/.claude"
 rm -f "$ROOT/.gitignore"
 rm -f "$ROOT/CMakeLists.txt"
@@ -33,7 +45,6 @@ rm -f "$ROOT/validation_report.html"
 rm -f "$ROOT/validation_report.md"
 rm -f "$ROOT/validation_report.pdf"
 
-shopt -s nullglob
 for probe in "$ROOT"/validation/*/; do
     rm -f "$probe/generated.cpp"
     rm -f "$probe/engine_trades.csv"

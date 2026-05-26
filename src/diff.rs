@@ -278,12 +278,19 @@ pub fn diff(probe_slug: &str, user_csv: &str, opts: DiffOptions) -> Result<DiffR
     let profile = resolve_profile(probe.strategy_pine, &meta);
     let thresh = thresholds_for(profile);
 
+    // The OHLCV span comes from `inputs.json` when explicitly set,
+    // otherwise from the baked per-feed catalog (slug -> upstream feed).
+    // Individual fields can be overridden piecemeal.
+    let fallback_span = corpus::ohlcv_span_for_probe(&probe.slug);
     let bounds = interior_time_bounds(
         meta.trim_bars,
         meta.warmup_bars,
-        meta.ohlcv_first_ms,
-        meta.ohlcv_last_ms,
-        meta.bar_ms,
+        meta.ohlcv_first_ms
+            .or_else(|| fallback_span.map(|span| span.first_ms)),
+        meta.ohlcv_last_ms
+            .or_else(|| fallback_span.map(|span| span.last_ms)),
+        meta.bar_ms
+            .or_else(|| fallback_span.map(|span| span.bar_ms)),
     );
 
     // Per `verify_corpus.py`, the headline counts use interior-only

@@ -473,6 +473,87 @@ pub fn probe_count() -> usize {
     CORPUS.find("**/strategy.pine").map_or(0, Iterator::count)
 }
 
+// ---------- OHLCV spans ----------
+
+/// OHLCV window metadata for a single bar feed, in epoch milliseconds.
+/// Baked by `scripts/bake-ohlcv-spans.py` from the upstream
+/// `vendor/pineforge-corpus/data/*.csv` feeds; see
+/// `vendor/pineforge-corpus/data/ohlcv_spans.json` for the data.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct OhlcvSpan {
+    pub first_ms: i64,
+    pub last_ms: i64,
+    pub bar_ms: i64,
+}
+
+const OHLCV_SPANS_RAW: &str = include_str!("../vendor/pineforge-corpus/data/ohlcv_spans.json");
+
+fn ohlcv_span_table() -> &'static std::collections::HashMap<String, OhlcvSpan> {
+    use std::collections::HashMap;
+    static TABLE: OnceLock<HashMap<String, OhlcvSpan>> = OnceLock::new();
+    TABLE.get_or_init(|| {
+        let v: serde_json::Value = serde_json::from_str(OHLCV_SPANS_RAW)
+            .expect("vendor/pineforge-corpus/data/ohlcv_spans.json: malformed JSON");
+        let obj = v
+            .as_object()
+            .expect("ohlcv_spans.json: expected top-level object");
+        obj.iter()
+            .map(|(name, raw)| {
+                let first_ms = raw
+                    .get("first_ms")
+                    .and_then(serde_json::Value::as_i64)
+                    .expect("ohlcv_spans.json: missing first_ms");
+                let last_ms = raw
+                    .get("last_ms")
+                    .and_then(serde_json::Value::as_i64)
+                    .expect("ohlcv_spans.json: missing last_ms");
+                let bar_ms = raw
+                    .get("bar_ms")
+                    .and_then(serde_json::Value::as_i64)
+                    .expect("ohlcv_spans.json: missing bar_ms");
+                (
+                    name.clone(),
+                    OhlcvSpan {
+                        first_ms,
+                        last_ms,
+                        bar_ms,
+                    },
+                )
+            })
+            .collect()
+    })
+}
+
+/// Return the upstream OHLCV feed name a probe runs against. Mirrors
+/// the upstream corpus convention (per
+/// `vendor/pineforge-corpus/README.md` "Reference OHLCV"): probes that
+/// exercise sub-15m semantics use the 1m feed, everything else uses
+/// the 15m feed, and the `_warmup6m` variants are preferred when
+/// present so TA / MTF / pivot state starts closer to TradingView's
+/// chart state.
+fn feed_for_slug(slug: &str) -> &'static str {
+    let canonical = slug.strip_prefix("validation/").unwrap_or(slug);
+    if canonical.starts_with("ltf-") || canonical.starts_with("magnifier-") {
+        "ohlcv_ETH-USDT-USDT_1m_warmup6m"
+    } else {
+        "ohlcv_ETH-USDT-USDT_15m_warmup6m"
+    }
+}
+
+/// Look up the OHLCV span the named probe is verified against. Returns
+/// `None` if the slug doesn't correspond to a baked probe; the span
+/// itself is always present once a slug maps to a feed because the
+/// baked `ohlcv_spans.json` covers every feed referenced by
+/// `feed_for_slug`.
+pub fn ohlcv_span_for_probe(slug: &str) -> Option<OhlcvSpan> {
+    let canonical = slug.strip_prefix("validation/").unwrap_or(slug);
+    if !CORPUS.contains(canonical) {
+        return None;
+    }
+    let feed = feed_for_slug(canonical);
+    ohlcv_span_table().get(feed).copied()
+}
+
 /// Infallible count of baked probes that have an extractable author summary.
 /// Relies on `summary_for`, which is cached behind a OnceLock.
 pub fn probe_summary_count() -> usize {
@@ -901,5 +982,57 @@ mod tests {
             "pyramiding feature returned {} probes - detector is probably matching pyramiding=1 noise",
             pyr.len()
         );
+    }
+
+    // ---------- OHLCV spans ----------
+
+    #[test]
+    fn ohlcv_span_table_loads_all_four_feeds() {
+        let table = ohlcv_span_table();
+        for feed in [
+            "ohlcv_ETH-USDT-USDT_15m",
+            "ohlcv_ETH-USDT-USDT_15m_warmup6m",
+            "ohlcv_ETH-USDT-USDT_1m",
+            "ohlcv_ETH-USDT-USDT_1m_warmup6m",
+        ] {
+            let span = table.get(feed).copied().expect("feed must be present");
+            assert!(span.first_ms > 0, "{feed}: first_ms must be positive");
+            assert!(
+                span.last_ms > span.first_ms,
+                "{feed}: last_ms must be after first_ms"
+            );
+            assert!(span.bar_ms > 0, "{feed}: bar_ms must be positive");
+        }
+    }
+
+    #[test]
+    fn ohlcv_span_for_15m_probe_uses_warmup6m_feed() {
+        let span = ohlcv_span_for_probe(FLAT_SLUG).expect("baked probe must have a span");
+        let table = ohlcv_span_table();
+        let expected = table["ohlcv_ETH-USDT-USDT_15m_warmup6m"];
+        assert_eq!(span.first_ms, expected.first_ms);
+        assert_eq!(span.last_ms, expected.last_ms);
+        assert_eq!(span.bar_ms, 900_000);
+    }
+
+    #[test]
+    fn ohlcv_span_for_magnifier_probe_uses_1m_feed() {
+        // Need a magnifier-* slug that's actually in the baked corpus.
+        let magnifier_slug = list_probes(None, None)
+            .expect("probe list")
+            .into_iter()
+            .find(|p| p.slug.starts_with("magnifier-"))
+            .map(|p| p.slug)
+            .expect("at least one magnifier-* probe must be baked");
+        let span = ohlcv_span_for_probe(&magnifier_slug).expect("baked probe must have a span");
+        assert_eq!(
+            span.bar_ms, 60_000,
+            "magnifier-* probes must resolve to the 1m feed (bar_ms=60s)"
+        );
+    }
+
+    #[test]
+    fn ohlcv_span_for_unknown_slug_returns_none() {
+        assert!(ohlcv_span_for_probe("definitely-not-a-real-probe-slug").is_none());
     }
 }
