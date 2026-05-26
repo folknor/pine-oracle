@@ -33,13 +33,6 @@ remaining work is in-repo wiring:
 - Add cross-symbol / cross-timeframe `request.security(...)` TV fixtures
   once baseline OHLCV is in place.
 
-## Quick wins (doable now)
-
-- Write `docs/diagnostics.md` mapping `pine validate` diagnostic codes
-  (`PINE0101`-`PINE0408`, defined in
-  `piners-syntax/src/diagnostic.rs`) to human-readable explanations.
-  The stable `code` field on `Diagnostic` is already shipped.
-
 ## Distribution
 
 - Homebrew tap setup. Tap name TBD.
