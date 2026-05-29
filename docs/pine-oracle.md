@@ -39,7 +39,7 @@ Single binary, four layers.
 Two sources, merged at build time:
 
 - **Primary: Pinecone's `crates/pine-reference/spec/v6.md`** -- 918 KB / ~25k lines / **941 entries**, one per `### name`, uniform sub-sections (`Syntax`, `Arguments`, `Example`, `Type`, `Remarks`, `See also`). MPL-2.0 vendored copy of TradingView's published v6 reference. Embedded via `include_str!`, parsed once with `comrak` and cached behind a `OnceLock`. Drives `po lookup` + the BM25 reference docs.
-- **Secondary: pine-tools' `pine-data/v6/*.json`** -- published in pine-tools' git tree (`functions.json`, `variables.json`, `constants.json`, `keywords.json`, `function-behavior.json`). Copied into `vendor/pine-data/v6/` and `include_str!`'d. Adds polymorphism markers + structured signatures + argument-ordering metadata that complement v6.md's prose. Drives `po behavior`.
+- **Secondary: pine-tools' `pine-data/v6/*.json`** -- published in pine-tools' git tree (`functions.json`, `variables.json`, `constants.json`, `keywords.json`, `types.json`, `annotations.json`). Copied into `vendor/pine-data/v6/` and `include_str!`'d. Adds polymorphism flags + structured signatures + per-overload + parameter default / allowedValues / min / max metadata + built-in type and annotation catalogs that complement v6.md's prose. Drives `po behavior`.
 
 Combined size: ~1.5 MB. Trivial.
 
@@ -85,7 +85,7 @@ What to pull from where, in priority order. The oracle's license is the natural 
 | 2 | Markdown query layer (~250 LOC) | `research/pinecone/crates/pine-reference/src/lib.rs:60-203` | MPL-2.0 | Backs `po lookup` | Lift into `src/reference.rs` |
 | 3 | Pine v6 syntax pipeline | `../piners/crates/piners-syntax/` | MIT OR Apache-2.0 | Backs `po parse` / `po tokens` / local `po validate` | Path dependency; canonical syntax backend |
 | 4 | Pinecone lexer + parser lift + 72 parser goldens | `research/pinecone/crates/pine-{lexer,ast,parser}/` | MPL-2.0 | Former migration baseline | Removed from shipped sources after piners-syntax integration; not vendored or compiled |
-| 5 | `pine-data/v6/*.json` (functions / variables / constants / keywords / function-behavior) | `pine-tools/pine-data/v6/*.json` | MIT (folknor) | Backs `po behavior` | Vendor at `vendor/pine-data/v6/` |
+| 5 | `pine-data/v6/*.json` (functions / variables / constants / keywords / types / annotations) | `pine-tools/pine-data/v6/*.json` | MIT (folknor) | Backs `po behavior` | Vendor at `vendor/pine-data/v6/` |
 | 6 | PineForge validation corpus (239 probes) | `https://github.com/fullpass-4pass/pineforge-corpus` | Apache-2.0 | Backs `po probe` / `po probes` / `po diff`; corpus-kind BM25 docs | Vendor at `vendor/pineforge-corpus/` |
 | 7 | `docs/pine_v6_audit_master.md` (38 critical + ~62 minor divergences) | `research/pineforge-engine/docs/` | Apache-2.0 | Audit-kind BM25 docs | Vendor at `vendor/pineforge-docs/pine_v6_audit_master.md` |
 | 8 | `docs/pages/*.md` (18 narrative docs) | `research/pineforge-engine/docs/pages/` | Apache-2.0 | Docs-kind BM25 substrate | Vendor at `vendor/pineforge-docs/pages/` |
@@ -108,9 +108,9 @@ Explicit exclusions so a future reader doesn't assume these are in scope:
 - **The LSP server (`packages/lsp/bin/pine-lsp.js`).** The oracle is a CLI for one-shot queries, not a long-lived editor backend.
 - **The MCP server (`packages/mcp/bin/pine-mcp.js`).** The oracle CLI is itself the integration surface; we don't want a server-of-servers.
 - **The VS Code extension (`packages/vscode/`).** Out of scope entirely.
-- **`pnpm run discover:behavior` runtime invocation.** The output (`function-behavior.json`) is vendored; we don't re-derive it from the oracle.
+- **The pine-tools data pipeline itself.** The generated JSON artifacts are vendored; the oracle does not run `pnpm run scrape` or re-derive the data. Polymorphism, once a separate `discover:behavior` step that emitted `function-behavior.json`, is now baked into `functions.json` `flags` by the scrape; there is no separate behavior file to vendor.
 
-The data pipeline (`crawl`, `scrape`, `generate`, `discover:behavior`) stays in pine-tools as the upstream source of truth for refreshing pine-data. The oracle consumes the generated artifacts but does not run the pipeline.
+The data pipeline (`crawl`, `scrape`, `generate`) stays in pine-tools as the upstream source of truth for refreshing pine-data. The oracle consumes the generated artifacts but does not run the pipeline.
 
 ## Delivery phases
 
@@ -326,14 +326,13 @@ Concrete reviewer flow, before vs after:
 
 In pine-tools:
 
-1. `pnpm run crawl` + `pnpm run scrape` + `pnpm run generate` produce `pine-data/v6/*.ts`.
-2. `pnpm run discover:behavior` produces `pine-data/v6/function-behavior.json`.
-3. JSON snapshots (functions / variables / constants / keywords) ship alongside the `.ts` in pine-tools' git tree, so pine-oracle vendors them by copy.
+1. `pnpm run crawl` + `pnpm run scrape` + `pnpm run generate` produce `pine-data/v6/*.ts` and the JSON snapshots, including the polymorphism flags baked into `functions.json`.
+2. JSON snapshots (functions / variables / constants / keywords / types / annotations) ship alongside the `.ts` in pine-tools' git tree, so pine-oracle vendors them by copy.
 
 In pine-oracle:
 
-4. Refresh: copy `pine-tools/pine-data/v6/*.json` into `vendor/pine-data/v6/`, commit.
-5. `brokkr check` to rebuild + revalidate; `include_str!` picks up the new JSON at compile time.
+3. Refresh: copy `pine-tools/pine-data/v6/*.json` into `vendor/pine-data/v6/`, bump the snapshot ref/date in `vendor/pine-data/v6/NOTICE` and `behavior::PINE_DATA_SNAPSHOT`, commit.
+4. `brokkr check` to rebuild + revalidate; `include_str!` picks up the new JSON at compile time.
 6. CI publishes a release per pine-data refresh (semver: patch for data refresh, minor for new subcommands, major for output-schema breakage).
 
 Release cadence: pin to pine-tools' scrape cadence. When TV's docs change, refresh, rebuild, release.

@@ -102,15 +102,66 @@ fn print_behavior_text(b: &behavior::Behavior) {
             if !f.returns.is_empty() {
                 println!("  returns: {}", f.returns);
             }
+            if let Some(deprecated) = &f.deprecated {
+                println!("  deprecated: {deprecated}");
+            }
             if !f.parameters.is_empty() {
                 println!("  parameters:");
                 for p in &f.parameters {
                     let req = if p.required { "required" } else { "optional" };
                     println!("    - {} : {} ({req})", p.name, p.ty);
+                    if let Some(default) = &p.default {
+                        println!("        default: {default}");
+                    }
+                    if !p.allowed_values.is_empty() {
+                        println!("        allowed: {}", p.allowed_values.join(", "));
+                    }
+                    match (p.min, p.max) {
+                        (Some(min), Some(max)) => println!("        range: {min} .. {max}"),
+                        (Some(min), None) => println!("        min: {min}"),
+                        (None, Some(max)) => println!("        max: {max}"),
+                        (None, None) => {}
+                    }
                 }
             }
+            if !f.overloads.is_empty() {
+                println!("  overloads: {}", f.overloads.len());
+                for (i, o) in f.overloads.iter().enumerate() {
+                    let sig = o
+                        .parameters
+                        .iter()
+                        .map(|p| format!("{}: {}", p.name, p.ty))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    println!("    {}. ({sig}) -> {}", i + 1, o.returns);
+                }
+            }
+            let mut flag_notes = Vec::new();
             if f.flags.top_level_only {
-                println!("  flags: top-level only");
+                flag_notes.push("top-level only".to_string());
+            }
+            if f.flags.series_returning {
+                flag_notes.push("series-returning".to_string());
+            }
+            if f.flags.variadic {
+                let bounds = match (f.flags.min_args, f.flags.max_args) {
+                    (Some(min), Some(max)) => format!(" ({min}..{max} args)"),
+                    (Some(min), None) => format!(" (min {min} args)"),
+                    (None, Some(max)) => format!(" (max {max} args)"),
+                    (None, None) => String::new(),
+                };
+                flag_notes.push(format!("variadic{bounds}"));
+            }
+            if !flag_notes.is_empty() {
+                println!("  flags: {}", flag_notes.join(", "));
+            }
+            if let Some(poly) = &f.flags.polymorphic {
+                println!("  polymorphic: yes ({poly})");
+                if let Some(rtp) = &f.flags.return_type_param {
+                    println!("    return-type follows parameter: {rtp}");
+                }
+            } else if let Some(rtp) = &f.flags.return_type_param {
+                println!("  return-type follows parameter: {rtp}");
             }
             if !f.examples.is_empty() {
                 let n = f.examples.len();
@@ -125,40 +176,12 @@ fn print_behavior_text(b: &behavior::Behavior) {
                     }
                 }
             }
-            if let Some(beh) = &f.behavior {
-                let poly = if beh.polymorphic.is_polymorphic() {
-                    "yes"
-                } else {
-                    "no"
-                };
-                println!("  polymorphic: {poly}");
-                if let Some(detail) = beh.polymorphic.detail() {
-                    if let Some(rtp) = &detail.return_type_param {
-                        println!("    return-type-param: {rtp}");
-                    }
-                    if let Some(strat) = &detail.strategy {
-                        println!("    strategy: {strat}");
-                    }
-                    if !detail.allowed_types.is_empty() {
-                        println!("    allowed-types: {}", detail.allowed_types.join(", "));
-                    }
-                }
-                if let Some(ord) = &beh.argument_ordering {
-                    println!("  argument-ordering: {ord}");
-                }
-                if !beh.observed_return_types.is_empty() {
-                    println!(
-                        "  observed-return-types: {}",
-                        beh.observed_return_types.join(", ")
-                    );
-                }
-                if let Some(reason) = &beh.reason {
-                    println!("  reason: {reason}");
-                }
-            }
         }
         behavior::Behavior::Variable(v) => {
             println!("variable {}", v.name);
+            if let Some(ns) = &v.namespace {
+                println!("  namespace: {ns}");
+            }
             println!("  type: {}", v.ty);
             println!("  qualifier: {}", v.qualifier);
             if !v.description.is_empty() {
@@ -174,9 +197,64 @@ fn print_behavior_text(b: &behavior::Behavior) {
                 println!("  short-name: {short}");
             }
             println!("  type: {}", c.ty);
+            if let Some(desc) = &c.description
+                && !desc.is_empty()
+            {
+                println!("  description: {desc}");
+            }
         }
         behavior::Behavior::Keyword(k) => {
             println!("keyword {}", k.name);
+        }
+        behavior::Behavior::Type(t) => {
+            println!("type {}", t.name);
+            if let Some(ns) = &t.namespace {
+                println!("  namespace: {ns}");
+            }
+            println!("  classification: {}", t.classification);
+            if !t.description.is_empty() {
+                println!("  description: {}", t.description);
+            }
+            if !t.fields.is_empty() {
+                println!("  fields:");
+                for field in &t.fields {
+                    println!("    - {} : {}", field.name, field.ty);
+                    if !field.description.is_empty() {
+                        println!("        {}", field.description);
+                    }
+                }
+            }
+            print_examples(&t.examples);
+        }
+        behavior::Behavior::Annotation(a) => {
+            println!("annotation {}", a.name);
+            if let Some(syntax) = &a.syntax {
+                println!("  syntax: {syntax}");
+            }
+            if !a.description.is_empty() {
+                println!("  description: {}", a.description);
+            }
+            print_examples(&a.examples);
+        }
+    }
+}
+
+/// Shared "examples" renderer used by the type and annotation views. The
+/// function view inlines its own copy because it interleaves examples with the
+/// flags / polymorphism block.
+fn print_examples(examples: &[String]) {
+    if examples.is_empty() {
+        return;
+    }
+    let n = examples.len();
+    let label = if n == 1 { "example" } else { "examples" };
+    println!("  {label}: {n}");
+    for (i, ex) in examples.iter().enumerate() {
+        if n > 1 {
+            println!("    --- example {} ---", i + 1);
+        }
+        for line in ex.lines() {
+            println!("    {line}");
         }
     }
 }

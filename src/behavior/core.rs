@@ -3,19 +3,28 @@
 // Structured behaviour lookup for the public Pine v6 surface.
 //
 // Inputs are pine-tools' JSON exports under vendor/pine-data/v6/:
-//   - functions.json         (signature, params, returns, flags)
-//   - variables.json         (type + qualifier for built-ins)
-//   - constants.json         (typed constants like color.red)
-//   - keywords.json          (reserved keyword list)
-//   - function-behavior.json (polymorphism + argument-ordering markers)
+//   - functions.json    (signature, params, returns, flags, overloads)
+//   - variables.json    (type + qualifier for built-ins)
+//   - constants.json    (typed constants like color.red)
+//   - keywords.json      (reserved keyword list)
+//   - types.json         (built-in types: chart.point, line, array, ...)
+//   - annotations.json   (compiler annotations: @version=, @param, ...)
 //
-// The five files are parsed once via OnceLock into a `BehaviorIndex` keyed
-// by symbol name. `lookup(name)` returns the first match across functions,
-// variables, constants, and keywords (in that order), or `None`.
+// The six files are parsed once via OnceLock into a `BehaviorIndex` keyed by
+// symbol name. `lookup(name)` returns the first match across functions,
+// variables, constants, keywords, types, and annotations (in that order), or
+// `None`.
 //
-// The pine-tools upstream is mid-rescrape; deserialization is lenient
-// (serde ignores unknown fields by default, plus serde(default) on
-// optional fields) so a schema tweak upstream doesn't break the binary.
+// Polymorphism note: an earlier upstream shipped a separate
+// `function-behavior.json` with rich polymorphism markers. Upstream collapsed
+// that data into the `functions.json` `flags` object (`polymorphic` =
+// "input" | "element" | "numeric", plus `returnTypeParam`), so the separate
+// file is gone. The richer-but-redundant fields (observedMappings,
+// argumentOrdering, observedReturnTypes) went away with it.
+//
+// Deserialization is lenient (serde ignores unknown fields by default, plus
+// serde(default) on optional fields) so a schema tweak upstream doesn't break
+// the binary.
 
 use anyhow::{Result, bail};
 use piners_syntax::{
@@ -31,7 +40,14 @@ const FUNCTIONS_JSON: &str = include_str!("../../vendor/pine-data/v6/functions.j
 const VARIABLES_JSON: &str = include_str!("../../vendor/pine-data/v6/variables.json");
 const CONSTANTS_JSON: &str = include_str!("../../vendor/pine-data/v6/constants.json");
 const KEYWORDS_JSON: &str = include_str!("../../vendor/pine-data/v6/keywords.json");
-const BEHAVIOR_JSON: &str = include_str!("../../vendor/pine-data/v6/function-behavior.json");
+const TYPES_JSON: &str = include_str!("../../vendor/pine-data/v6/types.json");
+const ANNOTATIONS_JSON: &str = include_str!("../../vendor/pine-data/v6/annotations.json");
+
+// The pine-data JSON files are bare arrays with no `generatedAt` envelope (the
+// removed function-behavior.json used to carry one). The snapshot ref/date is
+// baked here from the vendoring pass; see vendor/pine-data/v6/NOTICE.
+const PINE_DATA_VERSION: &str = "6";
+const PINE_DATA_SNAPSHOT: &str = "2026-05-29T20:56:46+02:00";
 
 // ---------- raw types (mirror the JSON 1:1) ----------
 
@@ -44,12 +60,37 @@ pub struct FunctionParameter {
     pub description: String,
     #[serde(default)]
     pub required: bool,
+    /// Documented default value as the Pine expression from the docs (e.g. "0",
+    /// "true", "na"). Dynamic/inherited defaults use a magic sentinel
+    /// (CHART_SYMBOL, SCRIPT_FORMAT, "ARG:<sibling>", ...). Absent when no
+    /// default is documented. Upstream key: `default`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<String>,
+    /// Fixed set of accepted values when the parameter is enumerated
+    /// (namespaced constants like "display.all" or quoted-string literals).
+    /// Empty when the parameter is not enumerated. Upstream key: `allowedValues`.
+    #[serde(
+        rename = "allowedValues",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub allowed_values: Vec<String>,
+    /// Inclusive lower bound of an accepted numeric range, when documented.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min: Option<f64>,
+    /// Inclusive upper bound of an accepted numeric range, when documented.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<f64>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct FunctionFlags {
     #[serde(rename = "topLevelOnly", default)]
     pub top_level_only: bool,
+    /// True when the function's return is a series type. Upstream key:
+    /// `seriesReturning`.
+    #[serde(rename = "seriesReturning", default)]
+    pub series_returning: bool,
     /// True when the function accepts a variable number of trailing arguments
     /// (e.g. `array.from`). Upstream key: `variadic`.
     #[serde(default)]
@@ -58,11 +99,46 @@ pub struct FunctionFlags {
     /// Upstream key: `minArgs`.
     #[serde(rename = "minArgs", default)]
     pub min_args: Option<u32>,
-    /// Polymorphism hint from the functions.json flags object. Distinct from
-    /// the richer `RawBehaviorEntry::polymorphic` field in function-behavior.json.
-    /// Example values: `"element"`. Upstream key: `polymorphic`.
+    /// Maximum number of arguments for variadic functions (None = unlimited).
+    /// Upstream key: `maxArgs`.
+    #[serde(rename = "maxArgs", default)]
+    pub max_args: Option<u32>,
+    /// Polymorphic return-type class, the single source of truth for
+    /// polymorphism since function-behavior.json was retired:
+    /// - "input":   return follows the first argument's type (nz, fixnan, input)
+    /// - "element": return is the element type of a collection argument (array.get)
+    /// - "numeric": return is the common numeric type of the arguments (math.max)
+    ///
+    /// None for monomorphic functions. Upstream key: `polymorphic`.
     #[serde(default)]
     pub polymorphic: Option<String>,
+    /// Name of the parameter whose type the return type follows, for
+    /// return-follows-source functions (e.g. ta.valuewhen -> "source"). Present
+    /// on its own (no `polymorphic`) for the ta.* return-follows-source set, and
+    /// alongside `polymorphic` for input/nz/fixnan/math.abs/math.round.
+    /// Upstream key: `returnTypeParam`.
+    #[serde(rename = "returnTypeParam", default)]
+    pub return_type_param: Option<String>,
+}
+
+impl FunctionFlags {
+    /// True when the function carries a polymorphic return-type class.
+    #[must_use]
+    pub fn is_polymorphic(&self) -> bool {
+        self.polymorphic.is_some()
+    }
+}
+
+/// A single overload of an overloaded function. The top-level `parameters` /
+/// `returns` on `RawFunction` are a merged view (param types unioned, returns
+/// frozen to the first form); each overload preserves its exact, non-unioned
+/// parameter types and its own return type.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RawOverload {
+    #[serde(default)]
+    pub parameters: Vec<FunctionParameter>,
+    #[serde(default)]
+    pub returns: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -78,19 +154,26 @@ pub struct RawFunction {
     pub parameters: Vec<FunctionParameter>,
     #[serde(default)]
     pub returns: String,
-    /// Code examples preserving original newlines + indentation. Upstream
-    /// recently switched from a single `example: string` to a multi-element
-    /// `examples: string[]` after confirming TV's docs ship multiple sibling
-    /// `<pre>` blocks per function.
-    #[serde(default)]
-    pub examples: Vec<String>,
     #[serde(default)]
     pub flags: Option<FunctionFlags>,
+    /// Per-overload signatures, present only for overloaded functions (>1 form).
+    #[serde(default)]
+    pub overloads: Vec<RawOverload>,
+    /// Deprecation note when the reference flags the function as deprecated
+    /// (rare in v6 - e.g. request.quandl). Absent otherwise.
+    #[serde(default)]
+    pub deprecated: Option<String>,
+    /// Code examples preserving original newlines + indentation. TV's docs ship
+    /// one or more sibling `<pre>` blocks per function.
+    #[serde(default)]
+    pub examples: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RawVariable {
     pub name: String,
+    #[serde(default)]
+    pub namespace: Option<String>,
     #[serde(rename = "type", default)]
     pub ty: String,
     #[serde(default)]
@@ -108,60 +191,46 @@ pub struct RawConstant {
     pub short_name: Option<String>,
     #[serde(rename = "type", default)]
     pub ty: String,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+/// A field of a non-opaque built-in object type (e.g. chart.point's index /
+/// time / price). Opaque ID types (line, label, box, ...) expose no fields.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RawTypeField {
+    pub name: String,
+    #[serde(rename = "type", default)]
+    pub ty: String,
+    #[serde(default)]
+    pub description: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct PolymorphicDetail {
-    #[serde(rename = "returnTypeParam", default)]
-    pub return_type_param: Option<String>,
+pub struct RawType {
+    pub name: String,
     #[serde(default)]
-    pub strategy: Option<String>,
-    #[serde(rename = "observedMappings", default)]
-    pub observed_mappings: HashMap<String, String>,
-    #[serde(rename = "allowedTypes", default)]
-    pub allowed_types: Vec<String>,
+    pub namespace: Option<String>,
+    /// Classification: "primitive" | "qualifier" | "container" | "object".
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub examples: Vec<String>,
+    #[serde(default)]
+    pub fields: Vec<RawTypeField>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(untagged)]
-pub enum PolymorphicField {
-    /// `false` in JSON
-    Static(bool),
-    /// `{ returnTypeParam, strategy, observedMappings, allowedTypes }`
-    Dynamic(PolymorphicDetail),
-}
-
-impl PolymorphicField {
-    pub fn is_polymorphic(&self) -> bool {
-        matches!(self, PolymorphicField::Dynamic(_))
-    }
-    pub fn detail(&self) -> Option<&PolymorphicDetail> {
-        match self {
-            PolymorphicField::Dynamic(d) => Some(d),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct RawBehaviorEntry {
-    pub polymorphic: PolymorphicField,
-    #[serde(rename = "argumentOrdering", default)]
-    pub argument_ordering: Option<String>,
-    #[serde(rename = "observedReturnTypes", default)]
-    pub observed_return_types: Vec<String>,
+pub struct RawAnnotation {
+    pub name: String,
     #[serde(default)]
-    pub reason: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct RawBehaviorFile {
+    pub description: String,
     #[serde(default)]
-    version: String,
-    #[serde(rename = "generatedAt", default)]
-    generated_at: String,
+    pub syntax: Option<String>,
     #[serde(default)]
-    functions: HashMap<String, RawBehaviorEntry>,
+    pub examples: Vec<String>,
 }
 
 // ---------- merged public view ----------
@@ -174,6 +243,8 @@ pub enum Behavior {
     Variable(VariableBehavior),
     Constant(ConstantBehavior),
     Keyword(KeywordBehavior),
+    Type(TypeBehavior),
+    Annotation(AnnotationBehavior),
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -188,13 +259,16 @@ pub struct FunctionBehavior {
     pub parameters: Vec<FunctionParameter>,
     pub examples: Vec<String>,
     pub flags: FunctionFlags,
-    /// Present only when behavior data covers this function.
-    pub behavior: Option<RawBehaviorEntry>,
+    /// Per-overload signatures, present only for overloaded functions.
+    pub overloads: Vec<RawOverload>,
+    /// Deprecation note, when the reference flags the function deprecated.
+    pub deprecated: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct VariableBehavior {
     pub name: String,
+    pub namespace: Option<String>,
     pub ty: String,
     pub qualifier: String,
     /// Human-readable description from pine-data. Empty string when the source
@@ -208,11 +282,32 @@ pub struct ConstantBehavior {
     pub namespace: Option<String>,
     pub short_name: Option<String>,
     pub ty: String,
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct KeywordBehavior {
     pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TypeBehavior {
+    pub name: String,
+    pub namespace: Option<String>,
+    /// primitive | qualifier | container | object. Renamed from the JSON's
+    /// `kind` key to avoid colliding with the `Behavior` serde tag, also `kind`.
+    pub classification: String,
+    pub description: String,
+    pub examples: Vec<String>,
+    pub fields: Vec<RawTypeField>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AnnotationBehavior {
+    pub name: String,
+    pub description: String,
+    pub syntax: Option<String>,
+    pub examples: Vec<String>,
 }
 
 impl Behavior {
@@ -224,21 +319,15 @@ impl Behavior {
             Self::Variable(_) => BehaviorKind::Variable,
             Self::Constant(_) => BehaviorKind::Constant,
             Self::Keyword(_) => BehaviorKind::Keyword,
+            Self::Type(_) => BehaviorKind::Type,
+            Self::Annotation(_) => BehaviorKind::Annotation,
         }
     }
 
-    /// Return `true` if this is a function that carries polymorphism markers.
-    ///
-    /// Equivalent to `if let Behavior::Function(f) = self { f.behavior.as_ref().is_some_and(|b| b.polymorphic.is_polymorphic()) }`.
+    /// Return `true` if this is a function that carries a polymorphic return.
     #[must_use]
     pub fn is_polymorphic(&self) -> bool {
-        if let Self::Function(f) = self {
-            f.behavior
-                .as_ref()
-                .is_some_and(|b| b.polymorphic.is_polymorphic())
-        } else {
-            false
-        }
+        matches!(self, Self::Function(f) if f.flags.is_polymorphic())
     }
 }
 
@@ -249,6 +338,8 @@ pub enum BehaviorKind {
     Variable,
     Constant,
     Keyword,
+    Type,
+    Annotation,
 }
 
 impl BehaviorKind {
@@ -258,6 +349,8 @@ impl BehaviorKind {
             Self::Variable => "variable",
             Self::Constant => "constant",
             Self::Keyword => "keyword",
+            Self::Type => "type",
+            Self::Annotation => "annotation",
         }
     }
 
@@ -267,6 +360,8 @@ impl BehaviorKind {
             Self::Variable => "Built-in variables such as OHLCV series",
             Self::Constant => "Typed named constants and enum-like values",
             Self::Keyword => "Reserved Pine keywords",
+            Self::Type => "Built-in types (chart.point, line, array, ...) with fields",
+            Self::Annotation => "Compiler annotations (@version=, @param, @type, ...)",
         }
     }
 }
@@ -310,7 +405,11 @@ pub struct PineDataSnapshot {
     pub variable_count: usize,
     pub constant_count: usize,
     pub keyword_count: usize,
-    pub function_behavior_count: usize,
+    pub type_count: usize,
+    pub annotation_count: usize,
+    /// Number of functions carrying a polymorphic return-type class in their
+    /// flags. Previously sourced from function-behavior.json's entry count.
+    pub polymorphic_function_count: usize,
 }
 
 // ---------- indexed lookup ----------
@@ -320,9 +419,8 @@ struct BehaviorIndex {
     variables: HashMap<String, RawVariable>,
     constants: HashMap<String, RawConstant>,
     keywords: Vec<String>,
-    function_behaviors: HashMap<String, RawBehaviorEntry>,
-    behavior_version: String,
-    behavior_generated_at: String,
+    types: HashMap<String, RawType>,
+    annotations: HashMap<String, RawAnnotation>,
 }
 
 fn index() -> &'static BehaviorIndex {
@@ -335,18 +433,19 @@ fn build_index() -> anyhow::Result<BehaviorIndex> {
     let variables: Vec<RawVariable> = serde_json::from_str(VARIABLES_JSON)?;
     let constants: Vec<RawConstant> = serde_json::from_str(CONSTANTS_JSON)?;
     let keywords: Vec<String> = serde_json::from_str(KEYWORDS_JSON)?;
-    let behavior_file: RawBehaviorFile = serde_json::from_str(BEHAVIOR_JSON)?;
-    let behavior_version = behavior_file.version;
-    let behavior_generated_at = behavior_file.generated_at;
+    let types: Vec<RawType> = serde_json::from_str(TYPES_JSON)?;
+    let annotations: Vec<RawAnnotation> = serde_json::from_str(ANNOTATIONS_JSON)?;
 
     Ok(BehaviorIndex {
         functions: functions.into_iter().map(|f| (f.name.clone(), f)).collect(),
         variables: variables.into_iter().map(|v| (v.name.clone(), v)).collect(),
         constants: constants.into_iter().map(|c| (c.name.clone(), c)).collect(),
         keywords,
-        function_behaviors: behavior_file.functions,
-        behavior_version,
-        behavior_generated_at,
+        types: types.into_iter().map(|t| (t.name.clone(), t)).collect(),
+        annotations: annotations
+            .into_iter()
+            .map(|a| (a.name.clone(), a))
+            .collect(),
     })
 }
 
@@ -364,8 +463,9 @@ fn map_get_ci<'a, V>(map: &'a HashMap<String, V>, name: &str) -> Option<&'a V> {
         .map(|(_, v)| v)
 }
 
-/// First-hit lookup across functions, variables, constants, keywords.
-/// Case-insensitive: `lookup("CLOSE")` and `lookup("close")` both work.
+/// First-hit lookup across functions, variables, constants, keywords, types,
+/// annotations. Case-insensitive: `lookup("CLOSE")` and `lookup("close")` both
+/// work.
 ///
 /// Generic-placeholder fallback: pine-data stores generic constructor functions
 /// under names like `array.new<type>`, `matrix.new<type>`, `map.new<type,type>`.
@@ -373,7 +473,7 @@ fn map_get_ci<'a, V>(map: &'a HashMap<String, V>, name: &str) -> Option<&'a V> {
 /// so that `lookup("array.new")` resolves to `array.new<type>`.
 pub fn lookup(name: &str) -> Option<Behavior> {
     let idx = index();
-    // Primary lookup: functions / variables / constants / keywords.
+    // Primary lookup: functions / variables / constants / types / annotations.
     if let Some(result) = lookup_in(idx, name) {
         return Some(result);
     }
@@ -393,31 +493,17 @@ pub fn lookup(name: &str) -> Option<Behavior> {
     None
 }
 
-/// Inner lookup over a pre-fetched index: functions, variables, constants only
-/// (not keywords, which require the caller to own the keyword name string).
+/// Inner lookup over a pre-fetched index: functions, variables, constants,
+/// types, annotations (not keywords, which require the caller to own the
+/// keyword name string).
 fn lookup_in(idx: &BehaviorIndex, name: &str) -> Option<Behavior> {
     if let Some(f) = map_get_ci(&idx.functions, name) {
-        let behavior = map_get_ci(&idx.function_behaviors, &f.name).cloned();
-        return Some(Behavior::Function(FunctionBehavior {
-            name: f.name.clone(),
-            namespace: f.namespace.clone(),
-            syntax: f.syntax.clone(),
-            returns: f.returns.clone(),
-            description: f.description.clone(),
-            parameters: f.parameters.clone(),
-            examples: f.examples.clone(),
-            flags: f.flags.clone().unwrap_or(FunctionFlags {
-                top_level_only: false,
-                variadic: false,
-                min_args: None,
-                polymorphic: None,
-            }),
-            behavior,
-        }));
+        return Some(Behavior::Function(function_behavior(f)));
     }
     if let Some(v) = map_get_ci(&idx.variables, name) {
         return Some(Behavior::Variable(VariableBehavior {
             name: v.name.clone(),
+            namespace: v.namespace.clone(),
             ty: v.ty.clone(),
             qualifier: v.qualifier.clone(),
             description: v.description.clone(),
@@ -429,21 +515,62 @@ fn lookup_in(idx: &BehaviorIndex, name: &str) -> Option<Behavior> {
             namespace: c.namespace.clone(),
             short_name: c.short_name.clone(),
             ty: c.ty.clone(),
+            description: c.description.clone(),
+        }));
+    }
+    if let Some(t) = map_get_ci(&idx.types, name) {
+        return Some(Behavior::Type(TypeBehavior {
+            name: t.name.clone(),
+            namespace: t.namespace.clone(),
+            classification: t.kind.clone(),
+            description: t.description.clone(),
+            examples: t.examples.clone(),
+            fields: t.fields.clone(),
+        }));
+    }
+    if let Some(a) = map_get_ci(&idx.annotations, name) {
+        return Some(Behavior::Annotation(AnnotationBehavior {
+            name: a.name.clone(),
+            description: a.description.clone(),
+            syntax: a.syntax.clone(),
+            examples: a.examples.clone(),
         }));
     }
     None
 }
 
+fn function_behavior(f: &RawFunction) -> FunctionBehavior {
+    FunctionBehavior {
+        name: f.name.clone(),
+        namespace: f.namespace.clone(),
+        syntax: f.syntax.clone(),
+        returns: f.returns.clone(),
+        description: f.description.clone(),
+        parameters: f.parameters.clone(),
+        examples: f.examples.clone(),
+        flags: f.flags.clone().unwrap_or_default(),
+        overloads: f.overloads.clone(),
+        deprecated: f.deprecated.clone(),
+    }
+}
+
 pub fn snapshot() -> PineDataSnapshot {
     let idx = index();
+    let polymorphic_function_count = idx
+        .functions
+        .values()
+        .filter(|f| f.flags.as_ref().is_some_and(FunctionFlags::is_polymorphic))
+        .count();
     PineDataSnapshot {
-        version: idx.behavior_version.clone(),
-        generated_at: idx.behavior_generated_at.clone(),
+        version: PINE_DATA_VERSION.to_string(),
+        generated_at: PINE_DATA_SNAPSHOT.to_string(),
         function_count: idx.functions.len(),
         variable_count: idx.variables.len(),
         constant_count: idx.constants.len(),
         keyword_count: idx.keywords.len(),
-        function_behavior_count: idx.function_behaviors.len(),
+        type_count: idx.types.len(),
+        annotation_count: idx.annotations.len(),
+        polymorphic_function_count,
     }
 }
 
@@ -470,6 +597,16 @@ pub fn kind_catalog() -> Vec<BehaviorKindInfo> {
             description: BehaviorKind::Keyword.description(),
             count: snapshot.keyword_count,
         },
+        BehaviorKindInfo {
+            kind: BehaviorKind::Type,
+            description: BehaviorKind::Type.description(),
+            count: snapshot.type_count,
+        },
+        BehaviorKindInfo {
+            kind: BehaviorKind::Annotation,
+            description: BehaviorKind::Annotation.description(),
+            count: snapshot.annotation_count,
+        },
     ]
 }
 
@@ -493,10 +630,10 @@ pub fn list(kind_filter: Option<&str>, grep: Option<&str>) -> Result<Vec<Behavio
                 name: function.name.clone(),
                 namespace: function.namespace.clone(),
                 detail: function.syntax.clone(),
-                polymorphic: idx
-                    .function_behaviors
-                    .get(&function.name)
-                    .is_some_and(|behavior| behavior.polymorphic.is_polymorphic()),
+                polymorphic: function
+                    .flags
+                    .as_ref()
+                    .is_some_and(FunctionFlags::is_polymorphic),
             });
         }
     }
@@ -505,7 +642,7 @@ pub fn list(kind_filter: Option<&str>, grep: Option<&str>) -> Result<Vec<Behavio
             out.push(BehaviorListing {
                 kind: BehaviorKind::Variable,
                 name: variable.name.clone(),
-                namespace: None,
+                namespace: variable.namespace.clone(),
                 detail: type_detail(&variable.ty, &variable.qualifier),
                 polymorphic: false,
             });
@@ -529,6 +666,28 @@ pub fn list(kind_filter: Option<&str>, grep: Option<&str>) -> Result<Vec<Behavio
                 name: keyword.clone(),
                 namespace: None,
                 detail: String::new(),
+                polymorphic: false,
+            });
+        }
+    }
+    if filter.is_none_or(|kind| kind == BehaviorKind::Type) {
+        for ty in idx.types.values() {
+            out.push(BehaviorListing {
+                kind: BehaviorKind::Type,
+                name: ty.name.clone(),
+                namespace: ty.namespace.clone(),
+                detail: ty.kind.clone(),
+                polymorphic: false,
+            });
+        }
+    }
+    if filter.is_none_or(|kind| kind == BehaviorKind::Annotation) {
+        for annotation in idx.annotations.values() {
+            out.push(BehaviorListing {
+                kind: BehaviorKind::Annotation,
+                name: annotation.name.clone(),
+                namespace: None,
+                detail: annotation.syntax.clone().unwrap_or_default(),
                 polymorphic: false,
             });
         }
@@ -567,8 +726,10 @@ fn parse_behavior_kind(raw: &str) -> Result<BehaviorKind> {
         "variable" | "variables" => Ok(BehaviorKind::Variable),
         "constant" | "constants" => Ok(BehaviorKind::Constant),
         "keyword" | "keywords" => Ok(BehaviorKind::Keyword),
+        "type" | "types" => Ok(BehaviorKind::Type),
+        "annotation" | "annotations" => Ok(BehaviorKind::Annotation),
         _ => bail!(
-            "unknown behavior kind `{raw}`; expected one of: function, variable, constant, keyword"
+            "unknown behavior kind `{raw}`; expected one of: function, variable, constant, keyword, type, annotation"
         ),
     }
 }
@@ -580,7 +741,7 @@ pub fn search_entries() -> Vec<BehaviorSearchEntry> {
         out.push(BehaviorSearchEntry {
             category: "Function",
             name: function.name.clone(),
-            content: function_search_content(function, idx.function_behaviors.get(&function.name)),
+            content: function_search_content(function),
         });
     }
     for variable in idx.variables.values() {
@@ -604,11 +765,25 @@ pub fn search_entries() -> Vec<BehaviorSearchEntry> {
             content: "Reserved Pine keyword.".to_string(),
         });
     }
+    for ty in idx.types.values() {
+        out.push(BehaviorSearchEntry {
+            category: "Type",
+            name: ty.name.clone(),
+            content: type_search_content(ty),
+        });
+    }
+    for annotation in idx.annotations.values() {
+        out.push(BehaviorSearchEntry {
+            category: "Annotation",
+            name: annotation.name.clone(),
+            content: annotation_search_content(annotation),
+        });
+    }
     out.sort_by(|a, b| a.category.cmp(b.category).then_with(|| a.name.cmp(&b.name)));
     out
 }
 
-fn function_search_content(function: &RawFunction, behavior: Option<&RawBehaviorEntry>) -> String {
+fn function_search_content(function: &RawFunction) -> String {
     let mut parts = Vec::new();
     if !function.syntax.is_empty() {
         parts.push(format!("Syntax: {}", function.syntax));
@@ -616,21 +791,14 @@ fn function_search_content(function: &RawFunction, behavior: Option<&RawBehavior
     if !function.returns.is_empty() {
         parts.push(format!("Returns: {}", function.returns));
     }
+    if let Some(deprecated) = &function.deprecated {
+        parts.push(format!("Deprecated: {deprecated}"));
+    }
     if !function.description.is_empty() {
         parts.push(function.description.clone());
     }
     for param in &function.parameters {
-        let required = if param.required {
-            "required"
-        } else {
-            "optional"
-        };
-        let mut line = format!("Parameter {}: {} ({required})", param.name, param.ty);
-        if !param.description.is_empty() {
-            line.push_str(". ");
-            line.push_str(&param.description);
-        }
-        parts.push(line);
+        parts.push(param_search_line(param));
     }
     if let Some(flags) = function.flags.as_ref() {
         if flags.top_level_only {
@@ -643,43 +811,49 @@ fn function_search_content(function: &RawFunction, behavior: Option<&RawBehavior
                 .unwrap_or_default();
             parts.push(format!("Variadic{min}."));
         }
-        if let Some(poly_hint) = &flags.polymorphic {
-            parts.push(format!("Flags polymorphic: {poly_hint}."));
+        if let Some(poly) = &flags.polymorphic {
+            parts.push(format!("Polymorphic return: {poly}."));
+        }
+        if let Some(param) = &flags.return_type_param {
+            parts.push(format!("Return type follows parameter: {param}"));
         }
     }
-    if let Some(behavior) = behavior {
-        if let Some(detail) = behavior.polymorphic.detail() {
-            parts.push(format!(
-                "Polymorphic return: {}",
-                detail.strategy.as_deref().unwrap_or("dependent-on-input")
-            ));
-            if let Some(param) = &detail.return_type_param {
-                parts.push(format!("Return type depends on parameter: {param}"));
-            }
-            if !detail.allowed_types.is_empty() {
-                parts.push(format!(
-                    "Allowed types: {}",
-                    detail.allowed_types.join(", ")
-                ));
-            }
-        }
-        if let Some(ordering) = &behavior.argument_ordering {
-            parts.push(format!("Argument ordering: {ordering}"));
-        }
-        if !behavior.observed_return_types.is_empty() {
-            parts.push(format!(
-                "Observed return types: {}",
-                behavior.observed_return_types.join(", ")
-            ));
-        }
-        if let Some(reason) = &behavior.reason {
-            parts.push(reason.clone());
+    if function.overloads.len() > 1 {
+        parts.push(format!("Overloads: {}", function.overloads.len()));
+        for overload in &function.overloads {
+            parts.push(format!("Overload returns: {}", overload.returns));
         }
     }
     for example in &function.examples {
         parts.push(format!("Example:\n{example}"));
     }
     parts.join("\n")
+}
+
+fn param_search_line(param: &FunctionParameter) -> String {
+    let required = if param.required {
+        "required"
+    } else {
+        "optional"
+    };
+    let mut line = format!("Parameter {}: {} ({required})", param.name, param.ty);
+    if let Some(default) = &param.default {
+        line.push_str(&format!(", default {default}"));
+    }
+    if !param.allowed_values.is_empty() {
+        line.push_str(&format!(", one of: {}", param.allowed_values.join(", ")));
+    }
+    match (param.min, param.max) {
+        (Some(min), Some(max)) => line.push_str(&format!(", range {min}..{max}")),
+        (Some(min), None) => line.push_str(&format!(", min {min}")),
+        (None, Some(max)) => line.push_str(&format!(", max {max}")),
+        (None, None) => {}
+    }
+    if !param.description.is_empty() {
+        line.push_str(". ");
+        line.push_str(&param.description);
+    }
+    line
 }
 
 fn variable_search_content(variable: &RawVariable) -> String {
@@ -700,6 +874,42 @@ fn constant_search_content(constant: &RawConstant) -> String {
     }
     if let Some(short_name) = &constant.short_name {
         parts.push(format!("Short name: {short_name}"));
+    }
+    if let Some(description) = &constant.description
+        && !description.is_empty()
+    {
+        parts.push(description.clone());
+    }
+    parts.join("\n")
+}
+
+fn type_search_content(ty: &RawType) -> String {
+    let mut parts = vec![format!("Type kind: {}", ty.kind)];
+    if !ty.description.is_empty() {
+        parts.push(ty.description.clone());
+    }
+    for field in &ty.fields {
+        parts.push(format!(
+            "Field {}: {}. {}",
+            field.name, field.ty, field.description
+        ));
+    }
+    for example in &ty.examples {
+        parts.push(format!("Example:\n{example}"));
+    }
+    parts.join("\n")
+}
+
+fn annotation_search_content(annotation: &RawAnnotation) -> String {
+    let mut parts = Vec::new();
+    if let Some(syntax) = &annotation.syntax {
+        parts.push(format!("Syntax: {syntax}"));
+    }
+    if !annotation.description.is_empty() {
+        parts.push(annotation.description.clone());
+    }
+    for example in &annotation.examples {
+        parts.push(format!("Example:\n{example}"));
     }
     parts.join("\n")
 }
@@ -726,6 +936,14 @@ fn build_syntax_builtins() -> BuiltinsTable {
                 signatures.push(signature);
             }
         }
+        if let Some(flags) = &function.flags
+            && let Some(rule) = syntax_polymorphism_rule(flags)
+        {
+            table
+                .polymorphism
+                .entry(function.name.clone())
+                .or_insert(rule);
+        }
     }
 
     for variable in idx.variables.values() {
@@ -742,11 +960,6 @@ fn build_syntax_builtins() -> BuiltinsTable {
     }
     for keyword in &idx.keywords {
         table.keywords.insert(keyword.clone());
-    }
-    for (name, behavior) in &idx.function_behaviors {
-        if let Some(rule) = syntax_polymorphism_rule(behavior) {
-            table.polymorphism.entry(name.clone()).or_insert(rule);
-        }
     }
 
     table
@@ -788,19 +1001,26 @@ fn syntax_function_signatures(function: &RawFunction) -> Vec<FunctionSignature> 
         .collect()
 }
 
-fn syntax_polymorphism_rule(behavior: &RawBehaviorEntry) -> Option<PolymorphismRule> {
-    let detail = behavior.polymorphic.detail()?;
-    match detail.strategy.as_deref() {
-        Some("dependent-on-input") | None => Some(PolymorphismRule::Identity),
+/// Map the functions.json `flags` polymorphism markers onto piners-syntax
+/// `PolymorphismRule`s. Polymorphism is sourced entirely from flags now that
+/// function-behavior.json is gone. `"input"` maps to `Identity`, `"numeric"`
+/// to `Numeric`, `"element"` to `CollectionElement`. Flags carrying only
+/// `returnTypeParam` (the ta.* return-follows-source set) also map to
+/// `Identity`. Unknown future `polymorphic` values are not installed:
+/// piners-syntax treats an absent rule as fallback-to-static, which is safer
+/// than an inert rule.
+fn syntax_polymorphism_rule(flags: &FunctionFlags) -> Option<PolymorphismRule> {
+    match flags.polymorphic.as_deref() {
+        Some("input") => Some(PolymorphismRule::Identity),
         Some("numeric") => Some(PolymorphismRule::Numeric),
-        Some("collection-element") => Some(PolymorphismRule::CollectionElement),
-        Some(strategy @ ("array_new" | "map_keys" | "map_values")) => {
-            Some(PolymorphismRule::Custom(strategy.to_string()))
-        }
-        // piners-syntax treats unknown custom rules as fallback-to-static.
-        // Do not install inert rules from pine-data until the checker knows
-        // how to interpret them.
+        Some("element") => Some(PolymorphismRule::CollectionElement),
+        // Unknown future `polymorphic` value: install nothing.
         Some(_) => None,
+        // return-follows-source functions carry only `returnTypeParam`.
+        None => flags
+            .return_type_param
+            .as_ref()
+            .map(|_| PolymorphismRule::Identity),
     }
 }
 

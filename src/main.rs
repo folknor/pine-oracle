@@ -400,7 +400,9 @@ fn cmd_version(format: ResolvedFormat, quiet: bool) -> Result<()> {
                     "variable_count": pine_data.variable_count,
                     "constant_count": pine_data.constant_count,
                     "keyword_count": pine_data.keyword_count,
-                    "function_behavior_count": pine_data.function_behavior_count,
+                    "type_count": pine_data.type_count,
+                    "annotation_count": pine_data.annotation_count,
+                    "polymorphic_function_count": pine_data.polymorphic_function_count,
                     "search_doc_count": behavior_docs,
                 },
                 "indicator": {
@@ -431,12 +433,14 @@ fn cmd_version(format: ResolvedFormat, quiet: bool) -> Result<()> {
                 pine_data.version, pine_data.generated_at
             );
             println!(
-                "behavior:       {} functions, {} variables, {} constants, {} keywords, {} behavior entries, {behavior_docs} searchable docs",
+                "behavior:       {} functions ({} polymorphic), {} variables, {} constants, {} keywords, {} types, {} annotations, {behavior_docs} searchable docs",
                 pine_data.function_count,
+                pine_data.polymorphic_function_count,
                 pine_data.variable_count,
                 pine_data.constant_count,
                 pine_data.keyword_count,
-                pine_data.function_behavior_count
+                pine_data.type_count,
+                pine_data.annotation_count
             );
             println!(
                 "indicator:      {} strict fixtures ({} smoke, {} tv)",
@@ -574,7 +578,9 @@ mod tests {
                 "variable_count": pine_data.variable_count,
                 "constant_count": pine_data.constant_count,
                 "keyword_count": pine_data.keyword_count,
-                "function_behavior_count": pine_data.function_behavior_count,
+                "type_count": pine_data.type_count,
+                "annotation_count": pine_data.annotation_count,
+                "polymorphic_function_count": pine_data.polymorphic_function_count,
                 "search_doc_count": behavior_docs,
             },
             "indicator": {
@@ -623,7 +629,9 @@ mod tests {
         assert!(v["behavior"]["variable_count"].is_number());
         assert!(v["behavior"]["constant_count"].is_number());
         assert!(v["behavior"]["keyword_count"].is_number());
-        assert!(v["behavior"]["function_behavior_count"].is_number());
+        assert!(v["behavior"]["type_count"].is_number());
+        assert!(v["behavior"]["annotation_count"].is_number());
+        assert!(v["behavior"]["polymorphic_function_count"].is_number());
         assert!(v["behavior"]["search_doc_count"].is_number());
         assert!(v["indicator"]["fixture_count"].is_number());
         assert!(v["indicator"]["smoke_fixture_count"].is_number());

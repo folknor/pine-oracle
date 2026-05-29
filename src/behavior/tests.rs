@@ -1,26 +1,28 @@
 use super::*;
 
     #[test]
-    fn function_lookup_carries_behavior_when_present() {
+    fn function_lookup_carries_polymorphism_flag_when_present() {
         let b = lookup("input").expect("input must exist");
         match b {
             Behavior::Function(f) => {
                 assert_eq!(f.name, "input");
-                let beh = f.behavior.expect("input is polymorphic per behavior.json");
-                assert!(beh.polymorphic.is_polymorphic());
+                assert!(
+                    f.flags.is_polymorphic(),
+                    "input carries a polymorphic flag in functions.json"
+                );
+                assert_eq!(f.flags.polymorphic.as_deref(), Some("input"));
+                assert_eq!(f.flags.return_type_param.as_deref(), Some("defval"));
             }
             other => panic!("expected Function, got {other:?}"),
         }
     }
 
     #[test]
-    fn non_polymorphic_function_has_static_polymorphic_field() {
+    fn non_polymorphic_function_has_no_polymorphic_flag() {
         let b = lookup("plot").expect("plot must exist");
         match b {
             Behavior::Function(f) => {
-                if let Some(beh) = f.behavior {
-                    assert!(!beh.polymorphic.is_polymorphic());
-                }
+                assert!(!f.flags.is_polymorphic(), "plot is not polymorphic");
             }
             other => panic!("expected Function, got {other:?}"),
         }
@@ -60,7 +62,9 @@ use super::*;
         assert!(snapshot.variable_count > 0);
         assert!(snapshot.constant_count > 0);
         assert!(snapshot.keyword_count > 0);
-        assert!(snapshot.function_behavior_count > 0);
+        assert!(snapshot.type_count > 0);
+        assert!(snapshot.annotation_count > 0);
+        assert!(snapshot.polymorphic_function_count > 0);
     }
 
     #[test]
@@ -96,21 +100,6 @@ use super::*;
                 .iter()
                 .all(|entry| entry.kind == BehaviorKind::Function)
         );
-    }
-
-    #[test]
-    fn behavior_kind_catalog_reports_all_kinds() {
-        let kinds = kind_catalog();
-        assert_eq!(
-            kinds.iter().map(|kind| kind.kind).collect::<Vec<_>>(),
-            vec![
-                BehaviorKind::Function,
-                BehaviorKind::Variable,
-                BehaviorKind::Constant,
-                BehaviorKind::Keyword
-            ]
-        );
-        assert!(kinds.iter().all(|kind| kind.count > 0));
     }
 
     #[test]
@@ -154,19 +143,63 @@ use super::*;
     }
 
     #[test]
-    fn unknown_polymorphism_strategy_is_not_inserted() {
-        let entry = RawBehaviorEntry {
-            polymorphic: PolymorphicField::Dynamic(PolymorphicDetail {
-                return_type_param: Some("source".to_string()),
-                strategy: Some("future-strategy".to_string()),
-                observed_mappings: HashMap::new(),
-                allowed_types: Vec::new(),
-            }),
-            argument_ordering: None,
-            observed_return_types: Vec::new(),
-            reason: None,
+    fn polymorphism_rule_maps_known_flag_values() {
+        let identity = FunctionFlags {
+            polymorphic: Some("input".to_string()),
+            ..FunctionFlags::default()
         };
-        assert_eq!(syntax_polymorphism_rule(&entry), None);
+        assert_eq!(
+            syntax_polymorphism_rule(&identity),
+            Some(PolymorphismRule::Identity)
+        );
+
+        let numeric = FunctionFlags {
+            polymorphic: Some("numeric".to_string()),
+            ..FunctionFlags::default()
+        };
+        assert_eq!(
+            syntax_polymorphism_rule(&numeric),
+            Some(PolymorphismRule::Numeric)
+        );
+
+        let element = FunctionFlags {
+            polymorphic: Some("element".to_string()),
+            ..FunctionFlags::default()
+        };
+        assert_eq!(
+            syntax_polymorphism_rule(&element),
+            Some(PolymorphismRule::CollectionElement)
+        );
+    }
+
+    // return-follows-source functions (ta.valuewhen, ta.change, ...) carry only
+    // `returnTypeParam` and no `polymorphic` flag; they map to Identity.
+    #[test]
+    fn return_type_param_only_maps_to_identity() {
+        let flags = FunctionFlags {
+            return_type_param: Some("source".to_string()),
+            ..FunctionFlags::default()
+        };
+        assert_eq!(
+            syntax_polymorphism_rule(&flags),
+            Some(PolymorphismRule::Identity)
+        );
+    }
+
+    // An unknown future `polymorphic` value must not install an inert rule.
+    #[test]
+    fn unknown_polymorphism_value_is_not_inserted() {
+        let flags = FunctionFlags {
+            polymorphic: Some("future-strategy".to_string()),
+            ..FunctionFlags::default()
+        };
+        assert_eq!(syntax_polymorphism_rule(&flags), None);
+    }
+
+    // Monomorphic functions install no polymorphism rule.
+    #[test]
+    fn monomorphic_function_has_no_rule() {
+        assert_eq!(syntax_polymorphism_rule(&FunctionFlags::default()), None);
     }
 
     #[test]
@@ -327,7 +360,7 @@ use super::*;
     }
 
     // `Behavior::is_polymorphic` must return true for a known poly function.
-    // `input` carries a Dynamic polymorphic field in function-behavior.json.
+    // `input` carries `polymorphic: "input"` in the functions.json flags.
     #[test]
     fn is_polymorphic_true_for_input() {
         let b = lookup("input").expect("input must exist");
@@ -349,4 +382,146 @@ use super::*;
     fn is_polymorphic_false_for_variable() {
         let b = lookup("close").expect("close must exist");
         assert!(!b.is_polymorphic(), "variables are never polymorphic");
+    }
+
+    // --- new upstream catalogs: types + annotations ---
+
+    // chart.point is an object type carrying index/time/price fields.
+    #[test]
+    fn type_lookup_carries_fields() {
+        let b = lookup("chart.point").expect("chart.point type must exist");
+        match b {
+            Behavior::Type(t) => {
+                assert_eq!(t.name, "chart.point");
+                assert_eq!(t.namespace.as_deref(), Some("chart"));
+                assert_eq!(t.classification, "object");
+                let field_names: Vec<&str> = t.fields.iter().map(|f| f.name.as_str()).collect();
+                assert!(field_names.contains(&"index"));
+                assert!(field_names.contains(&"time"));
+                assert!(field_names.contains(&"price"));
+            }
+            other => panic!("expected Type, got {other:?}"),
+        }
+    }
+
+    // Container type names (array / matrix / map) are not shadowed by a cast
+    // function, so a bare `lookup` resolves them to their Type entry. The
+    // primitive type names (int, float, ...) ARE shadowed by their cast
+    // functions, so they surface only via `--list --kind type` and search.
+    #[test]
+    fn container_type_lookup_works() {
+        let b = lookup("matrix").expect("matrix type must exist");
+        assert_eq!(b.kind(), BehaviorKind::Type);
+        if let Behavior::Type(t) = b {
+            assert_eq!(t.classification, "container");
+        }
+    }
+
+    // Primitive type names are reachable through the type listing even though a
+    // bare `lookup` resolves to the cast function of the same name.
+    #[test]
+    fn primitive_types_are_listable() {
+        let entries = list(Some("type"), None).expect("list");
+        assert!(
+            entries
+                .iter()
+                .any(|e| e.name == "int" && e.detail == "primitive"),
+            "int must appear in the type listing as a primitive"
+        );
+    }
+
+    // @version= is the canonical compiler annotation; lookup must surface it.
+    #[test]
+    fn annotation_lookup_works() {
+        let b = lookup("@version=").expect("@version= annotation must exist");
+        match b {
+            Behavior::Annotation(a) => {
+                assert_eq!(a.name, "@version=");
+                assert!(!a.description.is_empty());
+            }
+            other => panic!("expected Annotation, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn behavior_kind_catalog_includes_types_and_annotations() {
+        let kinds = kind_catalog();
+        assert_eq!(
+            kinds.iter().map(|kind| kind.kind).collect::<Vec<_>>(),
+            vec![
+                BehaviorKind::Function,
+                BehaviorKind::Variable,
+                BehaviorKind::Constant,
+                BehaviorKind::Keyword,
+                BehaviorKind::Type,
+                BehaviorKind::Annotation,
+            ]
+        );
+        assert!(kinds.iter().all(|kind| kind.count > 0));
+    }
+
+    #[test]
+    fn list_filters_to_annotation_kind() {
+        let entries = list(Some("annotation"), None).expect("list");
+        assert!(!entries.is_empty(), "expected annotation entries");
+        assert!(
+            entries
+                .iter()
+                .all(|entry| entry.kind == BehaviorKind::Annotation)
+        );
+        assert!(entries.iter().any(|entry| entry.name == "@param"));
+    }
+
+    // --- new upstream function richness ---
+
+    // request.quandl is the one deprecated function in the v6 reference.
+    #[test]
+    fn deprecated_function_carries_note() {
+        let b = lookup("request.quandl").expect("request.quandl must exist");
+        match b {
+            Behavior::Function(f) => {
+                assert!(
+                    f.deprecated.is_some(),
+                    "request.quandl must carry a deprecation note"
+                );
+            }
+            other => panic!("expected Function, got {other:?}"),
+        }
+    }
+
+    // Overloaded functions expose their per-overload signatures.
+    #[test]
+    fn input_exposes_overloads() {
+        let b = lookup("input").expect("input must exist");
+        match b {
+            Behavior::Function(f) => {
+                assert!(
+                    f.overloads.len() > 1,
+                    "input is overloaded across return types, got {}",
+                    f.overloads.len()
+                );
+            }
+            other => panic!("expected Function, got {other:?}"),
+        }
+    }
+
+    // Enumerated params expose their allowedValues set.
+    #[test]
+    fn enumerated_param_exposes_allowed_values() {
+        let b = lookup("input").expect("input must exist");
+        match b {
+            Behavior::Function(f) => {
+                let display = f
+                    .parameters
+                    .iter()
+                    .find(|p| p.name == "display")
+                    .expect("input has a display param");
+                assert!(
+                    display.allowed_values.iter().any(|v| v == "display.all"),
+                    "display param must enumerate display.all, got {:?}",
+                    display.allowed_values
+                );
+            }
+            other => panic!("expected Function, got {other:?}"),
+        }
     }

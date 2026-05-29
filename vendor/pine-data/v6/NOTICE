@@ -5,20 +5,32 @@ Source:  https://github.com/folknor/pine-tools, pine-data/v6/*.json
 License: MIT (folknor owns pine-tools)
 
 Files in this directory are point-in-time snapshots of pine-tools'
-data-pipeline output (`pnpm run scrape` plus `pnpm run discover:behavior`).
-They originate from crawling and parsing TradingView's published Pine v6
-documentation; trademarks belong to TradingView.
+data-pipeline output (`pnpm run scrape`). They originate from crawling and
+parsing TradingView's published Pine v6 documentation; trademarks belong to
+TradingView.
 
 Files:
-  - functions.json          (~457 entries) function signatures, params, returns, flags
-  - variables.json          (~90 entries)  built-in variables (close, high, time)
-  - constants.json          (~237 entries) constants (color.red, shape.circle)
-  - keywords.json           (~28 entries)  reserved keywords
-  - function-behavior.json  per-function polymorphism + argument-ordering markers
+  - functions.json    (475 entries) signatures, params, flags, overloads, examples
+  - variables.json    (161 entries) built-in variables (close, high, time)
+  - constants.json    (237 entries) constants (color.red, shape.circle)
+  - keywords.json      (28 entries)  reserved keywords
+  - types.json         (20 entries)  built-in types (chart.point, line, array, ...)
+  - annotations.json   (10 entries)  compiler annotations (@version=, @param, ...)
 
-Snapshot date: see git log for this directory's introducing commit and
-function-behavior.json's `generatedAt` field for the upstream generation
-timestamp.
+Schema notes:
+  - functions.json `flags` now carries the full polymorphism surface
+    (`polymorphic` = "input" | "element" | "numeric", plus `returnTypeParam`).
+    The previously-separate function-behavior.json was retired upstream when
+    polymorphism was consolidated into these flags; it is no longer vendored.
+  - Per-parameter `default`, `allowedValues`, `min`, and `max` and a top-level
+    `overloads[]` array (per-overload signatures) are newer fields; the binary
+    surfaces them in `po behavior` and BM25 search.
 
-Refresh procedure: re-run pine-tools' data pipeline, copy the resulting
-JSON files in, commit with a note about which scrape revision is current.
+Snapshot: pine-tools git ref 9f0c4ee, 2026-05-29. The JSON files are bare
+arrays with no embedded generation timestamp; the snapshot date above is baked
+into the binary as behavior::PINE_DATA_SNAPSHOT for `po version`.
+
+Refresh procedure: re-run pine-tools' data pipeline (`pnpm run scrape`), copy
+the resulting JSON files in, update the counts / snapshot ref above and the
+PINE_DATA_SNAPSHOT constant in src/behavior/core.rs, then commit with a note
+about which scrape revision is current.

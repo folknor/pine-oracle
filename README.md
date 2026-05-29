@@ -61,7 +61,7 @@ upstream. Top-level `NOTICE` consolidates the per-component attributions.
   pages (`vendor/pineforge-docs/pages/`), and the `scripts/verify_corpus.py`
   algorithm ported as `src/diff.rs`.
 - **folknor / pine-tools** (MIT) - the structured pine-data JSON exports
-  (functions, variables, constants, keywords, function-behavior) that
+  (functions, variables, constants, keywords, types, annotations) that
   back `po behavior` and fill gaps in piners-runtime's validation
   builtins. Same upstream that builds the VS Code Pine extension + LSP +
   MCP server.

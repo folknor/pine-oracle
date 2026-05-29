@@ -1,0 +1,73 @@
+[
+  {
+    "name": "@description",
+    "description": "Sets a custom description for scripts that use the library() declaration statement. The text provided with this annotation will be used to pre-fill the \"Description\" field in the publication dialogue.",
+    "examples": [
+      "//@version=6\n// @description Provides a tool to quickly output a label on the chart.\nlibrary(\"MyLibrary\")\n\n// @function Outputs a label with `labelText` on the bar's high.\n// @param labelText (series string) The text to display on the label.\n// @returns Drawn label.\nexport drawLabel(string labelText) =>\n    label.new(bar_index, high, text = labelText)"
+    ]
+  },
+  {
+    "name": "@enum",
+    "description": "If placed above an enum declaration, it adds a custom description for the enum. The Pine Editor's autosuggest uses this description and displays it when a user hovers over the enum name. When used in library scripts, the descriptions of all enums using the export keyword will pre-fill the \"Description\" field in the publication dialogue.",
+    "examples": [
+      "//@version=6\nindicator(\"Session highlight\", overlay = true)\n\n//@enum       Contains fields with popular timezones as titles.\n//@field exch Has an empty string as the title to represent the chart timezone.\nenum tz\n    utc  = \"UTC\"\n    exch = \"\"\n    ny   = \"America/New_York\"\n    chi  = \"America/Chicago\"\n    lon  = \"Europe/London\"\n    tok  = \"Asia/Tokyo\"\n\n//@variable The session string.\nselectedSession = input.session(\"1200-1500\", \"Session\")\n//@variable The selected timezone. The input's dropdown contains the fields in the `tz` enum.\nselectedTimezone = input.enum(tz.utc, \"Session Timezone\")\n\n//@variable Is `true` if the current bar's time is in the specified session.\nbool inSession = false\nif not na(time(\"\", selectedSession, str.tostring(selectedTimezone)))\n    inSession := true\n\n// Highlight the background when `inSession` is `true`.\nbgcolor(inSession ? color.new(color.green, 90) : na, title = \"Active session highlight\")"
+    ]
+  },
+  {
+    "name": "@field",
+    "description": "If placed above a type or enum declaration, it adds a custom description for a field of the type/enum. After the annotation, users should specify the field name, followed by its description.",
+    "examples": [
+      "//@version=6\nindicator(\"New high over the last 20 bars\", overlay = true)\n\n//@type A point on a chart.\n//@field index The index of the bar where the point is located, i.e., its `x` coordinate.\n//@field price The price where the point is located, i.e., its `y` coordinate.\ntype Point\n    int index\n    float price\n\n//@variable If the current `high` is the highest over the last 20 bars, returns a new `Point` instance, `na` otherwise.\nPoint highest = na\n\nif ta.highestbars(high, 20) == 0\n    highest := Point.new(bar_index, high)\n    label.new(highest.index, highest.price, str.tostring(highest.price))"
+    ]
+  },
+  {
+    "name": "@function",
+    "description": "If placed above a function declaration, it adds a custom description for the function.",
+    "examples": [
+      "//@version=6\n// @description Provides a tool to quickly output a label on the chart.\nlibrary(\"MyLibrary\")\n\n// @function Outputs a label with `labelText` on the bar's high.\n// @param labelText (series string) The text to display on the label.\n// @returns Drawn label.\nexport drawLabel(string labelText) =>\n    label.new(bar_index, high, text = labelText)"
+    ]
+  },
+  {
+    "name": "@param",
+    "description": "If placed above a function declaration, it adds a custom description for a function parameter. After the annotation, users should specify the parameter name, then its description.",
+    "examples": [
+      "//@version=6\n// @description Provides a tool to quickly output a label on the chart.\nlibrary(\"MyLibrary\")\n\n// @function Outputs a label with `labelText` on the bar's high.\n// @param labelText (series string) The text to display on the label.\n// @returns Drawn label.\nexport drawLabel(string labelText) =>\n    label.new(bar_index, high, text = labelText)"
+    ]
+  },
+  {
+    "name": "@returns",
+    "description": "If placed above a function declaration, it adds a custom description for what that function returns.",
+    "examples": [
+      "//@version=6\n// @description Provides a tool to quickly output a label on the chart.\nlibrary(\"MyLibrary\")\n\n// @function Outputs a label with `labelText` on the bar's high.\n// @param labelText (series string) The text to display on the label.\n// @returns Drawn label.\nexport drawLabel(string labelText) =>\n    label.new(bar_index, high, text = labelText)"
+    ]
+  },
+  {
+    "name": "@strategy_alert_message",
+    "description": "If used within a strategy() script, it provides a default message to pre-fill the \"Message\" field in the alert creation dialogue.",
+    "examples": [
+      "//@version=6\nstrategy(\"My strategy\", overlay=true, margin_long=100, margin_short=100)\n//@strategy_alert_message Strategy alert on symbol {{ticker}}\n\nlongCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))\nif (longCondition)\n    strategy.entry(\"My Long Entry Id\", strategy.long)\nstrategy.exit(\"Exit\", \"My Long Entry Id\", profit = 10 / syminfo.mintick, loss = 10 / syminfo.mintick)"
+    ]
+  },
+  {
+    "name": "@type",
+    "description": "If placed above a type declaration, it adds a custom description for the type.",
+    "examples": [
+      "//@version=6\nindicator(\"New high over the last 20 bars\", overlay = true)\n\n//@type A point on a chart.\n//@field index The index of the bar where the point is located, i.e., its `x` coordinate.\n//@field price The price where the point is located, i.e., its `y` coordinate.\ntype Point\n    int index\n    float price\n\n//@variable If the current `high` is the highest over the last 20 bars, returns a new `Point` instance, `na` otherwise.\nPoint highest = na\n\nif ta.highestbars(high, 20) == 0\n    highest := Point.new(bar_index, high)\n    label.new(highest.index, highest.price, str.tostring(highest.price))"
+    ]
+  },
+  {
+    "name": "@variable",
+    "description": "If placed above a variable declaration, it adds a custom description for the variable.",
+    "examples": [
+      "//@version=6\nindicator(\"New high over the last 20 bars\", overlay = true)\n\n//@type A point on a chart.\n//@field index The index of the bar where the point is located, i.e., its `x` coordinate.\n//@field price The price where the point is located, i.e., its `y` coordinate.\ntype Point\n    int index\n    float price\n\n//@variable If the current `high` is the highest over the last 20 bars, returns a new `Point` instance, `na` otherwise.\nPoint highest = na\n\nif ta.highestbars(high, 20) == 0\n    highest := Point.new(bar_index, high)\n    label.new(highest.index, highest.price, str.tostring(highest.price))"
+    ]
+  },
+  {
+    "name": "@version=",
+    "description": "Specifies the Pine Script® version that the script will use. The number in this annotation should not be confused with the script's version number, which updates on every saved change to the code.",
+    "examples": [
+      "//@version=6\nindicator(\"Pine v6 Indicator\")\nplot(close)",
+      "//This indicator has no version annotation, so it will try to use v1.\n//Pine Script® v1 has no function named `indicator()`, so the script will not compile.\nindicator(\"Pine v1 Indicator\")\nplot(close)"
+    ]
+  }
+]

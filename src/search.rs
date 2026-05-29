@@ -592,6 +592,36 @@ mod tests {
         );
     }
 
+    // The new pine-data type + annotation catalogs are indexed under the
+    // behavior kind (categories "Type" / "Annotation"). A name-token query for
+    // each must surface them.
+    #[test]
+    fn type_and_annotation_catalogs_appear_in_search() {
+        let type_hits = query("chart.point", 25, Some("behavior")).expect("search must succeed");
+        assert!(
+            type_hits
+                .iter()
+                .any(|h| h.category == "Type" && h.name == "chart.point"),
+            "expected a Type-category hit for chart.point, got {:?}",
+            type_hits
+                .iter()
+                .map(|h| (h.category.as_str(), h.name.as_str()))
+                .collect::<Vec<_>>()
+        );
+
+        let annotation_hits = query("version", 25, Some("behavior")).expect("search must succeed");
+        assert!(
+            annotation_hits
+                .iter()
+                .any(|h| h.category == "Annotation" && h.name == "@version="),
+            "expected an Annotation-category hit for @version=, got {:?}",
+            annotation_hits
+                .iter()
+                .map(|h| (h.category.as_str(), h.name.as_str()))
+                .collect::<Vec<_>>()
+        );
+    }
+
     // Bug-1 regression: heading immediately followed by a body line (no blank
     // line between) must not drop the first body line.
     #[test]

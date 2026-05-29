@@ -39,43 +39,43 @@
     "name": "backadjustment.inherit",
     "namespace": "backadjustment",
     "shortName": "inherit",
-    "type": "string"
+    "type": "backadjustment"
   },
   {
     "name": "backadjustment.off",
     "namespace": "backadjustment",
     "shortName": "off",
-    "type": "string"
+    "type": "backadjustment"
   },
   {
     "name": "backadjustment.on",
     "namespace": "backadjustment",
     "shortName": "on",
-    "type": "string"
+    "type": "backadjustment"
   },
   {
     "name": "barmerge.gaps_off",
     "namespace": "barmerge",
     "shortName": "gaps_off",
-    "type": "string"
+    "type": "barmerge_gaps"
   },
   {
     "name": "barmerge.gaps_on",
     "namespace": "barmerge",
     "shortName": "gaps_on",
-    "type": "string"
+    "type": "barmerge_gaps"
   },
   {
     "name": "barmerge.lookahead_off",
     "namespace": "barmerge",
     "shortName": "lookahead_off",
-    "type": "string"
+    "type": "barmerge_lookahead"
   },
   {
     "name": "barmerge.lookahead_on",
     "namespace": "barmerge",
     "shortName": "lookahead_on",
-    "type": "string"
+    "type": "barmerge_lookahead"
   },
   {
     "name": "color.aqua",
@@ -561,43 +561,43 @@
     "name": "display.all",
     "namespace": "display",
     "shortName": "all",
-    "type": "int"
+    "type": "plot_simple_display"
   },
   {
     "name": "display.data_window",
     "namespace": "display",
     "shortName": "data_window",
-    "type": "int"
+    "type": "plot_display"
   },
   {
     "name": "display.none",
     "namespace": "display",
     "shortName": "none",
-    "type": "int"
+    "type": "plot_simple_display"
   },
   {
     "name": "display.pane",
     "namespace": "display",
     "shortName": "pane",
-    "type": "int"
+    "type": "plot_display"
   },
   {
     "name": "display.pine_screener",
     "namespace": "display",
     "shortName": "pine_screener",
-    "type": "int"
+    "type": "plot_display"
   },
   {
     "name": "display.price_scale",
     "namespace": "display",
     "shortName": "price_scale",
-    "type": "int"
+    "type": "plot_display"
   },
   {
     "name": "display.status_line",
     "namespace": "display",
     "shortName": "status_line",
-    "type": "int"
+    "type": "plot_display"
   },
   {
     "name": "dividends.gross",
@@ -699,19 +699,19 @@
     "name": "hline.style_dashed",
     "namespace": "hline",
     "shortName": "style_dashed",
-    "type": "string"
+    "type": "hline_style"
   },
   {
     "name": "hline.style_dotted",
     "namespace": "hline",
     "shortName": "style_dotted",
-    "type": "string"
+    "type": "hline_style"
   },
   {
     "name": "hline.style_solid",
     "namespace": "hline",
     "shortName": "style_solid",
-    "type": "string"
+    "type": "hline_style"
   },
   {
     "name": "label.style_arrowdown",
@@ -933,97 +933,97 @@
     "name": "order.ascending",
     "namespace": "order",
     "shortName": "ascending",
-    "type": "string"
+    "type": "sort_order"
   },
   {
     "name": "order.descending",
     "namespace": "order",
     "shortName": "descending",
-    "type": "string"
+    "type": "sort_order"
   },
   {
     "name": "plot.linestyle_dashed",
     "namespace": "plot",
     "shortName": "linestyle_dashed",
-    "type": "string"
+    "type": "plot_line_style"
   },
   {
     "name": "plot.linestyle_dotted",
     "namespace": "plot",
     "shortName": "linestyle_dotted",
-    "type": "string"
+    "type": "plot_line_style"
   },
   {
     "name": "plot.linestyle_solid",
     "namespace": "plot",
     "shortName": "linestyle_solid",
-    "type": "string"
+    "type": "plot_line_style"
   },
   {
     "name": "plot.style_area",
     "namespace": "plot",
     "shortName": "style_area",
-    "type": "string"
+    "type": "plot_style"
   },
   {
     "name": "plot.style_areabr",
     "namespace": "plot",
     "shortName": "style_areabr",
-    "type": "string"
+    "type": "plot_style"
   },
   {
     "name": "plot.style_circles",
     "namespace": "plot",
     "shortName": "style_circles",
-    "type": "string"
+    "type": "plot_style"
   },
   {
     "name": "plot.style_columns",
     "namespace": "plot",
     "shortName": "style_columns",
-    "type": "string"
+    "type": "plot_style"
   },
   {
     "name": "plot.style_cross",
     "namespace": "plot",
     "shortName": "style_cross",
-    "type": "string"
+    "type": "plot_style"
   },
   {
     "name": "plot.style_histogram",
     "namespace": "plot",
     "shortName": "style_histogram",
-    "type": "string"
+    "type": "plot_style"
   },
   {
     "name": "plot.style_line",
     "namespace": "plot",
     "shortName": "style_line",
-    "type": "string"
+    "type": "plot_style"
   },
   {
     "name": "plot.style_linebr",
     "namespace": "plot",
     "shortName": "style_linebr",
-    "type": "string"
+    "type": "plot_style"
   },
   {
     "name": "plot.style_stepline",
     "namespace": "plot",
     "shortName": "style_stepline",
-    "type": "string"
+    "type": "plot_style"
   },
   {
     "name": "plot.style_stepline_diamond",
     "namespace": "plot",
     "shortName": "style_stepline_diamond",
-    "type": "string"
+    "type": "plot_style"
   },
   {
     "name": "plot.style_steplinebr",
     "namespace": "plot",
     "shortName": "style_steplinebr",
-    "type": "string"
+    "type": "plot_style"
   },
   {
     "name": "position.bottom_center",
@@ -1083,19 +1083,19 @@
     "name": "scale.left",
     "namespace": "scale",
     "shortName": "left",
-    "type": "string"
+    "type": "scale_type"
   },
   {
     "name": "scale.none",
     "namespace": "scale",
     "shortName": "none",
-    "type": "string"
+    "type": "scale_type"
   },
   {
     "name": "scale.right",
     "namespace": "scale",
     "shortName": "right",
-    "type": "string"
+    "type": "scale_type"
   },
   {
     "name": "session.extended",
@@ -1113,19 +1113,19 @@
     "name": "settlement_as_close.inherit",
     "namespace": "settlement_as_close",
     "shortName": "inherit",
-    "type": "string"
+    "type": "settlement"
   },
   {
     "name": "settlement_as_close.off",
     "namespace": "settlement_as_close",
     "shortName": "off",
-    "type": "string"
+    "type": "settlement"
   },
   {
     "name": "settlement_as_close.on",
     "namespace": "settlement_as_close",
     "shortName": "on",
-    "type": "string"
+    "type": "settlement"
   },
   {
     "name": "shape.arrowdown",
@@ -1299,7 +1299,7 @@
     "name": "strategy.long",
     "namespace": "strategy",
     "shortName": "long",
-    "type": "string"
+    "type": "strategy_direction"
   },
   {
     "name": "strategy.oca.cancel",
@@ -1329,7 +1329,7 @@
     "name": "strategy.short",
     "namespace": "strategy",
     "shortName": "short",
-    "type": "string"
+    "type": "strategy_direction"
   },
   {
     "name": "text.align_bottom",
@@ -1365,19 +1365,19 @@
     "name": "text.format_bold",
     "namespace": "text",
     "shortName": "format_bold",
-    "type": "string"
+    "type": "text_format"
   },
   {
     "name": "text.format_italic",
     "namespace": "text",
     "shortName": "format_italic",
-    "type": "string"
+    "type": "text_format"
   },
   {
     "name": "text.format_none",
     "namespace": "text",
     "shortName": "format_none",
-    "type": "string"
+    "type": "text_format"
   },
   {
     "name": "text.wrap_auto",

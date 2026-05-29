@@ -3,603 +3,1100 @@
     "name": "ask",
     "type": "series<float>",
     "qualifier": "series",
-    "description": "Built-in variable: ask"
+    "description": "The ask price at the time of the current tick, which represents the lowest price an active seller will accept for the instrument at its current value. This information is available only on the \"1T\" timeframe. On other timeframes, the variable's value is na."
   },
   {
     "name": "bar_index",
     "type": "series<int>",
     "qualifier": "series",
-    "description": "Built-in variable: bar_index"
+    "description": "Current bar index. Numbering is zero-based, index of the first bar is 0."
+  },
+  {
+    "name": "barstate.isconfirmed",
+    "namespace": "barstate",
+    "type": "series<bool>",
+    "qualifier": "series",
+    "description": "Returns true if the script is calculating the last (closing) update of the current bar. The next script calculation will be on the new bar data."
+  },
+  {
+    "name": "barstate.isfirst",
+    "namespace": "barstate",
+    "type": "series<bool>",
+    "qualifier": "series",
+    "description": "Returns true if current bar is first bar in barset, false otherwise."
+  },
+  {
+    "name": "barstate.ishistory",
+    "namespace": "barstate",
+    "type": "series<bool>",
+    "qualifier": "series",
+    "description": "Returns true if current bar is a historical bar, false otherwise."
+  },
+  {
+    "name": "barstate.islast",
+    "namespace": "barstate",
+    "type": "series<bool>",
+    "qualifier": "series",
+    "description": "Returns true if current bar is the last bar in barset, false otherwise. This condition is true for all real-time bars in barset."
+  },
+  {
+    "name": "barstate.islastconfirmedhistory",
+    "namespace": "barstate",
+    "type": "series<bool>",
+    "qualifier": "series",
+    "description": "Returns true if script is executing on the dataset's last bar when market is closed, or script is executing on the bar immediately preceding the real-time bar, if market is open. Returns false otherwise."
+  },
+  {
+    "name": "barstate.isnew",
+    "namespace": "barstate",
+    "type": "series<bool>",
+    "qualifier": "series",
+    "description": "Returns true if script is currently calculating on new bar, false otherwise. This variable is true when calculating on historical bars or on first update of a newly generated real-time bar."
+  },
+  {
+    "name": "barstate.isrealtime",
+    "namespace": "barstate",
+    "type": "series<bool>",
+    "qualifier": "series",
+    "description": "Returns true if current bar is a real-time bar, false otherwise."
   },
   {
     "name": "bid",
     "type": "series<float>",
     "qualifier": "series",
-    "description": "Built-in variable: bid"
+    "description": "The bid price at the time of the current tick, which represents the highest price an active buyer is willing to pay for the instrument at its current value. This information is available only on the \"1T\" timeframe. On other timeframes, the variable's value is na."
+  },
+  {
+    "name": "box.all",
+    "namespace": "box",
+    "type": "array<box>",
+    "qualifier": "series",
+    "description": "Returns an array filled with all the current boxes drawn by the script."
+  },
+  {
+    "name": "chart.bg_color",
+    "namespace": "chart",
+    "type": "input<color>",
+    "qualifier": "input",
+    "description": "Returns the color of the chart's background from the \"Chart settings/Appearance/Background\" field. When a gradient is selected, the middle point of the gradient is returned."
+  },
+  {
+    "name": "chart.fg_color",
+    "namespace": "chart",
+    "type": "input<color>",
+    "qualifier": "input",
+    "description": "Returns a color providing optimal contrast with chart.bg_color."
+  },
+  {
+    "name": "chart.is_heikinashi",
+    "namespace": "chart",
+    "type": "simple<bool>",
+    "qualifier": "simple",
+    "description": "Returns true if the chart type is Heikin Ashi, false otherwise."
+  },
+  {
+    "name": "chart.is_kagi",
+    "namespace": "chart",
+    "type": "simple<bool>",
+    "qualifier": "simple",
+    "description": "Returns true if the chart type is Kagi, false otherwise."
+  },
+  {
+    "name": "chart.is_linebreak",
+    "namespace": "chart",
+    "type": "simple<bool>",
+    "qualifier": "simple",
+    "description": "Returns true if the chart type is Line break, false otherwise."
+  },
+  {
+    "name": "chart.is_pnf",
+    "namespace": "chart",
+    "type": "simple<bool>",
+    "qualifier": "simple",
+    "description": "Returns true if the chart type is Point & figure, false otherwise."
+  },
+  {
+    "name": "chart.is_range",
+    "namespace": "chart",
+    "type": "simple<bool>",
+    "qualifier": "simple",
+    "description": "Returns true if the chart type is Range, false otherwise."
+  },
+  {
+    "name": "chart.is_renko",
+    "namespace": "chart",
+    "type": "simple<bool>",
+    "qualifier": "simple",
+    "description": "Returns true if the chart type is Renko, false otherwise."
+  },
+  {
+    "name": "chart.is_standard",
+    "namespace": "chart",
+    "type": "simple<bool>",
+    "qualifier": "simple",
+    "description": "Returns true if the chart type is not one of the following: Renko, Kagi, Line break, Point & figure, Range, Heikin Ashi; false otherwise."
+  },
+  {
+    "name": "chart.left_visible_bar_time",
+    "namespace": "chart",
+    "type": "input<int>",
+    "qualifier": "input",
+    "description": "The time of the leftmost bar currently visible on the chart."
+  },
+  {
+    "name": "chart.right_visible_bar_time",
+    "namespace": "chart",
+    "type": "input<int>",
+    "qualifier": "input",
+    "description": "The time of the rightmost bar currently visible on the chart."
   },
   {
     "name": "close",
     "type": "series<float>",
     "qualifier": "series",
-    "description": "Built-in variable: close"
+    "description": "Close price of the current bar when it has closed, or last traded price of a yet incomplete, realtime bar."
   },
   {
     "name": "dayofmonth",
     "type": "series<int>",
     "qualifier": "series",
-    "description": "Built-in variable: dayofmonth"
+    "description": "The day number of the month, in the exchange time zone, calculated from the bar's opening UNIX timestamp."
   },
   {
     "name": "dayofweek",
     "type": "series<int>",
     "qualifier": "series",
-    "description": "Built-in variable: dayofweek"
+    "description": "The day number of the week, in the exchange time zone, calculated from the bar's opening UNIX timestamp."
+  },
+  {
+    "name": "dividends.future_amount",
+    "namespace": "dividends",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "Returns the payment amount of the upcoming dividend in the currency of the current instrument, or na if this data isn't available."
+  },
+  {
+    "name": "dividends.future_ex_date",
+    "namespace": "dividends",
+    "type": "series<int>",
+    "qualifier": "series",
+    "description": "Returns the Ex-dividend date (Ex-date) of the current instrument's next dividend payment, or na if this data isn't available. Ex-dividend date signifies when investors are no longer entitled to a payout from the most recent dividend. Only those who purchased shares before this day are entitled to the dividend payment."
+  },
+  {
+    "name": "dividends.future_pay_date",
+    "namespace": "dividends",
+    "type": "series<int>",
+    "qualifier": "series",
+    "description": "Returns the Payment date (Pay date) of the current instrument's next dividend payment, or na if this data isn't available. Payment date signifies the day when eligible investors will receive the dividend payment."
+  },
+  {
+    "name": "earnings.future_eps",
+    "namespace": "earnings",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "Returns the estimated Earnings per Share of the next earnings report in the currency of the instrument, or na if this data isn't available."
+  },
+  {
+    "name": "earnings.future_period_end_time",
+    "namespace": "earnings",
+    "type": "series<int>",
+    "qualifier": "series",
+    "description": "Checks the data for the next earnings report and returns the UNIX timestamp of the day when the financial period covered by those earnings ends, or na if this data isn't available."
+  },
+  {
+    "name": "earnings.future_revenue",
+    "namespace": "earnings",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "Returns the estimated Revenue of the next earnings report in the currency of the instrument, or na if this data isn't available."
+  },
+  {
+    "name": "earnings.future_time",
+    "namespace": "earnings",
+    "type": "series<int>",
+    "qualifier": "series",
+    "description": "Returns a UNIX timestamp indicating the expected time of the next earnings report, or na if this data isn't available."
   },
   {
     "name": "high",
     "type": "series<float>",
     "qualifier": "series",
-    "description": "Built-in variable: high"
+    "description": "Current high price."
   },
   {
     "name": "hl2",
     "type": "series<float>",
     "qualifier": "series",
-    "description": "Built-in variable: hl2"
+    "description": "Is a shortcut for (high + low)/2"
   },
   {
     "name": "hlc3",
     "type": "series<float>",
     "qualifier": "series",
-    "description": "Built-in variable: hlc3"
+    "description": "Is a shortcut for (high + low + close)/3"
   },
   {
     "name": "hlcc4",
     "type": "series<float>",
     "qualifier": "series",
-    "description": "Built-in variable: hlcc4"
+    "description": "Is a shortcut for (high + low + close + close)/4"
   },
   {
     "name": "hour",
     "type": "series<int>",
     "qualifier": "series",
-    "description": "Built-in variable: hour"
+    "description": "Current bar hour in exchange timezone."
+  },
+  {
+    "name": "label.all",
+    "namespace": "label",
+    "type": "array<label>",
+    "qualifier": "series",
+    "description": "Returns an array filled with all the current labels drawn by the script."
   },
   {
     "name": "last_bar_index",
     "type": "series<int>",
     "qualifier": "series",
-    "description": "Built-in variable: last_bar_index"
+    "description": "Bar index of the last chart bar. Bar indices begin at zero on the first bar."
   },
   {
     "name": "last_bar_time",
     "type": "series<int>",
     "qualifier": "series",
-    "description": "Built-in variable: last_bar_time"
+    "description": "Time in UNIX format of the last chart bar. It is the number of milliseconds that have elapsed since 00:00:00 UTC, 1 January 1970."
+  },
+  {
+    "name": "line.all",
+    "namespace": "line",
+    "type": "array<line>",
+    "qualifier": "series",
+    "description": "Returns an array filled with all the current lines drawn by the script."
+  },
+  {
+    "name": "linefill.all",
+    "namespace": "linefill",
+    "type": "array<linefill>",
+    "qualifier": "series",
+    "description": "Returns an array filled with all the current linefill objects drawn by the script."
   },
   {
     "name": "low",
     "type": "series<float>",
     "qualifier": "series",
-    "description": "Built-in variable: low"
+    "description": "Current low price."
   },
   {
     "name": "minute",
     "type": "series<int>",
     "qualifier": "series",
-    "description": "Built-in variable: minute"
+    "description": "Current bar minute in exchange timezone."
   },
   {
     "name": "month",
     "type": "series<int>",
     "qualifier": "series",
-    "description": "Built-in variable: month"
+    "description": "Current bar month in exchange timezone."
   },
   {
     "name": "na",
-    "type": "const<na>",
-    "qualifier": "const",
-    "description": "Built-in variable: na"
+    "type": "simple<na>",
+    "qualifier": "simple",
+    "description": "A keyword signifying \"not available\", indicating that a variable has no assigned value."
   },
   {
     "name": "ohlc4",
     "type": "series<float>",
     "qualifier": "series",
-    "description": "Built-in variable: ohlc4"
+    "description": "Is a shortcut for (open + high + low + close)/4"
   },
   {
     "name": "open",
     "type": "series<float>",
     "qualifier": "series",
-    "description": "Built-in variable: open"
+    "description": "Current open price."
+  },
+  {
+    "name": "polyline.all",
+    "namespace": "polyline",
+    "type": "array<polyline>",
+    "qualifier": "series",
+    "description": "Returns an array containing all current polyline instances drawn by the script."
   },
   {
     "name": "second",
     "type": "series<int>",
     "qualifier": "series",
-    "description": "Built-in variable: second"
+    "description": "Current bar second in exchange timezone."
+  },
+  {
+    "name": "session.isfirstbar",
+    "namespace": "session",
+    "type": "series<bool>",
+    "qualifier": "series",
+    "description": "Returns true if the current bar is the first bar of the day's session, false otherwise. If extended session information is used, only returns true on the first bar of the pre-market bars."
+  },
+  {
+    "name": "session.isfirstbar_regular",
+    "namespace": "session",
+    "type": "series<bool>",
+    "qualifier": "series",
+    "description": "Returns true on the first regular session bar of the day, false otherwise. The result is the same whether extended session information is used or not."
+  },
+  {
+    "name": "session.islastbar",
+    "namespace": "session",
+    "type": "series<bool>",
+    "qualifier": "series",
+    "description": "Returns true if the current bar is the last bar of the day's session, false otherwise. If extended session information is used, only returns true on the last bar of the post-market bars."
+  },
+  {
+    "name": "session.islastbar_regular",
+    "namespace": "session",
+    "type": "series<bool>",
+    "qualifier": "series",
+    "description": "Returns true on the last regular session bar of the day, false otherwise. The result is the same whether extended session information is used or not."
+  },
+  {
+    "name": "session.ismarket",
+    "namespace": "session",
+    "type": "series<bool>",
+    "qualifier": "series",
+    "description": "Returns true if the current bar is a part of the regular trading hours (i.e. market hours), false otherwise."
+  },
+  {
+    "name": "session.ispostmarket",
+    "namespace": "session",
+    "type": "series<bool>",
+    "qualifier": "series",
+    "description": "Returns true if the current bar is a part of the post-market, false otherwise. On non-intraday charts always returns false."
+  },
+  {
+    "name": "session.ispremarket",
+    "namespace": "session",
+    "type": "series<bool>",
+    "qualifier": "series",
+    "description": "Returns true if the current bar is a part of the pre-market, false otherwise. On non-intraday charts always returns false."
+  },
+  {
+    "name": "strategy.account_currency",
+    "namespace": "strategy",
+    "type": "simple<string>",
+    "qualifier": "simple",
+    "description": "Returns the currency used to calculate results, which can be set in the strategy's properties."
+  },
+  {
+    "name": "strategy.avg_losing_trade",
+    "namespace": "strategy",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "Returns the average amount of money lost per losing trade. Calculated as the sum of losses divided by the number of losing trades."
+  },
+  {
+    "name": "strategy.avg_losing_trade_percent",
+    "namespace": "strategy",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "Returns the average percentage loss per losing trade. Calculated as the sum of loss percentages divided by the number of losing trades."
+  },
+  {
+    "name": "strategy.avg_trade",
+    "namespace": "strategy",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "Returns the average amount of money gained or lost per trade. Calculated as the sum of all profits and losses divided by the number of closed trades."
+  },
+  {
+    "name": "strategy.avg_trade_percent",
+    "namespace": "strategy",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "Returns the average percentage gain or loss per trade. Calculated as the sum of all profit and loss percentages divided by the number of closed trades."
+  },
+  {
+    "name": "strategy.avg_winning_trade",
+    "namespace": "strategy",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "Returns the average amount of money gained per winning trade. Calculated as the sum of profits divided by the number of winning trades."
+  },
+  {
+    "name": "strategy.avg_winning_trade_percent",
+    "namespace": "strategy",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "Returns the average percentage gain per winning trade. Calculated as the sum of profit percentages divided by the number of winning trades."
+  },
+  {
+    "name": "strategy.closedtrades",
+    "namespace": "strategy",
+    "type": "series<int>",
+    "qualifier": "series",
+    "description": "Number of trades, which were closed for the whole trading range."
+  },
+  {
+    "name": "strategy.closedtrades.first_index",
+    "namespace": "strategy",
+    "type": "series<int>",
+    "qualifier": "series",
+    "description": "The index, or trade number, of the first (oldest) trade listed in the List of Trades. This number is usually zero. If more trades than the allowed limit have been closed, the oldest trades are removed, and this number is the index of the oldest remaining trade."
+  },
+  {
+    "name": "strategy.equity",
+    "namespace": "strategy",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "Current equity (strategy.initial_capital + strategy.netprofit + strategy.openprofit)."
+  },
+  {
+    "name": "strategy.eventrades",
+    "namespace": "strategy",
+    "type": "series<int>",
+    "qualifier": "series",
+    "description": "Number of breakeven trades for the whole trading range."
+  },
+  {
+    "name": "strategy.grossloss",
+    "namespace": "strategy",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "Total currency value of all completed losing trades."
+  },
+  {
+    "name": "strategy.grossloss_percent",
+    "namespace": "strategy",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "The total value of all completed losing trades, expressed as a percentage of the initial capital."
+  },
+  {
+    "name": "strategy.grossprofit",
+    "namespace": "strategy",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "Total currency value of all completed winning trades."
+  },
+  {
+    "name": "strategy.grossprofit_percent",
+    "namespace": "strategy",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "The total currency value of all completed winning trades, expressed as a percentage of the initial capital."
+  },
+  {
+    "name": "strategy.initial_capital",
+    "namespace": "strategy",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "The amount of initial capital set in the strategy properties."
+  },
+  {
+    "name": "strategy.losstrades",
+    "namespace": "strategy",
+    "type": "series<int>",
+    "qualifier": "series",
+    "description": "Number of unprofitable trades for the whole trading range."
+  },
+  {
+    "name": "strategy.margin_liquidation_price",
+    "namespace": "strategy",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "When margin is used in a strategy, returns the price point where a simulated margin call will occur and liquidate enough of the position to meet the margin requirements."
+  },
+  {
+    "name": "strategy.max_contracts_held_all",
+    "namespace": "strategy",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "Maximum number of contracts/shares/lots/units in one trade for the whole trading range."
+  },
+  {
+    "name": "strategy.max_contracts_held_long",
+    "namespace": "strategy",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "Maximum number of contracts/shares/lots/units in one long trade for the whole trading range."
+  },
+  {
+    "name": "strategy.max_contracts_held_short",
+    "namespace": "strategy",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "Maximum number of contracts/shares/lots/units in one short trade for the whole trading range."
+  },
+  {
+    "name": "strategy.max_drawdown",
+    "namespace": "strategy",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "Maximum equity drawdown value for the whole trading range."
+  },
+  {
+    "name": "strategy.max_drawdown_percent",
+    "namespace": "strategy",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "The maximum equity drawdown value for the whole trading range, expressed as a percentage and calculated by formula: Lowest Value During Trade / (Entry Price x Quantity) * 100."
+  },
+  {
+    "name": "strategy.max_runup",
+    "namespace": "strategy",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "Maximum equity run-up value for the whole trading range."
+  },
+  {
+    "name": "strategy.max_runup_percent",
+    "namespace": "strategy",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "The maximum equity run-up value for the whole trading range, expressed as a percentage and calculated by formula: Highest Value During Trade / (Entry Price x Quantity) * 100."
+  },
+  {
+    "name": "strategy.netprofit",
+    "namespace": "strategy",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "Total currency value of all completed trades."
+  },
+  {
+    "name": "strategy.netprofit_percent",
+    "namespace": "strategy",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "The total value of all completed trades, expressed as a percentage of the initial capital."
+  },
+  {
+    "name": "strategy.openprofit",
+    "namespace": "strategy",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "Current unrealized profit or loss for all open positions."
+  },
+  {
+    "name": "strategy.openprofit_percent",
+    "namespace": "strategy",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "The current unrealized profit or loss for all open positions, expressed as a percentage and calculated by formula: openPL / realizedEquity * 100."
+  },
+  {
+    "name": "strategy.opentrades",
+    "namespace": "strategy",
+    "type": "series<int>",
+    "qualifier": "series",
+    "description": "Number of market position entries, which were not closed and remain opened. If there is no open market position, 0 is returned."
+  },
+  {
+    "name": "strategy.opentrades.capital_held",
+    "namespace": "strategy",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "Returns the capital amount currently held by open trades."
+  },
+  {
+    "name": "strategy.position_avg_price",
+    "namespace": "strategy",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "Average entry price of current market position. If the market position is flat, 'NaN' is returned."
+  },
+  {
+    "name": "strategy.position_entry_name",
+    "namespace": "strategy",
+    "type": "series<string>",
+    "qualifier": "series",
+    "description": "Name of the order that initially opened current market position."
+  },
+  {
+    "name": "strategy.position_size",
+    "namespace": "strategy",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "Direction and size of the current market position. If the value is > 0, the market position is long. If the value is < 0, the market position is short. The absolute value is the number of contracts/shares/lots/units in trade (position size)."
+  },
+  {
+    "name": "strategy.wintrades",
+    "namespace": "strategy",
+    "type": "series<int>",
+    "qualifier": "series",
+    "description": "Number of profitable trades for the whole trading range."
+  },
+  {
+    "name": "syminfo.basecurrency",
+    "namespace": "syminfo",
+    "type": "simple<string>",
+    "qualifier": "simple",
+    "description": "Returns a string containing the code representing the symbol's base currency (i.e., the traded currency or coin) if the instrument is a Forex or Crypto pair or a derivative based on such a pair. Otherwise, it returns an empty string. For example, this variable returns \"EUR\" for \"EURJPY\", \"BTC\" for \"BTCUSDT\", \"CAD\" for \"CME:6C1!\", and \"\" for \"NASDAQ:AAPL\"."
+  },
+  {
+    "name": "syminfo.country",
+    "namespace": "syminfo",
+    "type": "simple<string>",
+    "qualifier": "simple",
+    "description": "Returns the two-letter code of the country where the symbol is traded, in the ISO 3166-1 alpha-2 format, or na if the exchange is not directly tied to a specific country. For example, on \"NASDAQ:AAPL\" it will return \"US\", on \"LSE:AAPL\" it will return \"GB\", and on \"BITSTAMP:BTCUSD it will return na."
+  },
+  {
+    "name": "syminfo.currency",
+    "namespace": "syminfo",
+    "type": "simple<string>",
+    "qualifier": "simple",
+    "description": "Returns a string containing the code representing the currency of the symbol's prices. For example, this variable returns \"USD\" for \"NASDAQ:AAPL\" and \"JPY\" for \"EURJPY\"."
+  },
+  {
+    "name": "syminfo.current_contract",
+    "namespace": "syminfo",
+    "type": "simple<string>",
+    "qualifier": "simple",
+    "description": "The ticker identifier of the underlying contract, if the current symbol is a continuous futures contract; na otherwise."
+  },
+  {
+    "name": "syminfo.description",
+    "namespace": "syminfo",
+    "type": "simple<string>",
+    "qualifier": "simple",
+    "description": "Description for the current symbol."
+  },
+  {
+    "name": "syminfo.employees",
+    "namespace": "syminfo",
+    "type": "simple<int>",
+    "qualifier": "simple",
+    "description": "The number of employees the company has."
+  },
+  {
+    "name": "syminfo.expiration_date",
+    "namespace": "syminfo",
+    "type": "simple<int>",
+    "qualifier": "simple",
+    "description": "A UNIX timestamp representing the start of the last day of the current futures contract. This variable is only compatible with non-continuous futures symbols. On other symbols, it returns na."
+  },
+  {
+    "name": "syminfo.industry",
+    "namespace": "syminfo",
+    "type": "simple<string>",
+    "qualifier": "simple",
+    "description": "Returns the industry of the symbol, or na if the symbol has no industry. Example: \"Internet Software/Services\", \"Packaged software\", \"Integrated Oil\", \"Motor Vehicles\", etc. These are the same values one can see in the chart's \"Symbol info\" window."
+  },
+  {
+    "name": "syminfo.isin",
+    "namespace": "syminfo",
+    "type": "simple<string>",
+    "qualifier": "simple",
+    "description": "Holds a string representing a symbol's associated International Securities Identification Number (ISIN), or an empty string if there is no ISIN information available for the symbol. An ISIN is a 12-character alphanumeric code that uniquely identifies a security globally. Unlike ticker symbols, which can vary across exchanges, the ISIN for a security is consistent across exchanges. As such, programmers can use the ISIN to identify an underlying financial instrument, regardless of the exchange or the symbol name listed by an exchange."
+  },
+  {
+    "name": "syminfo.main_tickerid",
+    "namespace": "syminfo",
+    "type": "simple<string>",
+    "qualifier": "simple",
+    "description": "A ticker identifier representing the current chart's symbol. The value contains an exchange prefix and a symbol name, separated by a colon (e.g., \"NASDAQ:AAPL\"). It can also include information about data modifications such as dividend adjustment, non-standard chart type, currency conversion, etc. Unlike syminfo.tickerid, this variable's value does not change when used in the expression argument of a request.*() function call."
+  },
+  {
+    "name": "syminfo.mincontract",
+    "namespace": "syminfo",
+    "type": "simple<float>",
+    "qualifier": "simple",
+    "description": "The smallest amount of the current symbol that can be traded. This limit is set by the exchange. For cryptocurrencies, it is often less than 1 token. For most other types of asset, it is often 1."
+  },
+  {
+    "name": "syminfo.minmove",
+    "namespace": "syminfo",
+    "type": "simple<int>",
+    "qualifier": "simple",
+    "description": "Returns a whole number used to calculate the smallest increment between a symbol's price movements (syminfo.mintick). It is the numerator in the syminfo.mintick formula: syminfo.minmove / syminfo.pricescale = syminfo.mintick."
+  },
+  {
+    "name": "syminfo.mintick",
+    "namespace": "syminfo",
+    "type": "simple<float>",
+    "qualifier": "simple",
+    "description": "Min tick value for the current symbol."
+  },
+  {
+    "name": "syminfo.pointvalue",
+    "namespace": "syminfo",
+    "type": "simple<float>",
+    "qualifier": "simple",
+    "description": "The chart price of a security multiplied by the point value equals the actual price of the traded security."
+  },
+  {
+    "name": "syminfo.prefix",
+    "namespace": "syminfo",
+    "type": "simple<string>",
+    "qualifier": "simple",
+    "description": "Prefix of current symbol name (i.e. for 'CME_EOD:TICKER' prefix is 'CME_EOD')."
+  },
+  {
+    "name": "syminfo.pricescale",
+    "namespace": "syminfo",
+    "type": "simple<int>",
+    "qualifier": "simple",
+    "description": "Returns a whole number used to calculate the smallest increment between a symbol's price movements (syminfo.mintick). It is the denominator in the syminfo.mintick formula: syminfo.minmove / syminfo.pricescale = syminfo.mintick."
+  },
+  {
+    "name": "syminfo.recommendations_buy",
+    "namespace": "syminfo",
+    "type": "series<int>",
+    "qualifier": "series",
+    "description": "The number of analysts who gave the current symbol a \"Buy\" rating."
+  },
+  {
+    "name": "syminfo.recommendations_buy_strong",
+    "namespace": "syminfo",
+    "type": "series<int>",
+    "qualifier": "series",
+    "description": "The number of analysts who gave the current symbol a \"Strong Buy\" rating."
+  },
+  {
+    "name": "syminfo.recommendations_date",
+    "namespace": "syminfo",
+    "type": "series<int>",
+    "qualifier": "series",
+    "description": "The starting date of the last set of recommendations for the current symbol."
+  },
+  {
+    "name": "syminfo.recommendations_hold",
+    "namespace": "syminfo",
+    "type": "series<int>",
+    "qualifier": "series",
+    "description": "The number of analysts who gave the current symbol a \"Hold\" rating."
+  },
+  {
+    "name": "syminfo.recommendations_sell",
+    "namespace": "syminfo",
+    "type": "series<int>",
+    "qualifier": "series",
+    "description": "The number of analysts who gave the current symbol a \"Sell\" rating."
+  },
+  {
+    "name": "syminfo.recommendations_sell_strong",
+    "namespace": "syminfo",
+    "type": "series<int>",
+    "qualifier": "series",
+    "description": "The number of analysts who gave the current symbol a \"Strong Sell\" rating."
+  },
+  {
+    "name": "syminfo.recommendations_total",
+    "namespace": "syminfo",
+    "type": "series<int>",
+    "qualifier": "series",
+    "description": "The total number of recommendations for the current symbol."
+  },
+  {
+    "name": "syminfo.root",
+    "namespace": "syminfo",
+    "type": "simple<string>",
+    "qualifier": "simple",
+    "description": "Root for derivatives like futures contract. For other symbols returns the same value as syminfo.ticker."
+  },
+  {
+    "name": "syminfo.sector",
+    "namespace": "syminfo",
+    "type": "simple<string>",
+    "qualifier": "simple",
+    "description": "Returns the sector of the symbol, or na if the symbol has no sector. Example: \"Electronic Technology\", \"Technology services\", \"Energy Minerals\", \"Consumer Durables\", etc. These are the same values one can see in the chart's \"Symbol info\" window."
+  },
+  {
+    "name": "syminfo.session",
+    "namespace": "syminfo",
+    "type": "simple<string>",
+    "qualifier": "simple",
+    "description": "Session type of the chart main series. Possible values are session.regular, session.extended."
+  },
+  {
+    "name": "syminfo.shareholders",
+    "namespace": "syminfo",
+    "type": "simple<int>",
+    "qualifier": "simple",
+    "description": "The number of shareholders the company has."
+  },
+  {
+    "name": "syminfo.shares_outstanding_float",
+    "namespace": "syminfo",
+    "type": "simple<float>",
+    "qualifier": "simple",
+    "description": "The total number of shares outstanding a company has available, excluding any of its restricted shares."
+  },
+  {
+    "name": "syminfo.shares_outstanding_total",
+    "namespace": "syminfo",
+    "type": "simple<int>",
+    "qualifier": "simple",
+    "description": "The total number of shares outstanding a company has available, including restricted shares held by insiders, major shareholders, and employees."
+  },
+  {
+    "name": "syminfo.target_price_average",
+    "namespace": "syminfo",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "The average of the last yearly price targets for the symbol predicted by analysts."
+  },
+  {
+    "name": "syminfo.target_price_date",
+    "namespace": "syminfo",
+    "type": "series<int>",
+    "qualifier": "series",
+    "description": "The starting date of the last price target prediction for the current symbol."
+  },
+  {
+    "name": "syminfo.target_price_estimates",
+    "namespace": "syminfo",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "The latest total number of price target predictions for the current symbol."
+  },
+  {
+    "name": "syminfo.target_price_high",
+    "namespace": "syminfo",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "The last highest yearly price target for the symbol predicted by analysts."
+  },
+  {
+    "name": "syminfo.target_price_low",
+    "namespace": "syminfo",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "The last lowest yearly price target for the symbol predicted by analysts."
+  },
+  {
+    "name": "syminfo.target_price_median",
+    "namespace": "syminfo",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "The median of the last yearly price targets for the symbol predicted by analysts."
+  },
+  {
+    "name": "syminfo.ticker",
+    "namespace": "syminfo",
+    "type": "simple<string>",
+    "qualifier": "simple",
+    "description": "Symbol name without exchange prefix, e.g. 'MSFT'."
+  },
+  {
+    "name": "syminfo.tickerid",
+    "namespace": "syminfo",
+    "type": "simple<string>",
+    "qualifier": "simple",
+    "description": "A ticker identifier representing the chart's symbol or a requested symbol, depending on how the script uses it. The variable's value represents a requested dataset's ticker ID when used in the expression argument of a request.*() function call. Otherwise, it represents the chart's ticker ID. The value contains an exchange prefix and a symbol name, separated by a colon (e.g., \"NASDAQ:AAPL\"). It can also include information about data modifications such as dividend adjustment, non-standard chart type, currency conversion, etc."
+  },
+  {
+    "name": "syminfo.timezone",
+    "namespace": "syminfo",
+    "type": "simple<string>",
+    "qualifier": "simple",
+    "description": "Timezone of the exchange of the chart main series. Possible values see in timestamp()."
+  },
+  {
+    "name": "syminfo.type",
+    "namespace": "syminfo",
+    "type": "simple<string>",
+    "qualifier": "simple",
+    "description": "The type of market the symbol belongs to. The values are \"stock\", \"fund\", \"dr\", \"right\", \"bond\", \"warrant\", \"structured\", \"index\", \"forex\", \"futures\", \"spread\", \"economic\", \"fundamental\", \"crypto\", \"spot\", \"swap\", \"option\", \"commodity\"."
+  },
+  {
+    "name": "syminfo.volumetype",
+    "namespace": "syminfo",
+    "type": "simple<string>",
+    "qualifier": "simple",
+    "description": "Volume type of the current symbol. Possible values are: \"base\" for base currency, \"quote\" for quote currency, \"tick\" for the number of transactions, and \"n/a\" when there is no volume or its type is not specified."
+  },
+  {
+    "name": "ta.accdist",
+    "namespace": "ta",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "Accumulation/distribution index."
+  },
+  {
+    "name": "ta.iii",
+    "namespace": "ta",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "Intraday Intensity Index."
+  },
+  {
+    "name": "ta.nvi",
+    "namespace": "ta",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "Negative Volume Index."
+  },
+  {
+    "name": "ta.obv",
+    "namespace": "ta",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "On Balance Volume."
+  },
+  {
+    "name": "ta.pvi",
+    "namespace": "ta",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "Positive Volume Index."
+  },
+  {
+    "name": "ta.pvt",
+    "namespace": "ta",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "Price-Volume Trend."
+  },
+  {
+    "name": "ta.tr",
+    "namespace": "ta",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "True range, equivalent to ta.tr(handle_na = false). It is calculated as math.max(high - low, math.abs(high - close[1]), math.abs(low - close[1]))."
+  },
+  {
+    "name": "ta.vwap",
+    "namespace": "ta",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "Volume Weighted Average Price. It uses hlc3 as its source series."
+  },
+  {
+    "name": "ta.wad",
+    "namespace": "ta",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "Williams Accumulation/Distribution."
+  },
+  {
+    "name": "ta.wvad",
+    "namespace": "ta",
+    "type": "series<float>",
+    "qualifier": "series",
+    "description": "Williams Variable Accumulation/Distribution."
+  },
+  {
+    "name": "table.all",
+    "namespace": "table",
+    "type": "array<table>",
+    "qualifier": "series",
+    "description": "Returns an array filled with all the current tables drawn by the script."
   },
   {
     "name": "time",
     "type": "series<int>",
     "qualifier": "series",
-    "description": "Built-in variable: time"
+    "description": "Current bar time in UNIX format. It is the number of milliseconds that have elapsed since 00:00:00 UTC, 1 January 1970."
   },
   {
     "name": "time_close",
     "type": "series<int>",
     "qualifier": "series",
-    "description": "Built-in variable: time_close"
+    "description": "The time of the current bar's close in UNIX format. It represents the number of milliseconds elapsed since 00:00:00 UTC, 1 January 1970. On tick charts and price-based charts such as Renko, line break, Kagi, point & figure, and range, this variable's series holds an na timestamp for the latest realtime bar (because the future closing time is unpredictable), but valid timestamps for all previous bars."
   },
   {
     "name": "time_tradingday",
     "type": "series<int>",
     "qualifier": "series",
-    "description": "Built-in variable: time_tradingday"
+    "description": "The timestamp that represents 00:00 UTC of the trading day the current bar belongs to, in UNIX format (the number of milliseconds that have elapsed since 00:00:00 UTC, 1 January 1970)."
+  },
+  {
+    "name": "timeframe.isdaily",
+    "namespace": "timeframe",
+    "type": "simple<bool>",
+    "qualifier": "simple",
+    "description": "Returns true if current resolution is a daily resolution, false otherwise."
+  },
+  {
+    "name": "timeframe.isdwm",
+    "namespace": "timeframe",
+    "type": "simple<bool>",
+    "qualifier": "simple",
+    "description": "Returns true if current resolution is a daily or weekly or monthly resolution, false otherwise."
+  },
+  {
+    "name": "timeframe.isintraday",
+    "namespace": "timeframe",
+    "type": "simple<bool>",
+    "qualifier": "simple",
+    "description": "Returns true if current resolution is an intraday (minutes or seconds) resolution, false otherwise."
+  },
+  {
+    "name": "timeframe.isminutes",
+    "namespace": "timeframe",
+    "type": "simple<bool>",
+    "qualifier": "simple",
+    "description": "Returns true if current resolution is a minutes resolution, false otherwise."
+  },
+  {
+    "name": "timeframe.ismonthly",
+    "namespace": "timeframe",
+    "type": "simple<bool>",
+    "qualifier": "simple",
+    "description": "Returns true if current resolution is a monthly resolution, false otherwise."
+  },
+  {
+    "name": "timeframe.isseconds",
+    "namespace": "timeframe",
+    "type": "simple<bool>",
+    "qualifier": "simple",
+    "description": "Returns true if current resolution is a seconds resolution, false otherwise."
+  },
+  {
+    "name": "timeframe.isticks",
+    "namespace": "timeframe",
+    "type": "simple<bool>",
+    "qualifier": "simple",
+    "description": "Returns true if current resolution is a ticks resolution, false otherwise."
+  },
+  {
+    "name": "timeframe.isweekly",
+    "namespace": "timeframe",
+    "type": "simple<bool>",
+    "qualifier": "simple",
+    "description": "Returns true if current resolution is a weekly resolution, false otherwise."
+  },
+  {
+    "name": "timeframe.main_period",
+    "namespace": "timeframe",
+    "type": "simple<string>",
+    "qualifier": "simple",
+    "description": "A string representation of the script's main timeframe. If the script is an indicator() that specifies a timeframe value in its declaration statement, this variable holds that value. Otherwise, its value represents the chart's timeframe. Unlike timeframe.period, this variable's value does not change when used in the expression argument of a request.*() function call."
+  },
+  {
+    "name": "timeframe.multiplier",
+    "namespace": "timeframe",
+    "type": "simple<int>",
+    "qualifier": "simple",
+    "description": "Multiplier of resolution, e.g. '60' - 60, 'D' - 1, '5D' - 5, '12M' - 12."
+  },
+  {
+    "name": "timeframe.period",
+    "namespace": "timeframe",
+    "type": "simple<string>",
+    "qualifier": "simple",
+    "description": "A string representation of the script's main timeframe or a requested timeframe, depending on how the script uses it. The variable's value represents the timeframe of a requested dataset when used in the expression argument of a request.*() function call. Otherwise, its value represents the script's main timeframe (timeframe.main_period), which equals either the timeframe argument of the indicator() declaration statement or the chart's timeframe."
   },
   {
     "name": "timenow",
     "type": "series<int>",
     "qualifier": "series",
-    "description": "Built-in variable: timenow"
+    "description": "Current time in UNIX format. It is the number of milliseconds that have elapsed since 00:00:00 UTC, 1 January 1970."
   },
   {
     "name": "volume",
     "type": "series<float>",
     "qualifier": "series",
-    "description": "Built-in variable: volume"
+    "description": "Current bar volume."
   },
   {
     "name": "weekofyear",
     "type": "series<int>",
     "qualifier": "series",
-    "description": "Built-in variable: weekofyear"
+    "description": "The week number of the year, in the exchange time zone, calculated from the bar's opening UNIX timestamp."
   },
   {
     "name": "year",
     "type": "series<int>",
     "qualifier": "series",
-    "description": "Built-in variable: year"
-  },
-  {
-    "name": "syminfo.tickerid",
-    "type": "simple<string>",
-    "qualifier": "simple",
-    "description": "Ticker ID with exchange prefix",
-    "namespace": "syminfo"
-  },
-  {
-    "name": "syminfo.ticker",
-    "type": "simple<string>",
-    "qualifier": "simple",
-    "description": "Ticker symbol without exchange",
-    "namespace": "syminfo"
-  },
-  {
-    "name": "syminfo.prefix",
-    "type": "simple<string>",
-    "qualifier": "simple",
-    "description": "Exchange prefix",
-    "namespace": "syminfo"
-  },
-  {
-    "name": "syminfo.type",
-    "type": "simple<string>",
-    "qualifier": "simple",
-    "description": "Symbol type (stock, forex, crypto, etc.)",
-    "namespace": "syminfo"
-  },
-  {
-    "name": "syminfo.session",
-    "type": "simple<string>",
-    "qualifier": "simple",
-    "description": "Session type",
-    "namespace": "syminfo"
-  },
-  {
-    "name": "syminfo.timezone",
-    "type": "simple<string>",
-    "qualifier": "simple",
-    "description": "Timezone",
-    "namespace": "syminfo"
-  },
-  {
-    "name": "syminfo.currency",
-    "type": "simple<string>",
-    "qualifier": "simple",
-    "description": "Currency",
-    "namespace": "syminfo"
-  },
-  {
-    "name": "syminfo.basecurrency",
-    "type": "simple<string>",
-    "qualifier": "simple",
-    "description": "Base currency",
-    "namespace": "syminfo"
-  },
-  {
-    "name": "syminfo.description",
-    "type": "simple<string>",
-    "qualifier": "simple",
-    "description": "Symbol description",
-    "namespace": "syminfo"
-  },
-  {
-    "name": "syminfo.mintick",
-    "type": "simple<float>",
-    "qualifier": "simple",
-    "description": "Minimum tick size",
-    "namespace": "syminfo"
-  },
-  {
-    "name": "syminfo.pointvalue",
-    "type": "simple<float>",
-    "qualifier": "simple",
-    "description": "Point value",
-    "namespace": "syminfo"
-  },
-  {
-    "name": "syminfo.country",
-    "type": "simple<string>",
-    "qualifier": "simple",
-    "description": "Country code of the symbol",
-    "namespace": "syminfo"
-  },
-  {
-    "name": "syminfo.industry",
-    "type": "simple<string>",
-    "qualifier": "simple",
-    "description": "Industry of the symbol",
-    "namespace": "syminfo"
-  },
-  {
-    "name": "syminfo.root",
-    "type": "simple<string>",
-    "qualifier": "simple",
-    "description": "Root symbol",
-    "namespace": "syminfo"
-  },
-  {
-    "name": "barstate.isfirst",
-    "type": "series<bool>",
-    "qualifier": "series",
-    "description": "True on first bar",
-    "namespace": "barstate"
-  },
-  {
-    "name": "barstate.islast",
-    "type": "series<bool>",
-    "qualifier": "series",
-    "description": "True on last bar",
-    "namespace": "barstate"
-  },
-  {
-    "name": "barstate.ishistory",
-    "type": "series<bool>",
-    "qualifier": "series",
-    "description": "True on historical bars",
-    "namespace": "barstate"
-  },
-  {
-    "name": "barstate.isrealtime",
-    "type": "series<bool>",
-    "qualifier": "series",
-    "description": "True on realtime bars",
-    "namespace": "barstate"
-  },
-  {
-    "name": "barstate.isnew",
-    "type": "series<bool>",
-    "qualifier": "series",
-    "description": "True on new bar",
-    "namespace": "barstate"
-  },
-  {
-    "name": "barstate.isconfirmed",
-    "type": "series<bool>",
-    "qualifier": "series",
-    "description": "True when bar is confirmed",
-    "namespace": "barstate"
-  },
-  {
-    "name": "barstate.islastconfirmedhistory",
-    "type": "series<bool>",
-    "qualifier": "series",
-    "description": "True on last confirmed historical bar",
-    "namespace": "barstate"
-  },
-  {
-    "name": "timeframe.period",
-    "type": "simple<string>",
-    "qualifier": "simple",
-    "description": "Timeframe period string",
-    "namespace": "timeframe"
-  },
-  {
-    "name": "timeframe.multiplier",
-    "type": "simple<int>",
-    "qualifier": "simple",
-    "description": "Timeframe multiplier",
-    "namespace": "timeframe"
-  },
-  {
-    "name": "timeframe.isseconds",
-    "type": "simple<bool>",
-    "qualifier": "simple",
-    "description": "True if seconds timeframe",
-    "namespace": "timeframe"
-  },
-  {
-    "name": "timeframe.isminutes",
-    "type": "simple<bool>",
-    "qualifier": "simple",
-    "description": "True if minutes timeframe",
-    "namespace": "timeframe"
-  },
-  {
-    "name": "timeframe.isdaily",
-    "type": "simple<bool>",
-    "qualifier": "simple",
-    "description": "True if daily timeframe",
-    "namespace": "timeframe"
-  },
-  {
-    "name": "timeframe.isweekly",
-    "type": "simple<bool>",
-    "qualifier": "simple",
-    "description": "True if weekly timeframe",
-    "namespace": "timeframe"
-  },
-  {
-    "name": "timeframe.ismonthly",
-    "type": "simple<bool>",
-    "qualifier": "simple",
-    "description": "True if monthly timeframe",
-    "namespace": "timeframe"
-  },
-  {
-    "name": "timeframe.isdwm",
-    "type": "simple<bool>",
-    "qualifier": "simple",
-    "description": "True if daily/weekly/monthly",
-    "namespace": "timeframe"
-  },
-  {
-    "name": "timeframe.isintraday",
-    "type": "simple<bool>",
-    "qualifier": "simple",
-    "description": "True if intraday timeframe",
-    "namespace": "timeframe"
-  },
-  {
-    "name": "timeframe.isticks",
-    "type": "simple<bool>",
-    "qualifier": "simple",
-    "description": "True if ticks timeframe",
-    "namespace": "timeframe"
-  },
-  {
-    "name": "timeframe.main_period",
-    "type": "simple<string>",
-    "qualifier": "simple",
-    "description": "Main period of the chart timeframe",
-    "namespace": "timeframe"
-  },
-  {
-    "name": "chart.bg_color",
-    "type": "color",
-    "qualifier": "simple",
-    "description": "Chart background color",
-    "namespace": "chart"
-  },
-  {
-    "name": "chart.fg_color",
-    "type": "color",
-    "qualifier": "simple",
-    "description": "Chart foreground color",
-    "namespace": "chart"
-  },
-  {
-    "name": "chart.is_standard",
-    "type": "simple<bool>",
-    "qualifier": "simple",
-    "description": "True if standard chart",
-    "namespace": "chart"
-  },
-  {
-    "name": "chart.is_heikinashi",
-    "type": "simple<bool>",
-    "qualifier": "simple",
-    "description": "True if Heikin Ashi chart",
-    "namespace": "chart"
-  },
-  {
-    "name": "chart.is_renko",
-    "type": "simple<bool>",
-    "qualifier": "simple",
-    "description": "True if Renko chart",
-    "namespace": "chart"
-  },
-  {
-    "name": "chart.is_kagi",
-    "type": "simple<bool>",
-    "qualifier": "simple",
-    "description": "True if Kagi chart",
-    "namespace": "chart"
-  },
-  {
-    "name": "chart.is_linebreak",
-    "type": "simple<bool>",
-    "qualifier": "simple",
-    "description": "True if Line Break chart",
-    "namespace": "chart"
-  },
-  {
-    "name": "chart.is_pnf",
-    "type": "simple<bool>",
-    "qualifier": "simple",
-    "description": "True if Point & Figure chart",
-    "namespace": "chart"
-  },
-  {
-    "name": "chart.is_range",
-    "type": "simple<bool>",
-    "qualifier": "simple",
-    "description": "True if Range chart",
-    "namespace": "chart"
-  },
-  {
-    "name": "chart.left_visible_bar_time",
-    "type": "series<int>",
-    "qualifier": "series",
-    "description": "Time of leftmost visible bar",
-    "namespace": "chart"
-  },
-  {
-    "name": "chart.right_visible_bar_time",
-    "type": "series<int>",
-    "qualifier": "series",
-    "description": "Time of rightmost visible bar",
-    "namespace": "chart"
-  },
-  {
-    "name": "session.ismarket",
-    "type": "series<bool>",
-    "qualifier": "series",
-    "description": "True during market session",
-    "namespace": "session"
-  },
-  {
-    "name": "session.ispremarket",
-    "type": "series<bool>",
-    "qualifier": "series",
-    "description": "True during pre-market",
-    "namespace": "session"
-  },
-  {
-    "name": "session.ispostmarket",
-    "type": "series<bool>",
-    "qualifier": "series",
-    "description": "True during post-market",
-    "namespace": "session"
-  },
-  {
-    "name": "session.isfirstbar",
-    "type": "series<bool>",
-    "qualifier": "series",
-    "description": "True on first bar of session",
-    "namespace": "session"
-  },
-  {
-    "name": "session.isfirstbar_regular",
-    "type": "series<bool>",
-    "qualifier": "series",
-    "description": "True on first bar of regular session",
-    "namespace": "session"
-  },
-  {
-    "name": "strategy.position_size",
-    "type": "series<float>",
-    "qualifier": "series",
-    "description": "Current position size",
-    "namespace": "strategy"
-  },
-  {
-    "name": "strategy.position_avg_price",
-    "type": "series<float>",
-    "qualifier": "series",
-    "description": "Average position price",
-    "namespace": "strategy"
-  },
-  {
-    "name": "strategy.equity",
-    "type": "series<float>",
-    "qualifier": "series",
-    "description": "Current equity",
-    "namespace": "strategy"
-  },
-  {
-    "name": "strategy.openprofit",
-    "type": "series<float>",
-    "qualifier": "series",
-    "description": "Open profit",
-    "namespace": "strategy"
-  },
-  {
-    "name": "strategy.netprofit",
-    "type": "series<float>",
-    "qualifier": "series",
-    "description": "Net profit",
-    "namespace": "strategy"
-  },
-  {
-    "name": "strategy.grossprofit",
-    "type": "series<float>",
-    "qualifier": "series",
-    "description": "Gross profit",
-    "namespace": "strategy"
-  },
-  {
-    "name": "strategy.grossloss",
-    "type": "series<float>",
-    "qualifier": "series",
-    "description": "Gross loss",
-    "namespace": "strategy"
-  },
-  {
-    "name": "strategy.closedtrades",
-    "type": "series<int>",
-    "qualifier": "series",
-    "description": "Number of closed trades",
-    "namespace": "strategy"
-  },
-  {
-    "name": "strategy.opentrades",
-    "type": "series<int>",
-    "qualifier": "series",
-    "description": "Number of open trades",
-    "namespace": "strategy"
-  },
-  {
-    "name": "strategy.wintrades",
-    "type": "series<int>",
-    "qualifier": "series",
-    "description": "Number of winning trades",
-    "namespace": "strategy"
-  },
-  {
-    "name": "strategy.losstrades",
-    "type": "series<int>",
-    "qualifier": "series",
-    "description": "Number of losing trades",
-    "namespace": "strategy"
-  },
-  {
-    "name": "strategy.initial_capital",
-    "type": "simple<float>",
-    "qualifier": "simple",
-    "description": "Initial capital",
-    "namespace": "strategy"
-  },
-  {
-    "name": "strategy.openprofit_percent",
-    "type": "series<float>",
-    "qualifier": "series",
-    "description": "Open profit as percentage",
-    "namespace": "strategy"
-  },
-  {
-    "name": "strategy.netprofit_percent",
-    "type": "series<float>",
-    "qualifier": "series",
-    "description": "Net profit as percentage",
-    "namespace": "strategy"
-  },
-  {
-    "name": "strategy.max_drawdown_percent",
-    "type": "series<float>",
-    "qualifier": "series",
-    "description": "Maximum drawdown as percentage",
-    "namespace": "strategy"
+    "description": "Current bar year in exchange timezone."
   }
 ]
