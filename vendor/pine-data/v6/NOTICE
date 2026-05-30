@@ -13,7 +13,7 @@ Files:
   - functions.json    (475 entries) signatures, params, flags, overloads, examples
   - variables.json    (161 entries) built-in variables (close, high, time)
   - constants.json    (237 entries) constants (color.red, shape.circle)
-  - keywords.json      (28 entries)  reserved keywords
+  - keywords.json      (28 entries)  reserved keywords (objects: description + prose sub-sections)
   - types.json         (20 entries)  built-in types (chart.point, line, array, ...)
   - annotations.json   (10 entries)  compiler annotations (@version=, @param, ...)
   - operators.json     (21 entries)  operators (+, -, ?:, [], +=, ...)
@@ -32,9 +32,11 @@ Schema notes:
     reference card straight from pine-data; the markdown reference vendor was
     retired once they landed.
 
-Snapshot: pine-tools scrape 2026-05-30. The JSON files are bare arrays with no
-embedded generation timestamp; the snapshot date above is baked into the binary
-as behavior::PINE_DATA_SNAPSHOT for `po version`.
+Snapshot: pine-tools scrape 2026-05-31 (keywords.json graduated from a bare
+string array to objects carrying description + remarks / seeAlso /
+returnsDescription). The JSON files are bare arrays with no embedded generation
+timestamp; the snapshot date above is baked into the binary as
+behavior::PINE_DATA_SNAPSHOT for `po version`.
 
 Refresh procedure: re-run pine-tools' data pipeline (`pnpm run scrape`), copy
 the resulting JSON files in, update the counts / snapshot ref above and the

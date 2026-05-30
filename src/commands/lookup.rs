@@ -236,6 +236,12 @@ fn print_behavior_text(b: &behavior::Behavior) {
         }
         behavior::Behavior::Keyword(k) => {
             println!("keyword {}", k.name);
+            if !k.description.is_empty() {
+                println!("  description: {}", k.description);
+            }
+            if let Some(prose) = &k.returns_description {
+                println!("  returns: {prose}");
+            }
             print_prose(&k.remarks, &k.see_also);
         }
         behavior::Behavior::Type(t) => {

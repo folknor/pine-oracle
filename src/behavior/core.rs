@@ -54,7 +54,7 @@ const OPERATORS_JSON: &str = include_str!("../../vendor/pine-data/v6/operators.j
 // removed function-behavior.json used to carry one). The snapshot ref/date is
 // baked here from the vendoring pass; see vendor/pine-data/v6/NOTICE.
 const PINE_DATA_VERSION: &str = "6";
-const PINE_DATA_SNAPSHOT: &str = "2026-05-30T23:51:00+02:00";
+const PINE_DATA_SNAPSHOT: &str = "2026-05-31T00:00:00+02:00";
 
 // ---------- raw types (mirror the JSON 1:1) ----------
 
@@ -284,6 +284,8 @@ impl RawKeywordEntry {
         match self {
             Self::Bare(name) => RawKeyword {
                 name,
+                description: String::new(),
+                returns_description: None,
                 remarks: None,
                 see_also: Vec::new(),
             },
@@ -295,6 +297,10 @@ impl RawKeywordEntry {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RawKeyword {
     pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(rename = "returnsDescription", default)]
+    pub returns_description: Option<String>,
     #[serde(default)]
     pub remarks: Option<String>,
     #[serde(rename = "seeAlso", default)]
@@ -387,6 +393,8 @@ pub struct ConstantBehavior {
 #[derive(Debug, Clone, Serialize)]
 pub struct KeywordBehavior {
     pub name: String,
+    pub description: String,
+    pub returns_description: Option<String>,
     pub remarks: Option<String>,
     pub see_also: Vec<String>,
 }
@@ -613,6 +621,8 @@ pub fn lookup(name: &str) -> Option<Behavior> {
     {
         return Some(Behavior::Keyword(KeywordBehavior {
             name: k.name.clone(),
+            description: k.description.clone(),
+            returns_description: k.returns_description.clone(),
             remarks: k.remarks.clone(),
             see_also: k.see_also.clone(),
         }));
@@ -1123,8 +1133,18 @@ fn annotation_search_content(annotation: &RawAnnotation) -> String {
 }
 
 fn keyword_search_content(keyword: &RawKeyword) -> String {
-    let mut parts = vec!["Reserved Pine keyword.".to_string()];
-    push_prose(&mut parts, &keyword.remarks, &[], &keyword.see_also);
+    let mut parts = Vec::new();
+    if keyword.description.is_empty() {
+        parts.push("Reserved Pine keyword.".to_string());
+    } else {
+        parts.push(keyword.description.clone());
+    }
+    push_prose(
+        &mut parts,
+        &keyword.remarks,
+        std::slice::from_ref(&keyword.returns_description),
+        &keyword.see_also,
+    );
     parts.join("\n")
 }
 

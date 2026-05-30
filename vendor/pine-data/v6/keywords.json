@@ -1,30 +1,141 @@
 [
-  "and",
-  "break",
-  "case",
-  "const",
-  "continue",
-  "default",
-  "do",
-  "else",
-  "enum",
-  "export",
-  "false",
-  "for",
-  "if",
-  "import",
-  "indicator",
-  "library",
-  "method",
-  "na",
-  "not",
-  "or",
-  "return",
-  "strategy",
-  "switch",
-  "true",
-  "type",
-  "var",
-  "varip",
-  "while"
+  {
+    "name": "and",
+    "description": "Logical AND. Applicable to boolean expressions.",
+    "returnsDescription": "Boolean value, or series of boolean values.",
+    "remarks": "If expr1 evaluates to false, the and operator returns false without evaluating expr2."
+  },
+  {
+    "name": "break"
+  },
+  {
+    "name": "case"
+  },
+  {
+    "name": "const"
+  },
+  {
+    "name": "continue"
+  },
+  {
+    "name": "default"
+  },
+  {
+    "name": "do"
+  },
+  {
+    "name": "else"
+  },
+  {
+    "name": "enum",
+    "description": "This keyword allows the creation of an enumeration, enum for short. Enums are unique constructs that hold groups of predefined constants."
+  },
+  {
+    "name": "export",
+    "description": "Used in libraries to prefix the declaration of functions or user-defined type definitions that will be available from other scripts importing the library.",
+    "remarks": "Each library must have at least one exported function or user-defined type (UDT).\nExported functions cannot use variables from the global scope if they are arrays, mutable variables (reassigned with :=), or variables of 'input' form.\nExported functions cannot use request.*() functions.\nExported functions must explicitly declare each parameter's type and all parameters must be used in the function's body. By default, all arguments passed to exported functions are of the series form, unless they are explicitly specified as simple in the function's signature.\nThe @description, @function, @param, @type, @field, and @returns compiler annotations are used to automatically generate the library's description and release notes, and in the Pine Script® Editor's tooltips.",
+    "seeAlso": [
+      "library",
+      "import",
+      "simple",
+      "series",
+      "type"
+    ]
+  },
+  {
+    "name": "false",
+    "description": "Literal representing a bool value, and result of a comparison operation.",
+    "remarks": "See the User Manual for comparison operators and logical operators.",
+    "seeAlso": [
+      "bool"
+    ]
+  },
+  {
+    "name": "for",
+    "description": "Creates a count-controlled loop, which uses a counter variable to manage the iterative executions of its local code block. The loop continues new iterations until the counter reaches a specified final value.",
+    "remarks": "Modifying a loop's to_num value during an iteration does not change the direction of the loop's counter. For a loop that counts upward, setting the to_num to a value less than the from_num value on an iteration stops the loop immediately after that iteration ends. Likewise, a loop that counts downward stops after an iteration where the to_num value becomes greater than the from_num value.\nIf a script initializes a variable declared with var or varip using a loop's result, the loop stops after the first iteration, even if the header's criteria allow more iterations. Instead of initializing the variable with the result of this structure directly, declare the variable first and use := to update it with the result. Alternatively, move the loop into a Declaring functions and initialize the variable using a call to that function.\nSee the Loops page of our User Manual to learn more about loops and how they work.",
+    "seeAlso": [
+      "for...in",
+      "while"
+    ]
+  },
+  {
+    "name": "if",
+    "description": "If statement defines what block of statements must be executed when conditions of the expression are satisfied."
+  },
+  {
+    "name": "import",
+    "description": "Used to load an external library() into a script and bind its functions to a namespace. The importing script can be an indicator, a strategy, or another library. A library must be published (privately or publicly) before it can be imported.",
+    "remarks": "Using an alias that replaces a built-in namespace such as math.* or strategy.* is allowed, but if the library contains function names that shadow Pine Script®'s built-in functions, the built-ins will become unavailable. The same version of a library can only be imported once. Aliases must be distinct for each imported library. When calling library functions, casting their arguments to types other than their declared type is not allowed. An import statement cannot use 'as' or 'import' as username, libraryName, or alias identifiers.",
+    "seeAlso": [
+      "library",
+      "export"
+    ]
+  },
+  {
+    "name": "indicator"
+  },
+  {
+    "name": "library"
+  },
+  {
+    "name": "method",
+    "description": "This keyword is used to prefix a function declaration, indicating it can then be invoked using dot notation by appending its name to a variable of the type of its first parameter and omitting that first parameter. Alternatively, functions declared as methods can also be invoked like normal user-defined functions. In that case, an argument must be supplied for its first parameter."
+  },
+  {
+    "name": "na"
+  },
+  {
+    "name": "not",
+    "description": "Logical negation (NOT). Applicable to boolean expressions.",
+    "returnsDescription": "Boolean value, or series of boolean values."
+  },
+  {
+    "name": "or",
+    "description": "Logical OR. Applicable to boolean expressions.",
+    "returnsDescription": "Boolean value, or series of boolean values.",
+    "remarks": "If expr1 evaluates to true, the or operator returns true without evaluating expr2."
+  },
+  {
+    "name": "return"
+  },
+  {
+    "name": "strategy"
+  },
+  {
+    "name": "switch",
+    "description": "The switch operator transfers control to one of the several statements, depending on the values of a condition and expressions.",
+    "returnsDescription": "The value of the last expression in the local block of statements that is executed.",
+    "remarks": "Only one of the local_block instances or the default_local_block can be executed. The default_local_block is introduced with the => token alone and is only executed when none of the preceding blocks are executed. If the result of the switch statement is assigned to a variable and a default_local_block is not specified, the statement returns na if no local_block is executed. When assigning the result of the switch statement to a variable, all local_block instances must return the same type of value.",
+    "seeAlso": [
+      "if",
+      "?:"
+    ]
+  },
+  {
+    "name": "true",
+    "description": "Literal representing one of the values a bool variable can hold, or an expression can evaluate to when it uses comparison or logical operators.",
+    "remarks": "See the User Manual for comparison operators and logical operators.",
+    "seeAlso": [
+      "bool"
+    ]
+  },
+  {
+    "name": "type",
+    "description": "This keyword allows the declaration of user-defined types (UDT) from which scripts can instantiate objects. UDTs are composite types that contain an arbitrary number of fields of any built-in or user-defined type, including the defined UDT itself. The syntax to define a UDT is:"
+  },
+  {
+    "name": "var",
+    "description": "var is the keyword used for assigning and one-time initializing of the variable."
+  },
+  {
+    "name": "varip",
+    "description": "varip (var intrabar persist) is the keyword used for the assignment and one-time initialization of a variable or a field of a user-defined type. It’s similar to the var keyword, but variables and fields declared with varip retain their values between executions of the script on the same bar.",
+    "remarks": "When using varip to declare variables in strategies that may execute more than once per historical chart bar, the values of such variables are preserved across successive iterations of the script on the same bar.\nThe effect of varip eliminates the rollback of variables before each successive execution of a script on the same bar."
+  },
+  {
+    "name": "while",
+    "description": "Creates a condition-controlled loop whose local code block executes repeatedly while the value of a conditional expression remains true. The loop's iterations end after the condition's value becomes false.",
+    "remarks": "If a script initializes a variable declared with var or varip using a loop's result, the loop stops after the first iteration, even if the header's criteria allow more iterations. Instead of initializing the variable with the result of this structure directly, declare the variable first and use := to update it with the result. Alternatively, move the loop into a Declaring functions and initialize the variable using a call to that function.\nSee the Loops page of our User Manual to learn more about loops and how they work."
+  }
 ]

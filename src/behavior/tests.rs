@@ -482,6 +482,28 @@ use super::*;
         assert_eq!(kws[1].see_also, vec!["if", "?:"]);
     }
 
+    // Against the real vendored keywords.json (now object-form), a keyword must
+    // surface its prose. `switch` carries description, remarks, see-also, and a
+    // returns sentence.
+    #[test]
+    fn keyword_carries_prose_from_vendored_data() {
+        let b = lookup("switch").expect("switch keyword must exist");
+        match b {
+            Behavior::Keyword(k) => {
+                assert_eq!(k.name, "switch");
+                assert!(!k.description.is_empty(), "switch has a description");
+                assert!(k.remarks.is_some(), "switch has remarks");
+                assert!(
+                    k.see_also.iter().any(|s| s == "if"),
+                    "switch see-also includes if; got {:?}",
+                    k.see_also
+                );
+                assert!(k.returns_description.is_some());
+            }
+            other => panic!("expected Keyword, got {other:?}"),
+        }
+    }
+
     // Operators are a first-class catalog now: lookup must resolve a symbol and
     // carry its prose sub-sections.
     #[test]
