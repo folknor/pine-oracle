@@ -1,7 +1,0 @@
-{
-  "ohlcv_start_ms": 1743379200000,
-  "validation_overrides": {
-    "expect_tv_match": true,
-    "expect_tv_match_reason": "varip-as-var sprint probe — counter increments per bar; ohlcv_start_ms aligns engine's first bar to TV chart visible range so every-50th-bar trades fire on same bars"
-  }
-}

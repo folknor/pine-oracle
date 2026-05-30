@@ -1,3 +1,0 @@
-//@version=6
-indicator("Smoke na output")
-plot(na)

@@ -1,4 +1,0 @@
-//@version=6
-indicator("Smoke titled outputs")
-plot(close, "Close Line")
-plotshape(close > open, "Up Shape")

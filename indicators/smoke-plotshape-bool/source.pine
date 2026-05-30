@@ -1,3 +1,0 @@
-//@version=6
-indicator("Smoke plotshape bool")
-plotshape(close > open)

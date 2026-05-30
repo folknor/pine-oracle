@@ -68,17 +68,12 @@ clap = { version = "4", features = ["derive"] }
 comrak = "0.52"
 include_dir = { version = "0.7", features = ["glob"] }
 piners-runtime = { path = "../piners/crates/piners-runtime" }
-piners-runner = { path = "../piners/crates/piners-runner" }
 piners-syntax = { path = "../piners/crates/piners-syntax" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
-csv = "1"
 tantivy = "0.26"
 ureq = { version = "3", default-features = false, features = ["rustls"] }
-
-[dev-dependencies]
-walkdir = "2"
 
 [profile.release]
 lto = "thin"

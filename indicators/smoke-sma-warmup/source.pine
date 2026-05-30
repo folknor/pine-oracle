@@ -1,3 +1,0 @@
-//@version=6
-indicator("Smoke SMA warmup")
-plot(ta.sma(close, 3))

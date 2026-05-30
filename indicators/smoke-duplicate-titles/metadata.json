@@ -1,5 +1,0 @@
-{
-  "baseline": "smoke",
-  "pine_version": "6.0.0",
-  "notes": "Deterministic smoke fixture for duplicate plot-title disambiguation. Not captured from TradingView."
-}

@@ -1,16 +1,13 @@
-// BM25 search across the vendored v6 reference, baked PineForge corpus,
-// PineForge docs, and structured pine-data behavior surface.
+// BM25 search across the vendored v6 reference, PineForge docs, and
+// structured pine-data behavior surface.
 //
 // The index is built lazily into a RAMDirectory on first query, cached via
-// OnceLock. The current corpus is a few thousand compact documents; build
-// cost stays in low milliseconds.
+// OnceLock. The index is a few thousand compact documents; build cost stays
+// in low milliseconds.
 //
 // Scoring: name field carries a 5x boost over content. A query like
 // "rsi" therefore puts `ta.rsi` ahead of any prose paragraph that
-// happens to mention RSI. Probes get indexed with their slug as `name` and
-// their author-extracted summary (or slug-as-fallback when no summary is
-// available) as `content`. A query like `po search oca` surfaces both
-// the reference's `oca_name=` parameter docs and the corpus's OCA probes.
+// happens to mention RSI.
 
 use anyhow::{Result, bail};
 use include_dir::{Dir, include_dir};
@@ -21,12 +18,11 @@ use tantivy::query::{BooleanQuery, BoostQuery, Query, QueryParser, TermQuery};
 use tantivy::schema::{Field, IndexRecordOption, STORED, STRING, Schema, TEXT};
 use tantivy::{Index, IndexReader, ReloadPolicy, TantivyDocument, Term};
 
-use crate::{behavior, corpus, reference, util::markdown};
+use crate::{behavior, reference, util::markdown};
 
 const AUDIT_MARKDOWN: &str = include_str!("../vendor/pineforge-docs/pine_v6_audit_master.md");
 static DOCS_PAGES: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/vendor/pineforge-docs/pages");
 const KIND_REFERENCE: &str = "reference";
-const KIND_PROBE: &str = "probe";
 const KIND_AUDIT: &str = "audit";
 const KIND_DOCS: &str = "docs";
 const KIND_BEHAVIOR: &str = "behavior";
@@ -46,13 +42,7 @@ const NAME_BOOST: f32 = 5.0;
 /// so a narrowed behavior search gets the raw BM25 signal; only the
 /// unfiltered mixed-kind ranking is adjusted.
 const BEHAVIOR_UNFILTERED_DAMPEN: f32 = 0.65;
-const SEARCH_KIND_NAMES: [&str; 5] = [
-    KIND_REFERENCE,
-    KIND_PROBE,
-    KIND_AUDIT,
-    KIND_DOCS,
-    KIND_BEHAVIOR,
-];
+const SEARCH_KIND_NAMES: [&str; 4] = [KIND_REFERENCE, KIND_AUDIT, KIND_DOCS, KIND_BEHAVIOR];
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SearchHit {
@@ -132,18 +122,7 @@ fn build() -> Result<Engine> {
         add_doc(&entry.name, &entry.category, KIND_REFERENCE, &entry.content)?;
     }
 
-    // Source 2: baked PineForge corpus probes (239 entries). Probes without
-    // an extractable header summary fall back to the slug as content so they
-    // remain discoverable by their slug tokens (`oca`, `multi`, `bracket`,
-    // ...). list_probes(None, None) is the same path `pine probes` uses.
-    if let Ok(probes) = corpus::list_probes(None, None) {
-        for p in probes {
-            let content = p.summary.unwrap_or(&p.slug);
-            add_doc(&p.slug, "Corpus", KIND_PROBE, content)?;
-        }
-    }
-
-    // Source 3: vendored PineForge audit doc. Each H2 / H3 section becomes
+    // Source 2: vendored PineForge audit doc. Each H2 / H3 section becomes
     // one doc so a query like `po search fallthrough` surfaces the exact
     // class of divergence the section discusses. Category="Audit",
     // kind="audit". The doc-level table-of-contents H2 ("Headline" etc.) is
@@ -154,7 +133,7 @@ fn build() -> Result<Engine> {
         add_doc(&title, "Audit", KIND_AUDIT, &body)?;
     }
 
-    // Source 4: vendored PineForge narrative pages. 18 markdown files
+    // Source 3: vendored PineForge narrative pages. 18 markdown files
     // covering Pine v6 concepts in depth (magnifier, mtf, timeframes,
     // lifecycle, report schema, examples, tutorials). Each H2 / H3 section
     // becomes one doc. Category="Docs", kind="docs".
@@ -162,7 +141,7 @@ fn build() -> Result<Engine> {
         add_doc(&title, "Docs", KIND_DOCS, &body)?;
     }
 
-    // Source 5: structured pine-data behavior exports. Exact lookup remains
+    // Source 4: structured pine-data behavior exports. Exact lookup remains
     // `po behavior <name>`; search indexes signatures, param prose,
     // examples, and polymorphism notes so users can discover a symbol when
     // they only remember a behavior or concept.
@@ -283,12 +262,6 @@ pub fn kind_catalog() -> Vec<SearchKindInfo> {
             category: "Reference",
             description: "TradingView v6 reference entries",
             count: reference::all_entries().len(),
-        },
-        SearchKindInfo {
-            kind: KIND_PROBE,
-            category: "Corpus",
-            description: "Baked PineForge validation probes",
-            count: corpus::list_probes(None, None).map_or(0, |items| items.len()),
         },
         SearchKindInfo {
             kind: KIND_AUDIT,
@@ -426,36 +399,6 @@ mod tests {
     }
 
     #[test]
-    fn corpus_probes_appear_in_search() {
-        // `oca` is a strong slug token across multiple corpus probes; it
-        // also appears in the v6 reference docs (function parameter
-        // `oca_name`), so we expect a mix of kinds.
-        let hits = query("oca", 25, None).expect("search must succeed");
-        assert!(!hits.is_empty());
-        assert!(
-            hits.iter().any(|h| h.kind == "probe"),
-            "at least one probe-kind hit expected for `oca`, got {:?}",
-            hits.iter()
-                .map(|h| (h.kind.as_str(), h.name.as_str()))
-                .collect::<Vec<_>>()
-        );
-    }
-
-    #[test]
-    fn probe_search_returns_corpus_category() {
-        let hits = query("anomaly", 25, None).expect("search must succeed");
-        let probe_hit = hits.iter().find(|h| h.kind == "probe");
-        assert!(
-            probe_hit.is_some(),
-            "expected at least one anomaly-related probe in search results, got {:?}",
-            hits.iter()
-                .map(|h| (h.kind.as_str(), h.name.as_str()))
-                .collect::<Vec<_>>()
-        );
-        assert_eq!(probe_hit.unwrap().category, "Corpus");
-    }
-
-    #[test]
     fn audit_sections_parse() {
         let s = parse_md_sections(AUDIT_MARKDOWN);
         // The audit doc has >= 18 H2/H3 sections (raw grep: 20). We use a
@@ -550,7 +493,7 @@ mod tests {
         let kinds = kind_catalog();
         assert_eq!(
             kinds.iter().map(|kind| kind.kind).collect::<Vec<_>>(),
-            vec!["reference", "probe", "audit", "docs", "behavior"]
+            vec!["reference", "audit", "docs", "behavior"]
         );
         assert!(kinds.iter().all(|kind| kind.count > 0));
     }
@@ -563,18 +506,15 @@ mod tests {
 
     #[test]
     fn kind_filter_can_deliver_full_limit_when_kind_is_sparse() {
-        // Pre-fix: `--kind probe --limit 25` over-fetched 100 hits, then
-        // post-filtered; if probes were <25% of the top 100 for a popular
-        // query the caller would silently get fewer than 25 hits.
-        // Post-fix: tantivy filters during retrieval so the limit is honored
-        // whenever the underlying index has enough matching docs.
-        let hits = query("strategy", 20, Some("probe")).expect("search must succeed");
+        // tantivy filters during retrieval so the limit is honored whenever
+        // the underlying index has enough matching docs of the requested kind.
+        let hits = query("function", 20, Some("reference")).expect("search must succeed");
         assert!(
             hits.len() >= 15,
-            "kind filter under-delivered: got {} probe hits for `strategy`, expected >=15",
+            "kind filter under-delivered: got {} reference hits for `function`, expected >=15",
             hits.len()
         );
-        assert!(hits.iter().all(|h| h.kind == "probe"));
+        assert!(hits.iter().all(|h| h.kind == "reference"));
     }
 
     #[test]

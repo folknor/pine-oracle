@@ -1,3 +1,0 @@
-//@version=6
-indicator("Smoke request.security current")
-plot(request.security("SMOKE:FIXTURE", "D", close))

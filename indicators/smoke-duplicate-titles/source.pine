@@ -1,4 +1,0 @@
-//@version=6
-indicator("Smoke duplicate titles")
-plot(close, "Signal")
-plot(open, "Signal")
