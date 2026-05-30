@@ -5,15 +5,15 @@
 //   - SCHEMA_VERSION + versioned_json + print_json: every JSON payload
 //     gets wrapped in the same `schema_version`-bearing envelope.
 //   - CATALOG_MARKER + is_catalog_request: unified sentinel check for
-//     `--kind ?`, `--baseline ?`, `--feature ?` catalog-listing requests.
-//   - print_catalog: unified JSON-vs-text + quiet dispatch for all four
-//     catalog surfaces (search kinds, behavior kinds, baselines, features).
+//     `--kind ?` catalog-listing requests.
+//   - print_catalog: unified JSON-vs-text + quiet dispatch for the
+//     catalog surfaces (search kinds, behavior kinds).
 
 use anyhow::Result;
 use serde::Serialize;
 
 /// JSON output schema version. Bumped on any breaking shape change to a
-/// subcommand's JSON output. Documented in `docs/pine-oracle.md`.
+/// subcommand's JSON output. Bump rules are documented in `README.md`.
 pub(crate) const SCHEMA_VERSION: u32 = 1;
 
 /// The sentinel value a user passes to request a catalog listing instead of
@@ -241,7 +241,7 @@ mod tests {
     #[test]
     fn schema_version_is_one() {
         // Hard-pin: bumping SCHEMA_VERSION requires updating this test AND
-        // the docs in docs/pine-oracle.md "Schema versioning" section.
+        // the schema-versioning note in `README.md`.
         assert_eq!(SCHEMA_VERSION, 1);
     }
 
