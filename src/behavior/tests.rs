@@ -482,6 +482,26 @@ use super::*;
         assert_eq!(kws[1].see_also, vec!["if", "?:"]);
     }
 
+    // Multi-catalog names must return every meaning via lookup_all, while
+    // lookup() still yields the single highest-precedence match.
+    #[test]
+    fn lookup_all_returns_every_catalog_match() {
+        // na is a function, a variable, AND a keyword.
+        let na = lookup_all("na");
+        let kinds: Vec<_> = na.iter().map(Behavior::kind).collect();
+        assert!(kinds.contains(&BehaviorKind::Function), "na fn: {kinds:?}");
+        assert!(kinds.contains(&BehaviorKind::Variable), "na var: {kinds:?}");
+        assert!(kinds.contains(&BehaviorKind::Keyword), "na kw: {kinds:?}");
+        assert_eq!(na.len(), 3, "na resolves in exactly 3 catalogs");
+
+        // time is a function + variable.
+        assert_eq!(lookup_all("time").len(), 2);
+        // single-catalog name resolves to exactly one.
+        assert_eq!(lookup_all("ta.sma").len(), 1);
+        // lookup() keeps first-hit precedence: function wins for na.
+        assert!(matches!(lookup("na"), Some(Behavior::Function(_))));
+    }
+
     // Against the real vendored keywords.json (now object-form), a keyword must
     // surface its prose. `switch` carries description, remarks, see-also, and a
     // returns sentence.

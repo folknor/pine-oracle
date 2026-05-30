@@ -14,7 +14,11 @@ use serde::Serialize;
 
 /// JSON output schema version. Bumped on any breaking shape change to a
 /// subcommand's JSON output. Bump rules are documented in `README.md`.
-pub(crate) const SCHEMA_VERSION: u32 = 1;
+///
+/// v2: `po lookup` JSON changed from a bare behavior object to
+/// `{query, exact, matches: [...]}` so multi-catalog names (e.g. `na`) can
+/// return every meaning.
+pub(crate) const SCHEMA_VERSION: u32 = 2;
 
 /// The sentinel value a user passes to request a catalog listing instead of
 /// a real filter. Every `--kind ?`, `--baseline ?`, `--feature ?` gate checks
@@ -239,10 +243,10 @@ mod tests {
     }
 
     #[test]
-    fn schema_version_is_one() {
+    fn schema_version_is_two() {
         // Hard-pin: bumping SCHEMA_VERSION requires updating this test AND
         // the schema-versioning note in `README.md`.
-        assert_eq!(SCHEMA_VERSION, 1);
+        assert_eq!(SCHEMA_VERSION, 2);
     }
 
     /// Pin the overwrite-wins behaviour: if the payload object already has a

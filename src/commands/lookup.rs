@@ -33,13 +33,28 @@ pub(crate) fn run(
         bail!("`po lookup` requires a name or `--list`");
     };
 
-    let Some(b) = behavior::lookup(name) else {
+    // A name can resolve in several catalogs at once (e.g. `na` is a function,
+    // a variable, and a keyword; `time` is a function and a variable). Render
+    // every meaning rather than silently picking one.
+    let matches = behavior::lookup_all(name);
+    if matches.is_empty() {
         return prefix_fallback(name, format, quiet);
-    };
+    }
 
     match format {
-        ResolvedFormat::Json => print_json(&b)?,
-        ResolvedFormat::Text => print_behavior_text(&b),
+        ResolvedFormat::Json => print_json(&serde_json::json!({
+            "query": name,
+            "exact": true,
+            "matches": matches,
+        }))?,
+        ResolvedFormat::Text => {
+            for (i, b) in matches.iter().enumerate() {
+                if i > 0 {
+                    println!();
+                }
+                print_behavior_text(b);
+            }
+        }
     }
     Ok(())
 }

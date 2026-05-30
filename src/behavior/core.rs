@@ -600,53 +600,48 @@ fn map_get_ci<'a, V>(map: &'a HashMap<String, V>, name: &str) -> Option<&'a V> {
         .map(|(_, v)| v)
 }
 
-/// First-hit lookup across functions, variables, constants, keywords, types,
-/// annotations. Case-insensitive: `lookup("CLOSE")` and `lookup("close")` both
-/// work.
-///
-/// Generic-placeholder fallback: pine-data stores generic constructor functions
-/// under names like `array.new<type>`, `matrix.new<type>`, `map.new<type,type>`.
-/// When an exact-name miss occurs, `lookup` probes the two conventional suffixes
-/// so that `lookup("array.new")` resolves to `array.new<type>`.
+/// First-hit lookup. Case-insensitive. Returns the highest-precedence catalog
+/// match (function > variable > constant > type > annotation > operator >
+/// keyword) - the single canonical entry. For names that live in several
+/// catalogs at once (e.g. `na`, `time`), use `lookup_all` to get every meaning.
 pub fn lookup(name: &str) -> Option<Behavior> {
-    let idx = index();
-    // Primary lookup: functions / variables / constants / types / annotations.
-    if let Some(result) = lookup_in(idx, name) {
-        return Some(result);
-    }
-    if let Some(k) = idx
-        .keywords
-        .iter()
-        .find(|k| k.name.eq_ignore_ascii_case(name))
-    {
-        return Some(Behavior::Keyword(KeywordBehavior {
-            name: k.name.clone(),
-            description: k.description.clone(),
-            returns_description: k.returns_description.clone(),
-            remarks: k.remarks.clone(),
-            see_also: k.see_also.clone(),
-        }));
-    }
-    // Generic-placeholder fallback: try conventional suffixes in decreasing
-    // specificity order. `map.new<type,type>` must be tried before `<type>`.
-    for suffix in &["<type,type>", "<type>"] {
-        let candidate = format!("{name}{suffix}");
-        if let Some(result) = lookup_in(idx, &candidate) {
-            return Some(result);
-        }
-    }
-    None
+    lookup_all(name).into_iter().next()
 }
 
-/// Inner lookup over a pre-fetched index: functions, variables, constants,
-/// types, annotations (not keywords, which require the caller to own the
-/// keyword name string).
-fn lookup_in(idx: &BehaviorIndex, name: &str) -> Option<Behavior> {
+/// Every catalog match for `name`, in precedence order. A name can resolve in
+/// more than one catalog: ~29 names collide (cast functions vs primitive types
+/// like `int`; variable/function pairs like `time`, `dayofmonth`; `na` is all
+/// of function, variable, and keyword). `po lookup` renders each.
+///
+/// Generic-placeholder fallback: pine-data stores generic constructors under
+/// names like `array.new<type>`, `map.new<type,type>`. On a total miss, the two
+/// conventional suffixes are probed so `lookup_all("array.new")` resolves.
+pub fn lookup_all(name: &str) -> Vec<Behavior> {
+    let idx = index();
+    let out = collect_matches(idx, name);
+    if !out.is_empty() {
+        return out;
+    }
+    for suffix in &["<type,type>", "<type>"] {
+        let candidate = format!("{name}{suffix}");
+        let extra = collect_matches(idx, &candidate);
+        if !extra.is_empty() {
+            return extra;
+        }
+    }
+    Vec::new()
+}
+
+/// Push every catalog match for `name` into a vec, in precedence order. Keyword
+/// is last so `lookup`'s first-hit precedence (function/type win over keyword,
+/// e.g. `int` -> cast function, `const` -> type) is preserved.
+fn collect_matches(idx: &BehaviorIndex, name: &str) -> Vec<Behavior> {
+    let mut out = Vec::new();
     if let Some(f) = map_get_ci(&idx.functions, name) {
-        return Some(Behavior::Function(function_behavior(f)));
+        out.push(Behavior::Function(function_behavior(f)));
     }
     if let Some(v) = map_get_ci(&idx.variables, name) {
-        return Some(Behavior::Variable(VariableBehavior {
+        out.push(Behavior::Variable(VariableBehavior {
             name: v.name.clone(),
             namespace: v.namespace.clone(),
             ty: v.ty.clone(),
@@ -658,7 +653,7 @@ fn lookup_in(idx: &BehaviorIndex, name: &str) -> Option<Behavior> {
         }));
     }
     if let Some(c) = map_get_ci(&idx.constants, name) {
-        return Some(Behavior::Constant(ConstantBehavior {
+        out.push(Behavior::Constant(ConstantBehavior {
             name: c.name.clone(),
             namespace: c.namespace.clone(),
             short_name: c.short_name.clone(),
@@ -669,7 +664,7 @@ fn lookup_in(idx: &BehaviorIndex, name: &str) -> Option<Behavior> {
         }));
     }
     if let Some(t) = map_get_ci(&idx.types, name) {
-        return Some(Behavior::Type(TypeBehavior {
+        out.push(Behavior::Type(TypeBehavior {
             name: t.name.clone(),
             namespace: t.namespace.clone(),
             classification: t.kind.clone(),
@@ -681,7 +676,7 @@ fn lookup_in(idx: &BehaviorIndex, name: &str) -> Option<Behavior> {
         }));
     }
     if let Some(a) = map_get_ci(&idx.annotations, name) {
-        return Some(Behavior::Annotation(AnnotationBehavior {
+        out.push(Behavior::Annotation(AnnotationBehavior {
             name: a.name.clone(),
             description: a.description.clone(),
             syntax: a.syntax.clone(),
@@ -691,7 +686,7 @@ fn lookup_in(idx: &BehaviorIndex, name: &str) -> Option<Behavior> {
         }));
     }
     if let Some(o) = map_get_ci(&idx.operators, name) {
-        return Some(Behavior::Operator(OperatorBehavior {
+        out.push(Behavior::Operator(OperatorBehavior {
             name: o.name.clone(),
             syntax: o.syntax.clone(),
             description: o.description.clone(),
@@ -701,7 +696,20 @@ fn lookup_in(idx: &BehaviorIndex, name: &str) -> Option<Behavior> {
             see_also: o.see_also.clone(),
         }));
     }
-    None
+    if let Some(k) = idx
+        .keywords
+        .iter()
+        .find(|k| k.name.eq_ignore_ascii_case(name))
+    {
+        out.push(Behavior::Keyword(KeywordBehavior {
+            name: k.name.clone(),
+            description: k.description.clone(),
+            returns_description: k.returns_description.clone(),
+            remarks: k.remarks.clone(),
+            see_also: k.see_also.clone(),
+        }));
+    }
+    out
 }
 
 fn function_behavior(f: &RawFunction) -> FunctionBehavior {
