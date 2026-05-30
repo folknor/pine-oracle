@@ -12,10 +12,10 @@ answers questions *about* Pine; it never executes user strategies.
 |---|---|
 | `po lookup <name>` | Describe an identifier: the structured pine-data signature (typed params with default / allowedValues / min / max, per-overload signatures, polymorphism + deprecation flags) joined with the v6 reference prose the structured surface lacks - per-argument descriptions, `Remarks`, and `See also`. Reference-only entries (e.g. Operators) fall back to verbatim prose; a partial name surfaces prefix matches |
 | `po lookup [TEXT] --list [--kind function\|variable\|constant\|keyword\|type\|annotation] [--grep TEXT]` | Browse the pine-data behavior catalog; list-mode `TEXT` acts as grep, `--kind` is case-insensitive, and `--kind ?` lists behavior kinds |
-| `po search <query> [--kind reference\|audit\|docs\|behavior]` | BM25 across the v6 reference, PineForge audit/doc pages, and structured pine-data behavior; `--kind` is case-insensitive, and `--kind ?` lists source kinds |
+| `po search <query> [--kind reference\|behavior]` | BM25 across the v6 reference and structured pine-data behavior - the two "name" sources. Search is the index into `po lookup`: reach for it when you don't yet know the identifier to look up. `--kind` is case-insensitive, and `--kind ?` lists source kinds |
 | `po validate <code-or-file>` / `--code CODE` / `--file PATH` / `-` | Local lex + parse + type + semantic diagnostics from piners-syntax, backed by piners-runtime builtins plus pine-data gap-fill; text diagnostics include source-line caret frames. Codes documented in `docs/diagnostics.md` |
 | `po validate --strict <code-or-file>` | POST to TradingView's pine-lint endpoint. Yes/no oracle; diagnostic prose is non-actionable |
-| `po version` | Binary version + bake counts and pinned snapshot metadata (reference, PineForge docs, pine-data) |
+| `po version` | Binary version + bake counts and pinned snapshot metadata (reference, pine-data) |
 
 All subcommands accept `--format json|text|auto`. JSON outputs carry
 `schema_version: 1`. Object payloads attach the version inline; arrays wrap
@@ -41,18 +41,14 @@ Binary lands as `po`. Rust 1.92+, edition 2024.
 ## License
 
 Mozilla Public License 2.0 - see `LICENSE`. Vendored sources retain their
-own licenses (Apache-2.0 for PineForge, MIT for pine-tools data, MPL-2.0 for
-Pinecone). Per-file `SPDX-License-Identifier` headers point back to each
-upstream. Top-level `NOTICE` consolidates the per-component attributions.
+own licenses (MIT for pine-tools data, MPL-2.0 for Pinecone). Per-file
+`SPDX-License-Identifier` headers point back to each upstream. Top-level
+`NOTICE` consolidates the per-component attributions.
 
 ## Acknowledgements
 
 - **Pinecone** (MPL-2.0) - the Pine v6 reference markdown snapshot
   (`vendor/pine-reference/spec/v6.md`).
-- **PineForge contributors** (Apache-2.0) - the Pine v6 audit doc
-  (`vendor/pineforge-docs/pine_v6_audit_master.md`, 38 critical + ~62
-  minor documented TV-vs-engine divergences) and the 18 narrative
-  explainer pages (`vendor/pineforge-docs/pages/`).
 - **folknor / pine-tools** (MIT) - the structured pine-data JSON exports
   (functions, variables, constants, keywords, types, annotations) that
   back `po lookup`'s structured signatures and fill gaps in

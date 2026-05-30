@@ -10,9 +10,8 @@ mod output;
 use output::{ResolvedFormat, Style, print_json};
 
 /// pine: Pine v6 oracle CLI. Answers semantic questions about Pine script
-/// across every Pine-adjacent project. Vendors the TradingView v6 reference,
-/// the PineForge audit + narrative docs, and the pine-data behavior surface;
-/// exposes them as one-shot subcommands.
+/// across every Pine-adjacent project. Vendors the TradingView v6 reference
+/// and the pine-data behavior surface; exposes them as one-shot subcommands.
 #[derive(Parser)]
 #[command(name = "pine", version, about = "Pine v6 oracle CLI", long_about = None)]
 struct Cli {
@@ -179,7 +178,7 @@ enum Command {
         grep: Option<String>,
     },
 
-    /// BM25 search across reference, docs, audit, and behavior data
+    /// BM25 search across the v6 reference and pine-data behavior
     Search {
         query: String,
         #[arg(long, default_value_t = 25)]
@@ -243,8 +242,6 @@ fn cmd_version(format: ResolvedFormat, quiet: bool) -> Result<()> {
     let binary = env!("CARGO_PKG_VERSION");
     let categories = reference::categories();
     let reference_entry_count = reference::all_entries().len();
-    let audit_sections = search::audit_section_count();
-    let docs_sections = search::docs_section_count();
     let behavior_docs = search::behavior_doc_count();
     let pine_data = behavior::snapshot();
     match format {
@@ -254,10 +251,6 @@ fn cmd_version(format: ResolvedFormat, quiet: bool) -> Result<()> {
                 "reference": {
                     "categories": categories,
                     "entry_count": reference_entry_count,
-                },
-                "pineforge_docs": {
-                    "audit_sections": audit_sections,
-                    "narrative_sections": docs_sections,
                 },
                 "behavior": {
                     "pine_data_version": pine_data.version,
@@ -282,9 +275,6 @@ fn cmd_version(format: ResolvedFormat, quiet: bool) -> Result<()> {
                 "v6 reference:   {reference_entry_count} entries across {} categories ({})",
                 categories.len(),
                 categories.join(", ")
-            );
-            println!(
-                "PineForge docs: {audit_sections} audit sections + {docs_sections} narrative sections"
             );
             println!(
                 "pine-data:      v{} generated {}",
@@ -398,8 +388,6 @@ mod tests {
         let binary = env!("CARGO_PKG_VERSION");
         let categories = reference::categories();
         let reference_entry_count = reference::all_entries().len();
-        let audit_sections = search::audit_section_count();
-        let docs_sections = search::docs_section_count();
         let behavior_docs = search::behavior_doc_count();
         let pine_data = behavior::snapshot();
 
@@ -408,10 +396,6 @@ mod tests {
             "reference": {
                 "categories": categories,
                 "entry_count": reference_entry_count,
-            },
-            "pineforge_docs": {
-                "audit_sections": audit_sections,
-                "narrative_sections": docs_sections,
             },
             "behavior": {
                 "pine_data_version": pine_data.version,
@@ -440,10 +424,6 @@ mod tests {
             "reference field must be an object"
         );
         assert!(
-            v["pineforge_docs"].is_object(),
-            "pineforge_docs field must be an object"
-        );
-        assert!(
             v["behavior"].is_object(),
             "behavior field must be an object"
         );
@@ -451,8 +431,6 @@ mod tests {
         // Spot-check nested fields so renames inside objects are caught too.
         assert!(v["reference"]["entry_count"].is_number());
         assert!(v["reference"]["categories"].is_array());
-        assert!(v["pineforge_docs"]["audit_sections"].is_number());
-        assert!(v["pineforge_docs"]["narrative_sections"].is_number());
         assert!(v["behavior"]["pine_data_version"].is_string());
         assert!(v["behavior"]["generated_at"].is_string());
         assert!(v["behavior"]["function_count"].is_number());
