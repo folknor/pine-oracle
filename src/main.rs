@@ -163,8 +163,21 @@ fn read_source_stdin() -> Result<String> {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Function / constant / variable details
-    Lookup { name: String },
+    /// Describe an identifier: structured signature (pine-data) joined with the
+    /// v6 reference prose (per-argument descriptions, remarks, see-also).
+    Lookup {
+        name: Option<String>,
+        /// List behavior catalog entries instead of looking up one name.
+        #[arg(long)]
+        list: bool,
+        /// Restrict `--list` to function, variable, constant, keyword, type,
+        /// or annotation. Pass `?` to list the catalog.
+        #[arg(long)]
+        kind: Option<String>,
+        /// Restrict `--list` entries by name, namespace, or detail text.
+        #[arg(long)]
+        grep: Option<String>,
+    },
 
     /// BM25 search across reference, docs, audit, and behavior data
     Search {
@@ -184,21 +197,6 @@ enum Command {
         strict: bool,
     },
 
-    /// Polymorphism, side-effects, series-vs-simple, na-propagation
-    Behavior {
-        name: Option<String>,
-        /// List behavior catalog entries instead of looking up one name.
-        #[arg(long)]
-        list: bool,
-        /// Restrict `--list` to function, variable, constant, or keyword.
-        /// Pass `?` to list the behavior-kind catalog.
-        #[arg(long)]
-        kind: Option<String>,
-        /// Restrict `--list` entries by name, namespace, or detail text.
-        #[arg(long)]
-        grep: Option<String>,
-    },
-
     /// pine-data snapshot date + reference / docs / behavior bake counts
     Version,
 }
@@ -216,20 +214,12 @@ fn main() -> Result<()> {
     let style = Style::resolve(cli.no_color, format, stdout_is_tty);
 
     match cli.command {
-        Command::Lookup { name } => commands::lookup::run(&name, format, style, cli.quiet),
-        Command::Search { query, limit, kind } => {
-            commands::search::run(&query, limit, kind.as_deref(), format, style, cli.quiet)
-        }
-        Command::Validate { source, strict } => {
-            let code = source.read()?;
-            commands::validate::run(&code, strict, format, style, cli.quiet)
-        }
-        Command::Behavior {
+        Command::Lookup {
             name,
             list,
             kind,
             grep,
-        } => commands::behavior::run(
+        } => commands::lookup::run(
             name.as_deref(),
             list,
             kind.as_deref(),
@@ -238,6 +228,13 @@ fn main() -> Result<()> {
             style,
             cli.quiet,
         ),
+        Command::Search { query, limit, kind } => {
+            commands::search::run(&query, limit, kind.as_deref(), format, style, cli.quiet)
+        }
+        Command::Validate { source, strict } => {
+            let code = source.read()?;
+            commands::validate::run(&code, strict, format, style, cli.quiet)
+        }
         Command::Version => cmd_version(format, cli.quiet),
     }
 }
@@ -472,20 +469,20 @@ mod tests {
     }
 
     #[test]
-    fn behavior_list_parses_without_name() {
+    fn lookup_list_parses_without_name() {
         let cli = Cli::try_parse_from([
             "pine",
-            "behavior",
+            "lookup",
             "--list",
             "--kind",
             "function",
             "--grep",
             "plotshape",
         ])
-        .expect("behavior list args should parse");
+        .expect("lookup list args should parse");
 
         match cli.command {
-            Command::Behavior {
+            Command::Lookup {
                 name,
                 list,
                 kind,
@@ -496,17 +493,17 @@ mod tests {
                 assert_eq!(kind.as_deref(), Some("function"));
                 assert_eq!(grep.as_deref(), Some("plotshape"));
             }
-            _ => panic!("expected behavior command"),
+            _ => panic!("expected lookup command"),
         }
     }
 
     #[test]
-    fn behavior_kind_catalog_parses_without_name() {
-        let cli = Cli::try_parse_from(["pine", "behavior", "--kind", "?"])
-            .expect("behavior kind catalog args should parse");
+    fn lookup_kind_catalog_parses_without_name() {
+        let cli = Cli::try_parse_from(["pine", "lookup", "--kind", "?"])
+            .expect("lookup kind catalog args should parse");
 
         match cli.command {
-            Command::Behavior {
+            Command::Lookup {
                 name,
                 list,
                 kind,
@@ -517,7 +514,7 @@ mod tests {
                 assert_eq!(kind.as_deref(), Some("?"));
                 assert_eq!(grep, None);
             }
-            _ => panic!("expected behavior command"),
+            _ => panic!("expected lookup command"),
         }
     }
 

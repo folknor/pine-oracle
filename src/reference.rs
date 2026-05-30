@@ -122,6 +122,149 @@ pub fn prefix_search(prefix: &str) -> Vec<Entry> {
     out
 }
 
+/// Prose enrichment lifted from a v6 reference entry body for the merged
+/// `po lookup` view. These are the sections pine-data's structured `behavior`
+/// surface does not carry: free-text `Remarks`, the `See also` cross-reference
+/// list, and per-argument prose descriptions (the structured param list has
+/// types but no prose).
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct Enrichment {
+    pub category: String,
+    pub remarks: Option<String>,
+    pub see_also: Vec<String>,
+    pub arguments: Vec<ArgProse>,
+}
+
+impl Enrichment {
+    /// True when nothing beyond the category was extracted - lets callers skip
+    /// rendering an empty enrichment block.
+    pub fn is_empty(&self) -> bool {
+        self.remarks.is_none() && self.see_also.is_empty() && self.arguments.is_empty()
+    }
+}
+
+/// One `name -> prose` pair from an entry's `Arguments` section.
+#[derive(Debug, Clone, Serialize)]
+pub struct ArgProse {
+    pub name: String,
+    pub description: String,
+}
+
+/// The bare label lines v6.md uses to delimit sub-sections inside an entry
+/// body. They appear as standalone paragraph lines (not markdown headings),
+/// each followed by a blank line then the section content. A body line whose
+/// trimmed text matches one of these exactly starts a new section.
+const ENTRY_SECTION_LABELS: [&str; 9] = [
+    "Syntax",
+    "Syntax & Overloads",
+    "Arguments",
+    "Example",
+    "Returns",
+    "Remarks",
+    "See also",
+    "Type",
+    "Fields",
+];
+
+/// Parse the prose enrichment for `name` out of its v6 reference entry.
+/// Returns `None` when the name has no reference entry at all.
+pub fn enrichment(name: &str) -> Option<Enrichment> {
+    let entry = lookup(name)?;
+    let sections = entry_sections(&entry.content);
+    let mut out = Enrichment {
+        category: entry.category,
+        ..Default::default()
+    };
+    for (label, body) in &sections {
+        match label.as_str() {
+            "Remarks" => {
+                let trimmed = body.trim();
+                if !trimmed.is_empty() {
+                    out.remarks = Some(trimmed.to_string());
+                }
+            }
+            "See also" => out.see_also = parse_see_also(body),
+            "Arguments" => out.arguments = parse_arguments(body),
+            _ => {}
+        }
+    }
+    Some(out)
+}
+
+/// Split an entry body into `(label, section_body)` pairs delimited by the
+/// bare `ENTRY_SECTION_LABELS` lines. Body text before the first label (the
+/// entry's lead description) is dropped, since the structured behavior surface
+/// already carries the description.
+fn entry_sections(body: &str) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    let mut current: Option<(String, Vec<&str>)> = None;
+    for line in body.lines() {
+        if ENTRY_SECTION_LABELS.contains(&line.trim()) {
+            if let Some((label, lines)) = current.take() {
+                out.push((label, lines.join("\n").trim().to_string()));
+            }
+            current = Some((line.trim().to_string(), Vec::new()));
+        } else if let Some((_, lines)) = current.as_mut() {
+            lines.push(line);
+        }
+    }
+    if let Some((label, lines)) = current.take() {
+        out.push((label, lines.join("\n").trim().to_string()));
+    }
+    out
+}
+
+/// Extract the cross-referenced names from a `See also` block. The block is a
+/// run of markdown links like `[ta.ema()](#fun_ta.ema)[ta.rma()](#fun_ta.rma)`;
+/// we keep each link's display text with the trailing `()` stripped so it
+/// matches the name a user would pass back to `po lookup`.
+fn parse_see_also(body: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = body;
+    while let Some(open) = rest.find('[') {
+        let after = &rest[open + 1..];
+        let Some(close) = after.find(']') else { break };
+        let text = after[..close].trim();
+        let name = text.strip_suffix("()").unwrap_or(text).trim();
+        if !name.is_empty() {
+            out.push(name.to_string());
+        }
+        rest = &after[close + 1..];
+    }
+    out
+}
+
+/// Parse the `Arguments` section into `name -> prose` pairs. Each argument is a
+/// single line of the form `name (type) prose...`; we take the leading token as
+/// the name and everything after the `(type)` parenthetical as the prose. Lines
+/// that don't fit the shape are skipped rather than guessed at.
+fn parse_arguments(body: &str) -> Vec<ArgProse> {
+    let mut out = Vec::new();
+    for line in body.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Some(paren) = line.find(" (") else {
+            continue;
+        };
+        let name = line[..paren].trim();
+        let after_open = &line[paren + 2..];
+        let Some(close) = after_open.find(')') else {
+            continue;
+        };
+        let prose = after_open[close + 1..].trim();
+        if name.is_empty() || prose.is_empty() {
+            continue;
+        }
+        out.push(ArgProse {
+            name: name.to_string(),
+            description: prose.to_string(),
+        });
+    }
+    out
+}
+
 fn starts_with_ci(haystack: &str, needle: &str) -> bool {
     // Use `get(..needle.len())` rather than a direct slice so we never panic
     // when `needle.len()` falls on a multi-byte UTF-8 boundary. The slice
@@ -249,6 +392,67 @@ mod tests {
             "canonicalized name must preserve identifier; got: {:?}",
             e.name
         );
+    }
+
+    // Enrichment: ta.sma carries Remarks, See also, and two prose arguments.
+    // Pin the parse against the real vendored entry so a format drift in v6.md
+    // (or a regression in entry_sections) fails here.
+    #[test]
+    fn enrichment_extracts_ta_sma_sections() {
+        let e = enrichment("ta.sma").expect("ta.sma must have a reference entry");
+        assert_eq!(e.category, "Functions");
+        assert_eq!(
+            e.remarks.as_deref(),
+            Some("`na` values in the `source` series are ignored."),
+            "ta.sma Remarks must be captured verbatim"
+        );
+        assert!(
+            e.see_also.iter().any(|s| s == "ta.ema"),
+            "See also must include ta.ema (with () stripped); got {:?}",
+            e.see_also
+        );
+        assert!(
+            !e.see_also.iter().any(|s| s.contains("()")),
+            "see-also names must have () stripped; got {:?}",
+            e.see_also
+        );
+        let source = e
+            .arguments
+            .iter()
+            .find(|a| a.name == "source")
+            .expect("source argument prose must be parsed");
+        assert_eq!(source.description, "Series of values to process.");
+    }
+
+    // Variable entries enrich too: `close` carries both a Remarks line and a
+    // See-also list of the other OHLC variables.
+    #[test]
+    fn enrichment_captures_variable_remarks_and_see_also() {
+        let e = enrichment("close").expect("close must have a reference entry");
+        assert_eq!(e.category, "Variables");
+        assert!(
+            e.remarks.is_some(),
+            "close should carry a Remarks line; got {e:?}"
+        );
+        assert!(
+            e.see_also.iter().any(|s| s == "open"),
+            "close See-also should include open; got {:?}",
+            e.see_also
+        );
+        // A variable has no Arguments section.
+        assert!(e.arguments.is_empty());
+    }
+
+    // is_empty() is the signal the lookup view uses to skip the enrichment
+    // block; pin it against a default (no sections extracted).
+    #[test]
+    fn enrichment_default_is_empty() {
+        assert!(Enrichment::default().is_empty());
+    }
+
+    #[test]
+    fn enrichment_none_for_unknown_name() {
+        assert!(enrichment("definitely_not_a_pine_name_xyz").is_none());
     }
 
     // starts_with_ci must not panic when given a multi-byte UTF-8 needle.
