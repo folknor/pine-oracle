@@ -1,7 +1,10 @@
 use anyhow::{Result, bail};
-use pine_oracle::behavior;
+use pine_oracle::{behavior, suggest};
 
 use crate::output::{ResolvedFormat, Style, is_catalog_request, print_catalog, print_json};
+
+/// How many "did you mean ...?" suggestions to offer on a lookup miss.
+const SUGGEST_LIMIT: usize = 8;
 
 /// `po lookup` is the single "describe this identifier" verb. It reads the
 /// structured pine-data `behavior` surface: signatures, typed params with
@@ -38,7 +41,7 @@ pub(crate) fn run(
     // every meaning rather than silently picking one.
     let matches = behavior::lookup_all(name);
     if matches.is_empty() {
-        return prefix_fallback(name, format, quiet);
+        return did_you_mean(name, format, quiet);
     }
 
     match format {
@@ -110,10 +113,11 @@ fn print_behavior_list(
     Ok(())
 }
 
-/// No exact hit: fall back to case-insensitive prefix matches over every
-/// catalog name so a partial name (`math.`) still surfaces the namespace.
-fn prefix_fallback(name: &str, format: ResolvedFormat, quiet: bool) -> Result<()> {
-    let hits = behavior::prefix_search(name);
+/// No exact hit: offer the closest identifier names via the BM25 suggestion
+/// engine ("did you mean ...?"). This is the former standalone name-search,
+/// demoted to lookup's recovery path.
+fn did_you_mean(name: &str, format: ResolvedFormat, quiet: bool) -> Result<()> {
+    let hits = suggest::suggest(name, SUGGEST_LIMIT)?;
     if hits.is_empty() {
         bail!("no match for `{name}`");
     }
@@ -122,15 +126,15 @@ fn prefix_fallback(name: &str, format: ResolvedFormat, quiet: bool) -> Result<()
             print_json(&serde_json::json!({
                 "query": name,
                 "exact": false,
-                "matches": hits,
+                "suggestions": hits,
             }))?;
         }
         ResolvedFormat::Text => {
             if !quiet {
-                eprintln!("no exact match; {} prefix hit(s):", hits.len());
+                eprintln!("no exact match for `{name}`. did you mean:");
             }
-            for e in &hits {
-                println!("{}  ({})", e.name, e.kind);
+            for s in &hits {
+                println!("{}", s.name);
             }
         }
     }

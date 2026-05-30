@@ -896,16 +896,6 @@ pub fn list(kind_filter: Option<&str>, grep: Option<&str>) -> Result<Vec<Behavio
     Ok(out)
 }
 
-/// Case-insensitive prefix match over every catalog name, sorted by kind then
-/// name. Powers `po lookup`'s prefix fallback (`po lookup math.` -> the whole
-/// `math.*` namespace) now that the reference markdown is gone.
-pub fn prefix_search(prefix: &str) -> Vec<BehaviorListing> {
-    let lower = prefix.to_ascii_lowercase();
-    let mut out = list(None, None).unwrap_or_default();
-    out.retain(|entry| entry.name.to_ascii_lowercase().starts_with(&lower));
-    out
-}
-
 fn type_detail(ty: &str, qualifier: &str) -> String {
     if qualifier.is_empty() {
         ty.to_string()

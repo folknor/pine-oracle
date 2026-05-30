@@ -1,3 +1,3 @@
 pub mod behavior;
-pub mod search;
+pub mod suggest;
 pub mod validate;

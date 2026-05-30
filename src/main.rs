@@ -1,6 +1,6 @@
 use anyhow::{Result, bail};
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use pine_oracle::{behavior, search};
+use pine_oracle::{behavior, suggest};
 use std::io::{IsTerminal, Read};
 use std::path::{Path, PathBuf};
 
@@ -10,8 +10,8 @@ mod output;
 use output::{ResolvedFormat, Style, print_json};
 
 /// pine: Pine v6 oracle CLI. Answers semantic questions about Pine script
-/// across every Pine-adjacent project. Vendors the TradingView v6 reference
-/// and the pine-data behavior surface; exposes them as one-shot subcommands.
+/// across every Pine-adjacent project. Vendors the pine-data behavior surface
+/// (structured Pine v6 signatures + prose); exposes it as one-shot subcommands.
 #[derive(Parser)]
 #[command(name = "pine", version, about = "Pine v6 oracle CLI", long_about = None)]
 struct Cli {
@@ -27,8 +27,8 @@ struct Cli {
     /// Suppress ANSI styling in text mode. Honoured automatically when
     /// `NO_COLOR` is set or stdout is not a TTY. Has no effect in `--format
     /// json` mode (JSON output is never styled). The flag reaches every
-    /// command; only those that emit colored text today (`pine search`,
-    /// `pine validate`) act on it visibly.
+    /// command; only those that emit colored text today (`pine validate`)
+    /// act on it visibly.
     #[arg(long, global = true)]
     no_color: bool,
 
@@ -178,13 +178,6 @@ enum Command {
         grep: Option<String>,
     },
 
-    /// Ranked identifier names matching a query - the index into `po lookup`
-    Search {
-        query: String,
-        #[arg(long, default_value_t = 25)]
-        limit: usize,
-    },
-
     /// Type errors, syntax errors, behavior warnings
     Validate {
         #[command(flatten)]
@@ -224,7 +217,6 @@ fn main() -> Result<()> {
             style,
             cli.quiet,
         ),
-        Command::Search { query, limit } => commands::search::run(&query, limit, style, cli.quiet),
         Command::Validate { source, strict } => {
             let code = source.read()?;
             commands::validate::run(&code, strict, format, style, cli.quiet)
@@ -235,24 +227,24 @@ fn main() -> Result<()> {
 
 fn cmd_version(format: ResolvedFormat, quiet: bool) -> Result<()> {
     let binary = env!("CARGO_PKG_VERSION");
-    let behavior_docs = search::behavior_doc_count();
+    let indexed_names = suggest::indexed_name_count();
     let pine_data = behavior::snapshot();
     match format {
         ResolvedFormat::Json => {
             print_json(&serde_json::json!({
-                "binary": binary,
-                "behavior": {
-                    "pine_data_version": pine_data.version,
-                    "generated_at": pine_data.generated_at,
-                    "function_count": pine_data.function_count,
-                    "variable_count": pine_data.variable_count,
-                    "constant_count": pine_data.constant_count,
-                    "keyword_count": pine_data.keyword_count,
-                    "type_count": pine_data.type_count,
-                    "annotation_count": pine_data.annotation_count,
-                    "operator_count": pine_data.operator_count,
-                    "polymorphic_function_count": pine_data.polymorphic_function_count,
-                    "search_doc_count": behavior_docs,
+                    "binary": binary,
+                    "behavior": {
+                        "pine_data_version": pine_data.version,
+                        "generated_at": pine_data.generated_at,
+                        "function_count": pine_data.function_count,
+                        "variable_count": pine_data.variable_count,
+                        "constant_count": pine_data.constant_count,
+                        "keyword_count": pine_data.keyword_count,
+                        "type_count": pine_data.type_count,
+                        "annotation_count": pine_data.annotation_count,
+                        "operator_count": pine_data.operator_count,
+                        "polymorphic_function_count": pine_data.polymorphic_function_count,
+                        "indexed_name_count": indexed_names,
                 },
             }))?;
         }
@@ -266,7 +258,7 @@ fn cmd_version(format: ResolvedFormat, quiet: bool) -> Result<()> {
                 pine_data.version, pine_data.generated_at
             );
             println!(
-                "behavior:       {} functions ({} polymorphic), {} variables, {} constants, {} keywords, {} types, {} annotations, {} operators, {behavior_docs} searchable docs",
+                "behavior:       {} functions ({} polymorphic), {} variables, {} constants, {} keywords, {} types, {} annotations, {} operators, {indexed_names} indexed names",
                 pine_data.function_count,
                 pine_data.polymorphic_function_count,
                 pine_data.variable_count,
@@ -369,10 +361,10 @@ mod tests {
     #[test]
     fn cmd_version_json_shape() {
         use crate::output::versioned_json;
-        use pine_oracle::{behavior, search};
+        use pine_oracle::{behavior, suggest};
 
         let binary = env!("CARGO_PKG_VERSION");
-        let behavior_docs = search::behavior_doc_count();
+        let indexed_names = suggest::indexed_name_count();
         let pine_data = behavior::snapshot();
 
         let payload = serde_json::json!({
@@ -388,7 +380,7 @@ mod tests {
                 "annotation_count": pine_data.annotation_count,
                 "operator_count": pine_data.operator_count,
                 "polymorphic_function_count": pine_data.polymorphic_function_count,
-                "search_doc_count": behavior_docs,
+                "indexed_name_count": indexed_names,
             },
         });
 
@@ -416,7 +408,7 @@ mod tests {
         assert!(v["behavior"]["annotation_count"].is_number());
         assert!(v["behavior"]["operator_count"].is_number());
         assert!(v["behavior"]["polymorphic_function_count"].is_number());
-        assert!(v["behavior"]["search_doc_count"].is_number());
+        assert!(v["behavior"]["indexed_name_count"].is_number());
 
         // Counts must be > 0 to flag a regression in the bake.
         assert!(v["behavior"]["function_count"].as_u64().unwrap_or(0) > 0);
