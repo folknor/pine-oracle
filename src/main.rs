@@ -1,6 +1,6 @@
 use anyhow::{Result, bail};
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use pine_oracle::{behavior, reference, search};
+use pine_oracle::{behavior, search};
 use std::io::{IsTerminal, Read};
 use std::path::{Path, PathBuf};
 
@@ -162,8 +162,8 @@ fn read_source_stdin() -> Result<String> {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Describe an identifier: structured signature (pine-data) joined with the
-    /// v6 reference prose (per-argument descriptions, remarks, see-also).
+    /// Describe an identifier from pine-data: structured signature with
+    /// per-argument prose, remarks, see-also, and operators.
     Lookup {
         name: Option<String>,
         /// List behavior catalog entries instead of looking up one name.
@@ -193,7 +193,7 @@ enum Command {
         strict: bool,
     },
 
-    /// pine-data snapshot date + reference / behavior bake counts
+    /// pine-data snapshot date + behavior bake counts
     Version,
 }
 
@@ -235,18 +235,12 @@ fn main() -> Result<()> {
 
 fn cmd_version(format: ResolvedFormat, quiet: bool) -> Result<()> {
     let binary = env!("CARGO_PKG_VERSION");
-    let categories = reference::categories();
-    let reference_entry_count = reference::all_entries().len();
     let behavior_docs = search::behavior_doc_count();
     let pine_data = behavior::snapshot();
     match format {
         ResolvedFormat::Json => {
             print_json(&serde_json::json!({
                 "binary": binary,
-                "reference": {
-                    "categories": categories,
-                    "entry_count": reference_entry_count,
-                },
                 "behavior": {
                     "pine_data_version": pine_data.version,
                     "generated_at": pine_data.generated_at,
@@ -256,6 +250,7 @@ fn cmd_version(format: ResolvedFormat, quiet: bool) -> Result<()> {
                     "keyword_count": pine_data.keyword_count,
                     "type_count": pine_data.type_count,
                     "annotation_count": pine_data.annotation_count,
+                    "operator_count": pine_data.operator_count,
                     "polymorphic_function_count": pine_data.polymorphic_function_count,
                     "search_doc_count": behavior_docs,
                 },
@@ -267,23 +262,19 @@ fn cmd_version(format: ResolvedFormat, quiet: bool) -> Result<()> {
                 return Ok(());
             }
             println!(
-                "v6 reference:   {reference_entry_count} entries across {} categories ({})",
-                categories.len(),
-                categories.join(", ")
-            );
-            println!(
                 "pine-data:      v{} generated {}",
                 pine_data.version, pine_data.generated_at
             );
             println!(
-                "behavior:       {} functions ({} polymorphic), {} variables, {} constants, {} keywords, {} types, {} annotations, {behavior_docs} searchable docs",
+                "behavior:       {} functions ({} polymorphic), {} variables, {} constants, {} keywords, {} types, {} annotations, {} operators, {behavior_docs} searchable docs",
                 pine_data.function_count,
                 pine_data.polymorphic_function_count,
                 pine_data.variable_count,
                 pine_data.constant_count,
                 pine_data.keyword_count,
                 pine_data.type_count,
-                pine_data.annotation_count
+                pine_data.annotation_count,
+                pine_data.operator_count
             );
         }
     }
@@ -378,20 +369,14 @@ mod tests {
     #[test]
     fn cmd_version_json_shape() {
         use crate::output::versioned_json;
-        use pine_oracle::{behavior, reference, search};
+        use pine_oracle::{behavior, search};
 
         let binary = env!("CARGO_PKG_VERSION");
-        let categories = reference::categories();
-        let reference_entry_count = reference::all_entries().len();
         let behavior_docs = search::behavior_doc_count();
         let pine_data = behavior::snapshot();
 
         let payload = serde_json::json!({
             "binary": binary,
-            "reference": {
-                "categories": categories,
-                "entry_count": reference_entry_count,
-            },
             "behavior": {
                 "pine_data_version": pine_data.version,
                 "generated_at": pine_data.generated_at,
@@ -401,6 +386,7 @@ mod tests {
                 "keyword_count": pine_data.keyword_count,
                 "type_count": pine_data.type_count,
                 "annotation_count": pine_data.annotation_count,
+                "operator_count": pine_data.operator_count,
                 "polymorphic_function_count": pine_data.polymorphic_function_count,
                 "search_doc_count": behavior_docs,
             },
@@ -415,17 +401,11 @@ mod tests {
         );
         assert!(v["binary"].is_string(), "binary field must be a string");
         assert!(
-            v["reference"].is_object(),
-            "reference field must be an object"
-        );
-        assert!(
             v["behavior"].is_object(),
             "behavior field must be an object"
         );
 
         // Spot-check nested fields so renames inside objects are caught too.
-        assert!(v["reference"]["entry_count"].is_number());
-        assert!(v["reference"]["categories"].is_array());
         assert!(v["behavior"]["pine_data_version"].is_string());
         assert!(v["behavior"]["generated_at"].is_string());
         assert!(v["behavior"]["function_count"].is_number());
@@ -434,11 +414,13 @@ mod tests {
         assert!(v["behavior"]["keyword_count"].is_number());
         assert!(v["behavior"]["type_count"].is_number());
         assert!(v["behavior"]["annotation_count"].is_number());
+        assert!(v["behavior"]["operator_count"].is_number());
         assert!(v["behavior"]["polymorphic_function_count"].is_number());
         assert!(v["behavior"]["search_doc_count"].is_number());
 
-        // Count must be > 0 for reference to flag regressions.
-        assert!(v["reference"]["entry_count"].as_u64().unwrap_or(0) > 0);
+        // Counts must be > 0 to flag a regression in the bake.
+        assert!(v["behavior"]["function_count"].as_u64().unwrap_or(0) > 0);
+        assert!(v["behavior"]["operator_count"].as_u64().unwrap_or(0) > 0);
     }
 
     #[test]

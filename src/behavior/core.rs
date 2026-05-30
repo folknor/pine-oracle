@@ -9,11 +9,17 @@
 //   - keywords.json      (reserved keyword list)
 //   - types.json         (built-in types: chart.point, line, array, ...)
 //   - annotations.json   (compiler annotations: @version=, @param, ...)
+//   - operators.json     (operators: +, -, ?:, [], +=, ...)
 //
-// The six files are parsed once via OnceLock into a `BehaviorIndex` keyed by
+// The seven files are parsed once via OnceLock into a `BehaviorIndex` keyed by
 // symbol name. `lookup(name)` returns the first match across functions,
-// variables, constants, keywords, types, and annotations (in that order), or
-// `None`.
+// variables, constants, keywords, types, annotations, and operators (in that
+// order), or `None`.
+//
+// Prose sub-sections (`remarks`, `seeAlso`, `returnsDescription`) are carried
+// on every catalog that documents them - these are the fields that let
+// `po lookup` render the full reference card straight from pine-data, with no
+// markdown source.
 //
 // Polymorphism note: an earlier upstream shipped a separate
 // `function-behavior.json` with rich polymorphism markers. Upstream collapsed
@@ -42,12 +48,13 @@ const CONSTANTS_JSON: &str = include_str!("../../vendor/pine-data/v6/constants.j
 const KEYWORDS_JSON: &str = include_str!("../../vendor/pine-data/v6/keywords.json");
 const TYPES_JSON: &str = include_str!("../../vendor/pine-data/v6/types.json");
 const ANNOTATIONS_JSON: &str = include_str!("../../vendor/pine-data/v6/annotations.json");
+const OPERATORS_JSON: &str = include_str!("../../vendor/pine-data/v6/operators.json");
 
 // The pine-data JSON files are bare arrays with no `generatedAt` envelope (the
 // removed function-behavior.json used to carry one). The snapshot ref/date is
 // baked here from the vendoring pass; see vendor/pine-data/v6/NOTICE.
 const PINE_DATA_VERSION: &str = "6";
-const PINE_DATA_SNAPSHOT: &str = "2026-05-29T20:56:46+02:00";
+const PINE_DATA_SNAPSHOT: &str = "2026-05-30T23:51:00+02:00";
 
 // ---------- raw types (mirror the JSON 1:1) ----------
 
@@ -167,6 +174,16 @@ pub struct RawFunction {
     /// one or more sibling `<pre>` blocks per function.
     #[serde(default)]
     pub examples: Vec<String>,
+    /// Prose "Returns" sentence, distinct from the typed `returns`. Upstream
+    /// key: `returnsDescription`.
+    #[serde(rename = "returnsDescription", default)]
+    pub returns_description: Option<String>,
+    /// Free-text "Remarks" caveats. Upstream key: `remarks`.
+    #[serde(default)]
+    pub remarks: Option<String>,
+    /// "See also" cross-references as bare symbol names. Upstream key: `seeAlso`.
+    #[serde(rename = "seeAlso", default)]
+    pub see_also: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -180,6 +197,12 @@ pub struct RawVariable {
     pub qualifier: String,
     #[serde(default)]
     pub description: String,
+    #[serde(rename = "returnsDescription", default)]
+    pub returns_description: Option<String>,
+    #[serde(default)]
+    pub remarks: Option<String>,
+    #[serde(rename = "seeAlso", default)]
+    pub see_also: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -193,6 +216,10 @@ pub struct RawConstant {
     pub ty: String,
     #[serde(default)]
     pub description: Option<String>,
+    #[serde(default)]
+    pub remarks: Option<String>,
+    #[serde(rename = "seeAlso", default)]
+    pub see_also: Vec<String>,
 }
 
 /// A field of a non-opaque built-in object type (e.g. chart.point's index /
@@ -220,6 +247,10 @@ pub struct RawType {
     pub examples: Vec<String>,
     #[serde(default)]
     pub fields: Vec<RawTypeField>,
+    #[serde(default)]
+    pub remarks: Option<String>,
+    #[serde(rename = "seeAlso", default)]
+    pub see_also: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -231,6 +262,29 @@ pub struct RawAnnotation {
     pub syntax: Option<String>,
     #[serde(default)]
     pub examples: Vec<String>,
+    #[serde(default)]
+    pub remarks: Option<String>,
+    #[serde(rename = "seeAlso", default)]
+    pub see_also: Vec<String>,
+}
+
+/// Raw operator entry from operators.json. Operators carry no namespace, no
+/// typed return (only a prose `returnsDescription`), and no parameters.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RawOperator {
+    pub name: String,
+    #[serde(default)]
+    pub syntax: Option<String>,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub examples: Vec<String>,
+    #[serde(rename = "returnsDescription", default)]
+    pub returns_description: Option<String>,
+    #[serde(default)]
+    pub remarks: Option<String>,
+    #[serde(rename = "seeAlso", default)]
+    pub see_also: Vec<String>,
 }
 
 // ---------- merged public view ----------
@@ -245,6 +299,7 @@ pub enum Behavior {
     Keyword(KeywordBehavior),
     Type(TypeBehavior),
     Annotation(AnnotationBehavior),
+    Operator(OperatorBehavior),
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -263,6 +318,12 @@ pub struct FunctionBehavior {
     pub overloads: Vec<RawOverload>,
     /// Deprecation note, when the reference flags the function deprecated.
     pub deprecated: Option<String>,
+    /// Prose "Returns" sentence (distinct from the typed `returns`).
+    pub returns_description: Option<String>,
+    /// Free-text "Remarks" caveats.
+    pub remarks: Option<String>,
+    /// "See also" cross-references as bare symbol names.
+    pub see_also: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -274,6 +335,9 @@ pub struct VariableBehavior {
     /// Human-readable description from pine-data. Empty string when the source
     /// JSON carries no description.
     pub description: String,
+    pub returns_description: Option<String>,
+    pub remarks: Option<String>,
+    pub see_also: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -283,6 +347,8 @@ pub struct ConstantBehavior {
     pub short_name: Option<String>,
     pub ty: String,
     pub description: Option<String>,
+    pub remarks: Option<String>,
+    pub see_also: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -300,6 +366,8 @@ pub struct TypeBehavior {
     pub description: String,
     pub examples: Vec<String>,
     pub fields: Vec<RawTypeField>,
+    pub remarks: Option<String>,
+    pub see_also: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -308,6 +376,20 @@ pub struct AnnotationBehavior {
     pub description: String,
     pub syntax: Option<String>,
     pub examples: Vec<String>,
+    pub remarks: Option<String>,
+    pub see_also: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct OperatorBehavior {
+    pub name: String,
+    pub syntax: Option<String>,
+    pub description: String,
+    pub examples: Vec<String>,
+    /// Operators carry no typed return - only a prose "Returns" sentence.
+    pub returns_description: Option<String>,
+    pub remarks: Option<String>,
+    pub see_also: Vec<String>,
 }
 
 impl Behavior {
@@ -321,6 +403,7 @@ impl Behavior {
             Self::Keyword(_) => BehaviorKind::Keyword,
             Self::Type(_) => BehaviorKind::Type,
             Self::Annotation(_) => BehaviorKind::Annotation,
+            Self::Operator(_) => BehaviorKind::Operator,
         }
     }
 
@@ -340,6 +423,7 @@ pub enum BehaviorKind {
     Keyword,
     Type,
     Annotation,
+    Operator,
 }
 
 impl BehaviorKind {
@@ -351,6 +435,7 @@ impl BehaviorKind {
             Self::Keyword => "keyword",
             Self::Type => "type",
             Self::Annotation => "annotation",
+            Self::Operator => "operator",
         }
     }
 
@@ -362,6 +447,7 @@ impl BehaviorKind {
             Self::Keyword => "Reserved Pine keywords",
             Self::Type => "Built-in types (chart.point, line, array, ...) with fields",
             Self::Annotation => "Compiler annotations (@version=, @param, @type, ...)",
+            Self::Operator => "Operators (+, -, ?:, [], +=, ...) with prose semantics",
         }
     }
 }
@@ -407,6 +493,7 @@ pub struct PineDataSnapshot {
     pub keyword_count: usize,
     pub type_count: usize,
     pub annotation_count: usize,
+    pub operator_count: usize,
     /// Number of functions carrying a polymorphic return-type class in their
     /// flags. Previously sourced from function-behavior.json's entry count.
     pub polymorphic_function_count: usize,
@@ -421,6 +508,7 @@ struct BehaviorIndex {
     keywords: Vec<String>,
     types: HashMap<String, RawType>,
     annotations: HashMap<String, RawAnnotation>,
+    operators: HashMap<String, RawOperator>,
 }
 
 fn index() -> &'static BehaviorIndex {
@@ -435,6 +523,7 @@ fn build_index() -> anyhow::Result<BehaviorIndex> {
     let keywords: Vec<String> = serde_json::from_str(KEYWORDS_JSON)?;
     let types: Vec<RawType> = serde_json::from_str(TYPES_JSON)?;
     let annotations: Vec<RawAnnotation> = serde_json::from_str(ANNOTATIONS_JSON)?;
+    let operators: Vec<RawOperator> = serde_json::from_str(OPERATORS_JSON)?;
 
     Ok(BehaviorIndex {
         functions: functions.into_iter().map(|f| (f.name.clone(), f)).collect(),
@@ -446,6 +535,7 @@ fn build_index() -> anyhow::Result<BehaviorIndex> {
             .into_iter()
             .map(|a| (a.name.clone(), a))
             .collect(),
+        operators: operators.into_iter().map(|o| (o.name.clone(), o)).collect(),
     })
 }
 
@@ -507,6 +597,9 @@ fn lookup_in(idx: &BehaviorIndex, name: &str) -> Option<Behavior> {
             ty: v.ty.clone(),
             qualifier: v.qualifier.clone(),
             description: v.description.clone(),
+            returns_description: v.returns_description.clone(),
+            remarks: v.remarks.clone(),
+            see_also: v.see_also.clone(),
         }));
     }
     if let Some(c) = map_get_ci(&idx.constants, name) {
@@ -516,6 +609,8 @@ fn lookup_in(idx: &BehaviorIndex, name: &str) -> Option<Behavior> {
             short_name: c.short_name.clone(),
             ty: c.ty.clone(),
             description: c.description.clone(),
+            remarks: c.remarks.clone(),
+            see_also: c.see_also.clone(),
         }));
     }
     if let Some(t) = map_get_ci(&idx.types, name) {
@@ -526,6 +621,8 @@ fn lookup_in(idx: &BehaviorIndex, name: &str) -> Option<Behavior> {
             description: t.description.clone(),
             examples: t.examples.clone(),
             fields: t.fields.clone(),
+            remarks: t.remarks.clone(),
+            see_also: t.see_also.clone(),
         }));
     }
     if let Some(a) = map_get_ci(&idx.annotations, name) {
@@ -534,6 +631,19 @@ fn lookup_in(idx: &BehaviorIndex, name: &str) -> Option<Behavior> {
             description: a.description.clone(),
             syntax: a.syntax.clone(),
             examples: a.examples.clone(),
+            remarks: a.remarks.clone(),
+            see_also: a.see_also.clone(),
+        }));
+    }
+    if let Some(o) = map_get_ci(&idx.operators, name) {
+        return Some(Behavior::Operator(OperatorBehavior {
+            name: o.name.clone(),
+            syntax: o.syntax.clone(),
+            description: o.description.clone(),
+            examples: o.examples.clone(),
+            returns_description: o.returns_description.clone(),
+            remarks: o.remarks.clone(),
+            see_also: o.see_also.clone(),
         }));
     }
     None
@@ -551,6 +661,9 @@ fn function_behavior(f: &RawFunction) -> FunctionBehavior {
         flags: f.flags.clone().unwrap_or_default(),
         overloads: f.overloads.clone(),
         deprecated: f.deprecated.clone(),
+        returns_description: f.returns_description.clone(),
+        remarks: f.remarks.clone(),
+        see_also: f.see_also.clone(),
     }
 }
 
@@ -570,6 +683,7 @@ pub fn snapshot() -> PineDataSnapshot {
         keyword_count: idx.keywords.len(),
         type_count: idx.types.len(),
         annotation_count: idx.annotations.len(),
+        operator_count: idx.operators.len(),
         polymorphic_function_count,
     }
 }
@@ -606,6 +720,11 @@ pub fn kind_catalog() -> Vec<BehaviorKindInfo> {
             kind: BehaviorKind::Annotation,
             description: BehaviorKind::Annotation.description(),
             count: snapshot.annotation_count,
+        },
+        BehaviorKindInfo {
+            kind: BehaviorKind::Operator,
+            description: BehaviorKind::Operator.description(),
+            count: snapshot.operator_count,
         },
     ]
 }
@@ -692,6 +811,17 @@ pub fn list(kind_filter: Option<&str>, grep: Option<&str>) -> Result<Vec<Behavio
             });
         }
     }
+    if filter.is_none_or(|kind| kind == BehaviorKind::Operator) {
+        for operator in idx.operators.values() {
+            out.push(BehaviorListing {
+                kind: BehaviorKind::Operator,
+                name: operator.name.clone(),
+                namespace: None,
+                detail: operator.syntax.clone().unwrap_or_default(),
+                polymorphic: false,
+            });
+        }
+    }
 
     if let Some(needle) = needle {
         out.retain(|entry| behavior_listing_matches(entry, &needle));
@@ -701,6 +831,16 @@ pub fn list(kind_filter: Option<&str>, grep: Option<&str>) -> Result<Vec<Behavio
     // which order the entries were pushed into `out`.
     out.sort_by(|a, b| a.kind.cmp(&b.kind).then_with(|| a.name.cmp(&b.name)));
     Ok(out)
+}
+
+/// Case-insensitive prefix match over every catalog name, sorted by kind then
+/// name. Powers `po lookup`'s prefix fallback (`po lookup math.` -> the whole
+/// `math.*` namespace) now that the reference markdown is gone.
+pub fn prefix_search(prefix: &str) -> Vec<BehaviorListing> {
+    let lower = prefix.to_ascii_lowercase();
+    let mut out = list(None, None).unwrap_or_default();
+    out.retain(|entry| entry.name.to_ascii_lowercase().starts_with(&lower));
+    out
 }
 
 fn type_detail(ty: &str, qualifier: &str) -> String {
@@ -728,8 +868,9 @@ fn parse_behavior_kind(raw: &str) -> Result<BehaviorKind> {
         "keyword" | "keywords" => Ok(BehaviorKind::Keyword),
         "type" | "types" => Ok(BehaviorKind::Type),
         "annotation" | "annotations" => Ok(BehaviorKind::Annotation),
+        "operator" | "operators" => Ok(BehaviorKind::Operator),
         _ => bail!(
-            "unknown behavior kind `{raw}`; expected one of: function, variable, constant, keyword, type, annotation"
+            "unknown behavior kind `{raw}`; expected one of: function, variable, constant, keyword, type, annotation, operator"
         ),
     }
 }
@@ -777,6 +918,13 @@ pub fn search_entries() -> Vec<BehaviorSearchEntry> {
             category: "Annotation",
             name: annotation.name.clone(),
             content: annotation_search_content(annotation),
+        });
+    }
+    for operator in idx.operators.values() {
+        out.push(BehaviorSearchEntry {
+            category: "Operator",
+            name: operator.name.clone(),
+            content: operator_search_content(operator),
         });
     }
     out.sort_by(|a, b| a.category.cmp(b.category).then_with(|| a.name.cmp(&b.name)));
@@ -827,6 +975,12 @@ fn function_search_content(function: &RawFunction) -> String {
     for example in &function.examples {
         parts.push(format!("Example:\n{example}"));
     }
+    push_prose(
+        &mut parts,
+        &function.remarks,
+        std::slice::from_ref(&function.returns_description),
+        &function.see_also,
+    );
     parts.join("\n")
 }
 
@@ -864,6 +1018,12 @@ fn variable_search_content(variable: &RawVariable) -> String {
     if !variable.description.is_empty() {
         parts.push(variable.description.clone());
     }
+    push_prose(
+        &mut parts,
+        &variable.remarks,
+        std::slice::from_ref(&variable.returns_description),
+        &variable.see_also,
+    );
     parts.join("\n")
 }
 
@@ -880,6 +1040,7 @@ fn constant_search_content(constant: &RawConstant) -> String {
     {
         parts.push(description.clone());
     }
+    push_prose(&mut parts, &constant.remarks, &[], &constant.see_also);
     parts.join("\n")
 }
 
@@ -897,6 +1058,7 @@ fn type_search_content(ty: &RawType) -> String {
     for example in &ty.examples {
         parts.push(format!("Example:\n{example}"));
     }
+    push_prose(&mut parts, &ty.remarks, &[], &ty.see_also);
     parts.join("\n")
 }
 
@@ -911,7 +1073,49 @@ fn annotation_search_content(annotation: &RawAnnotation) -> String {
     for example in &annotation.examples {
         parts.push(format!("Example:\n{example}"));
     }
+    push_prose(&mut parts, &annotation.remarks, &[], &annotation.see_also);
     parts.join("\n")
+}
+
+fn operator_search_content(operator: &RawOperator) -> String {
+    let mut parts = Vec::new();
+    if let Some(syntax) = &operator.syntax {
+        parts.push(format!("Syntax: {syntax}"));
+    }
+    if !operator.description.is_empty() {
+        parts.push(operator.description.clone());
+    }
+    for example in &operator.examples {
+        parts.push(format!("Example:\n{example}"));
+    }
+    push_prose(
+        &mut parts,
+        &operator.remarks,
+        std::slice::from_ref(&operator.returns_description),
+        &operator.see_also,
+    );
+    parts.join("\n")
+}
+
+/// Append the shared prose sub-sections (Remarks, Returns-prose, See-also) to a
+/// search-content part list. Centralised so every catalog folds the same fields
+/// into its BM25 body - this is what preserves discoverability of remarks /
+/// see-also terms now that the markdown reference source is gone.
+fn push_prose(
+    parts: &mut Vec<String>,
+    remarks: &Option<String>,
+    returns_descriptions: &[Option<String>],
+    see_also: &[String],
+) {
+    if let Some(remarks) = remarks {
+        parts.push(format!("Remarks: {remarks}"));
+    }
+    for returns in returns_descriptions.iter().flatten() {
+        parts.push(format!("Returns: {returns}"));
+    }
+    if !see_also.is_empty() {
+        parts.push(format!("See also: {}", see_also.join(", ")));
+    }
 }
 
 /// Built-in surface for piners-syntax validation. piners-runtime is the

@@ -16,6 +16,7 @@ Files:
   - keywords.json      (28 entries)  reserved keywords
   - types.json         (20 entries)  built-in types (chart.point, line, array, ...)
   - annotations.json   (10 entries)  compiler annotations (@version=, @param, ...)
+  - operators.json     (21 entries)  operators (+, -, ?:, [], +=, ...)
 
 Schema notes:
   - functions.json `flags` now carries the full polymorphism surface
@@ -24,11 +25,16 @@ Schema notes:
     polymorphism was consolidated into these flags; it is no longer vendored.
   - Per-parameter `default`, `allowedValues`, `min`, and `max` and a top-level
     `overloads[]` array (per-overload signatures) are newer fields; the binary
-    surfaces them in `po behavior` and BM25 search.
+    surfaces them in `po lookup` and BM25 search.
+  - Every catalog now carries the prose sub-sections `remarks`, `seeAlso`, and
+    `returnsDescription` (the "Returns" sentence, distinct from the typed
+    return) where TV documents them. These let `po lookup` render the full
+    reference card straight from pine-data; the markdown reference vendor was
+    retired once they landed.
 
-Snapshot: pine-tools git ref 9f0c4ee, 2026-05-29. The JSON files are bare
-arrays with no embedded generation timestamp; the snapshot date above is baked
-into the binary as behavior::PINE_DATA_SNAPSHOT for `po version`.
+Snapshot: pine-tools scrape 2026-05-30. The JSON files are bare arrays with no
+embedded generation timestamp; the snapshot date above is baked into the binary
+as behavior::PINE_DATA_SNAPSHOT for `po version`.
 
 Refresh procedure: re-run pine-tools' data pipeline (`pnpm run scrape`), copy
 the resulting JSON files in, update the counts / snapshot ref above and the

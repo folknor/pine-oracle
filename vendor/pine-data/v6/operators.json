@@ -1,0 +1,169 @@
+[
+  {
+    "name": "!=",
+    "syntax": "expr1 != expr2",
+    "description": "Inequality operator. Returns true if the operands are considered not equal, and false otherwise. This operator is compatible with all value types, including \"int\", \"float\", \"bool\", \"color\", and \"string\". The operator can also compare two line or label IDs.",
+    "returnsDescription": "Boolean value, or series of boolean values.",
+    "remarks": "This operator rounds \"float\" operands to nine fractional digits."
+  },
+  {
+    "name": "%",
+    "syntax": "expr1 % expr2",
+    "description": "Modulo (integer remainder). Applicable to numerical expressions.",
+    "returnsDescription": "Integer or float value, or series of values.",
+    "remarks": "In Pine Script®, when the integer remainder is calculated, the quotient is truncated, i.e. rounded towards the lowest absolute value. The resulting value will have the same sign as the dividend.\nExample: -1 % 9 = -1 - 9 * int(-1/9) = -1 - 9 * int(-0.111) = -1 - 9 * 0 = -1."
+  },
+  {
+    "name": "%=",
+    "syntax": "expr1 %= expr2",
+    "description": "Modulo assignment. Applicable to numerical expressions.",
+    "examples": [
+      "//@version=6\nindicator(\"%=\")\n// Equals to expr1 = expr1 % expr2.\na = 3\nb = 3\na %= b\n// Result: a = 0.\nplot(a)"
+    ],
+    "returnsDescription": "Integer or float value, or series of values."
+  },
+  {
+    "name": "*",
+    "syntax": "expr1 * expr2",
+    "description": "Multiplication. Applicable to numerical expressions.",
+    "returnsDescription": "Integer or float value, or series of values."
+  },
+  {
+    "name": "*=",
+    "syntax": "expr1 *= expr2",
+    "description": "Multiplication assignment. Applicable to numerical expressions.",
+    "examples": [
+      "//@version=6\nindicator(\"*=\")\n// Equals to expr1 = expr1 * expr2.\na = 2\nb = 3\na *= b\n// Result: a = 6.\nplot(a)"
+    ],
+    "returnsDescription": "Integer or float value, or series of values."
+  },
+  {
+    "name": "+",
+    "syntax": "expr1 + expr2",
+    "description": "Addition or unary plus. Applicable to numerical expressions or strings.",
+    "returnsDescription": "Binary + for strings returns concatenation of expr1 and expr2\nFor numbers returns integer or float value, or series of values:\nBinary + returns expr1 plus expr2.\nUnary + returns expr (does nothing added just for the symmetry with the unary - operator).",
+    "remarks": "You may use arithmetic operators with numbers as well as with series variables. In case of usage with series the operators are applied elementwise."
+  },
+  {
+    "name": "+=",
+    "syntax": "expr1 += expr2",
+    "description": "Addition assignment. Applicable to numerical expressions or strings.",
+    "examples": [
+      "//@version=6\nindicator(\"+=\")\n// Equals to expr1 = expr1 + expr2.\na = 2\nb = 3\na += b\n// Result: a = 5.\nplot(a)"
+    ],
+    "returnsDescription": "For strings returns concatenation of expr1 and expr2. For numbers returns integer or float value, or series of values.",
+    "remarks": "You may use arithmetic operators with numbers as well as with series variables. In case of usage with series the operators are applied elementwise."
+  },
+  {
+    "name": "-",
+    "syntax": "expr1 - expr2",
+    "description": "Subtraction or unary minus. Applicable to numerical expressions.",
+    "returnsDescription": "Returns integer or float value, or series of values:\nBinary - returns expr1 minus expr2.\nUnary - returns the negation of expr.",
+    "remarks": "You may use arithmetic operators with numbers as well as with series variables. In case of usage with series the operators are applied elementwise."
+  },
+  {
+    "name": "-=",
+    "syntax": "expr1 -= expr2",
+    "description": "Subtraction assignment. Applicable to numerical expressions.",
+    "examples": [
+      "//@version=6\nindicator(\"-=\")\n// Equals to expr1 = expr1 - expr2.\na = 2\nb = 3\na -= b\n// Result: a = -1.\nplot(a)"
+    ],
+    "returnsDescription": "Integer or float value, or series of values."
+  },
+  {
+    "name": "/",
+    "syntax": "expr1 / expr2",
+    "description": "Division. Applicable to numerical expressions.",
+    "returnsDescription": "Integer or float value, or series of values."
+  },
+  {
+    "name": "/=",
+    "syntax": "expr1 /= expr2",
+    "description": "Division assignment. Applicable to numerical expressions.",
+    "examples": [
+      "//@version=6\nindicator(\"/=\")\n// Equals to expr1 = expr1 / expr2.\nfloat a = 3.0\nb = 3\na /= b\n// Result: a = 1.\nplot(a)"
+    ],
+    "returnsDescription": "Integer or float value, or series of values."
+  },
+  {
+    "name": ":=",
+    "syntax": "<var_name> := <new_value>",
+    "description": "Reassignment operator. It is used to assign a new value to a previously declared variable.",
+    "examples": [
+      "//@version=6\nindicator(\"My script\")\n\nmyVar = 10\n\nif close > open\n    // Modifies the existing global scope `myVar` variable by changing its value from 10 to 20.\n    myVar := 20\n    // Creates a new `myVar` variable local to the `if` condition and unreachable from the global scope.\n    // Does not affect the `myVar` declared in global scope.\n    myVar = 30\n\nplot(myVar)"
+    ]
+  },
+  {
+    "name": "<",
+    "syntax": "expr1 < expr2",
+    "description": "Less than. Applicable to numerical expressions.",
+    "returnsDescription": "Boolean value, or series of boolean values."
+  },
+  {
+    "name": "<=",
+    "syntax": "expr1 <= expr2",
+    "description": "Less than or equal to. Applicable to numerical expressions.",
+    "returnsDescription": "Boolean value, or series of boolean values."
+  },
+  {
+    "name": "=",
+    "syntax": "<var_name> := <initial_value>",
+    "description": "Assignment operator. Assigns an initial value or reference to a declared variable. It means this is a new variable, and it starts with this value.",
+    "examples": [
+      "//@version=6\nindicator(\"`=` showcase\")\n// The following are all valid variable declarations.\ni = 1\nMS_IN_ONE_MINUTE = 1000 * 60\nshowPlotInput = input.bool(true, \"Show plots\")\npHi = ta.pivothigh(5, 5)\nplotColor = color.green\n\nplot(pHi, color = plotColor, display = showPlotInput ? display.all : display.none, precision = i)"
+    ]
+  },
+  {
+    "name": "==",
+    "syntax": "expr1 == expr2",
+    "description": "Equality operator. Returns true if the operands are considered equal, and false otherwise. This operator is compatible with all value types, including \"int\", \"float\", \"bool\", \"color\", and \"string\". The operator can also compare two line or label IDs.",
+    "returnsDescription": "Boolean value, or series of boolean values.",
+    "remarks": "This operator rounds \"float\" operands to nine fractional digits."
+  },
+  {
+    "name": "=>",
+    "syntax": "<identifier>([<parameter_name>[=<default_value>]], ...) =>\n    <local_block>\n    <function_result>",
+    "description": "The '=>' operator is used in user-defined function declarations and in switch statements.",
+    "examples": [
+      "//@version=6\nindicator(\"=>\")\n// single-line function\nf1(x, y) => x + y\n// multi-line function\nf2(x, y) =>\n    sum = x + y\n    sumChange = ta.change(sum, 10)\n    // Function automatically returns the last expression used in it\nplot(f1(30, 8) + f2(1, 3))"
+    ],
+    "remarks": "You can learn more about user-defined functions in the User Manual's pages on Declaring functions and Libraries."
+  },
+  {
+    "name": ">",
+    "syntax": "expr1 > expr2",
+    "description": "Greater than. Applicable to numerical expressions.",
+    "returnsDescription": "Boolean value, or series of boolean values."
+  },
+  {
+    "name": ">=",
+    "syntax": "expr1 >= expr2",
+    "description": "Greater than or equal to. Applicable to numerical expressions.",
+    "returnsDescription": "Boolean value, or series of boolean values."
+  },
+  {
+    "name": "?:",
+    "syntax": "expr1 ? expr2 : expr3",
+    "description": "Ternary conditional operator.",
+    "examples": [
+      "//@version=6\nindicator(\"?:\")\n// Draw circles at the bars where open crosses close\ns2 = ta.cross(open, close) ? math.avg(open,close) : na\nplot(s2, style=plot.style_circles, linewidth=2, color=color.red)\n\n// Combination of ?: operators for 'switch'-like logic\nc = timeframe.isintraday ? color.red : timeframe.isdaily ? color.green : timeframe.isweekly ? color.blue : color.gray\nplot(hl2, color=c)"
+    ],
+    "returnsDescription": "expr2 if expr1 is evaluated to true, expr3 otherwise. Zero value (0 and also NaN, +Infinity, -Infinity) is considered to be false, any other value is true.",
+    "remarks": "Use na for 'else' branch if you do not need it.\nYou can combine two or more ?: operators to achieve the equivalent of a 'switch'-like statement (see examples above).\nYou may use arithmetic operators with numbers as well as with series variables. In case of usage with series the operators are applied elementwise.",
+    "seeAlso": [
+      "na"
+    ]
+  },
+  {
+    "name": "[]",
+    "syntax": "expr1[expr2]",
+    "description": "Series subscript. Provides access to previous values of series expr1. expr2 is the number of bars back, and must be numerical. Floats will be rounded down.",
+    "examples": [
+      "//@version=6\nindicator(\"[]\")\n// [] can be used to \"save\" variable value between bars\na = 0.0 // declare `a`\na := a[1] // immediately set current value to the same as previous. `na` in the beginning of history\nif high == low // if some condition - change `a` value to another\n    a := low\nplot(a)"
+    ],
+    "returnsDescription": "A series of values.",
+    "seeAlso": [
+      "math.floor"
+    ]
+  }
+]

@@ -455,9 +455,52 @@ use super::*;
                 BehaviorKind::Keyword,
                 BehaviorKind::Type,
                 BehaviorKind::Annotation,
+                BehaviorKind::Operator,
             ]
         );
         assert!(kinds.iter().all(|kind| kind.count > 0));
+    }
+
+    // Operators are a first-class catalog now: lookup must resolve a symbol and
+    // carry its prose sub-sections.
+    #[test]
+    fn operator_lookup_works() {
+        let b = lookup("-").expect("operator - must exist");
+        match b {
+            Behavior::Operator(o) => {
+                assert_eq!(o.name, "-");
+                assert!(!o.description.is_empty());
+                assert!(
+                    o.returns_description.is_some(),
+                    "the `-` operator carries a prose Returns sentence"
+                );
+            }
+            other => panic!("expected Operator, got {other:?}"),
+        }
+    }
+
+    // A function carries the new prose sub-sections straight from pine-data.
+    #[test]
+    fn function_carries_prose_subsections() {
+        let b = lookup("ta.sma").expect("ta.sma must exist");
+        match b {
+            Behavior::Function(f) => {
+                assert_eq!(
+                    f.remarks.as_deref(),
+                    Some("na values in the source series are ignored.")
+                );
+                assert!(f.see_also.iter().any(|s| s == "ta.ema"));
+                assert!(f.returns_description.is_some());
+                // Per-argument prose now comes from pine-data directly.
+                let source = f
+                    .parameters
+                    .iter()
+                    .find(|p| p.name == "source")
+                    .expect("source param");
+                assert_eq!(source.description, "Series of values to process.");
+            }
+            other => panic!("expected Function, got {other:?}"),
+        }
     }
 
     #[test]

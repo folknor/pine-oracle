@@ -1,12 +1,11 @@
-// BM25 search over the two "name" sources - the v6 reference and the
-// structured pine-data behavior surface. Search is the index into `po lookup`:
-// you reach for it when you don't yet know the identifier to pass lookup.
+// BM25 search over the structured pine-data behavior surface. Search is the
+// index into `po lookup`: you reach for it when you don't yet know the
+// identifier to pass lookup.
 //
-// Output is a ranked list of *names*, deduplicated. An identifier indexed in
-// both sources (every named function / variable / ...) produces two underlying
-// BM25 hits; we group by name and SUM their scores, so a name that matches in
-// both sources ranks above one that matches in only one. The name is the whole
-// payload - you feed it back to `po lookup` for the full card.
+// Output is a ranked list of *names*. Each pine-data symbol is one document, so
+// names are already distinct; the grouping below is a no-op safety net (and was
+// load-bearing while a second, overlapping source existed). The name is the
+// whole payload - you feed it back to `po lookup` for the full card.
 //
 // The index is built lazily into a RAMDirectory on first query, cached via
 // OnceLock. A few thousand compact documents; build cost stays in low ms.
@@ -23,7 +22,7 @@ use tantivy::query::{BooleanQuery, BoostQuery, Query, QueryParser};
 use tantivy::schema::{Field, STORED, Schema, TEXT};
 use tantivy::{Index, IndexReader, ReloadPolicy, TantivyDocument};
 
-use crate::{behavior, reference};
+use crate::behavior;
 
 /// Multiplier applied to the name field when building the BM25 query. A hit
 /// on `ta.rsi` as a name beats any number of prose mentions of "rsi" in
@@ -80,13 +79,8 @@ fn build() -> Result<Engine> {
         Ok(())
     };
 
-    // Source 1: vendored v6 reference (941 entries).
-    for entry in reference::all_entries() {
-        add_doc(&entry.name, &entry.content)?;
-    }
-
-    // Source 2: structured pine-data behavior exports - signatures, param
-    // prose, examples, polymorphism notes.
+    // Single source: structured pine-data behavior exports - signatures, param
+    // prose, examples, polymorphism notes, and the remarks / see-also prose.
     for entry in behavior::search_entries() {
         add_doc(&entry.name, &entry.content)?;
     }

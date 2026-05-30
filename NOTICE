@@ -12,12 +12,6 @@ projects retain their own licenses, listed below.
 Vendored components
 -------------------
 
-vendor/pine-reference/
-  Pine v6 reference markdown snapshot from pinecone.
-  License: Mozilla Public License Version 2.0.
-  Copyright (c) Pinecone contributors.
-  See vendor/pine-reference/LICENSE and vendor/pine-reference/NOTICE.
-
 vendor/pine-data/v6/
   Pine v6 structured signatures + polymorphism markers from pine-tools.
   License: MIT License.
