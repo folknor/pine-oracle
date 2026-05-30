@@ -1,27 +1,29 @@
-// BM25 search across the vendored v6 reference and the structured pine-data
-// behavior surface - the two "name" sources. Search is the index into
-// `po lookup`: you reach for it when you don't yet know the identifier to
-// pass to lookup.
+// BM25 search over the two "name" sources - the v6 reference and the
+// structured pine-data behavior surface. Search is the index into `po lookup`:
+// you reach for it when you don't yet know the identifier to pass lookup.
+//
+// Output is a ranked list of *names*, deduplicated. An identifier indexed in
+// both sources (every named function / variable / ...) produces two underlying
+// BM25 hits; we group by name and SUM their scores, so a name that matches in
+// both sources ranks above one that matches in only one. The name is the whole
+// payload - you feed it back to `po lookup` for the full card.
 //
 // The index is built lazily into a RAMDirectory on first query, cached via
 // OnceLock. A few thousand compact documents; build cost stays in low ms.
 //
-// Scoring: name field carries a 5x boost over content. A query like
-// "rsi" therefore puts `ta.rsi` ahead of any prose paragraph that
-// happens to mention RSI.
+// Scoring: name field carries a 5x boost over content, so `rsi` puts `ta.rsi`
+// ahead of any prose paragraph that merely mentions RSI.
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use serde::Serialize;
+use std::collections::HashMap;
 use std::sync::OnceLock;
 use tantivy::collector::TopDocs;
-use tantivy::query::{BooleanQuery, BoostQuery, Query, QueryParser, TermQuery};
-use tantivy::schema::{Field, IndexRecordOption, STORED, STRING, Schema, TEXT};
-use tantivy::{Index, IndexReader, ReloadPolicy, TantivyDocument, Term};
+use tantivy::query::{BooleanQuery, BoostQuery, Query, QueryParser};
+use tantivy::schema::{Field, STORED, Schema, TEXT};
+use tantivy::{Index, IndexReader, ReloadPolicy, TantivyDocument};
 
 use crate::{behavior, reference};
-
-const KIND_REFERENCE: &str = "reference";
-const KIND_BEHAVIOR: &str = "behavior";
 
 /// Multiplier applied to the name field when building the BM25 query. A hit
 /// on `ta.rsi` as a name beats any number of prose mentions of "rsi" in
@@ -30,49 +32,26 @@ const KIND_BEHAVIOR: &str = "behavior";
 /// matches when the name token is absent.
 const NAME_BOOST: f32 = 5.0;
 
-/// Score multiplier applied to behavior-kind hits when no `--kind` filter is
-/// active. Without dampening, behavior entries (which have rich content:
-/// signatures, params, examples, polymorphism notes) outscore reference hits
-/// for generic queries, which is rarely the user's intent. The asymmetry is
-/// intentional: `--kind behavior` bypasses dampening entirely so a narrowed
-/// behavior search gets the raw BM25 signal; only the unfiltered mixed-kind
-/// ranking is adjusted.
-const BEHAVIOR_UNFILTERED_DAMPEN: f32 = 0.65;
-const SEARCH_KIND_NAMES: [&str; 2] = [KIND_REFERENCE, KIND_BEHAVIOR];
+/// Over-fetch multiplier before grouping. A name can be indexed in both
+/// sources, so its two raw hits must both be inside the fetched window for the
+/// summed score to be correct. 8x is ample headroom over the 2 sources while
+/// keeping the per-query traversal cheap on a few-thousand-doc index.
+const GROUP_OVERFETCH: usize = 8;
 
+/// One ranked name in a search result. `score` is the sum of the per-source
+/// BM25 scores for that name.
 #[derive(Debug, Clone, Serialize)]
-pub struct SearchHit {
-    pub kind: String,
-    pub category: String,
+pub struct NameHit {
     pub name: String,
     pub score: f32,
-    /// Full indexed body (reference prose or behavior signature block).
-    /// Tantivy stores it alongside the tokenised form so consumers don't need
-    /// a follow-up lookup.
-    pub content: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct SearchKindInfo {
-    pub kind: &'static str,
-    pub category: &'static str,
-    pub description: &'static str,
-    /// Number of documents of this kind indexed in the BM25 engine.
-    /// Previously named `document_count`; renamed to `count` in schema v1
-    /// to match the field name used by all other catalog types.
-    pub count: usize,
 }
 
 struct Engine {
     // `index` is retained solely so `QueryParser::for_index(&e.index, ...)` can
-    // be called cheaply inside `query()` without re-opening the index on every
-    // call. The reader/searcher does not need the Index directly.
+    // be called cheaply inside `query()` without re-opening the index.
     index: Index,
     reader: IndexReader,
     name_field: Field,
-    category_field: Field,
-    kind_field: Field,
-    content_field: Field,
     content_query_field: Field,
 }
 
@@ -83,29 +62,19 @@ fn engine() -> &'static Engine {
 
 fn build() -> Result<Engine> {
     let mut schema_builder = Schema::builder();
+    // `name` is stored (to retrieve the result name) and tokenised (for the
+    // name-boosted ranking). `content_search` is tokenised only - it drives
+    // content ranking but is never surfaced, since the name is the payload.
     let name_field = schema_builder.add_text_field("name", TEXT | STORED);
-    let category_field = schema_builder.add_text_field("category", STRING | STORED);
-    let kind_field = schema_builder.add_text_field("kind", STRING | STORED);
-    // `content` is stored (for SearchHit display) plus a separate tokenised
-    // copy `content_search` that drives BM25 ranking. Splitting lets us
-    // keep the stored content in its full prose form without bloating the
-    // term dictionary.
-    let content_field = schema_builder.add_text_field("content", STORED);
     let content_query_field = schema_builder.add_text_field("content_search", TEXT);
     let schema = schema_builder.build();
 
     let index = Index::create_in_ram(schema);
     let mut writer = index.writer(15_000_000)?;
 
-    // Local helper: build and add one document from its four semantic parts.
-    // Both sources use the same five-field layout (name, category, kind,
-    // content [STORED], content_search [TEXT]).
-    let add_doc = |name: &str, category: &str, kind: &str, content: &str| -> Result<()> {
+    let add_doc = |name: &str, content: &str| -> Result<()> {
         let mut doc = TantivyDocument::default();
         doc.add_text(name_field, name);
-        doc.add_text(category_field, category);
-        doc.add_text(kind_field, kind);
-        doc.add_text(content_field, content);
         doc.add_text(content_query_field, content);
         writer.add_document(doc)?;
         Ok(())
@@ -113,14 +82,13 @@ fn build() -> Result<Engine> {
 
     // Source 1: vendored v6 reference (941 entries).
     for entry in reference::all_entries() {
-        add_doc(&entry.name, &entry.category, KIND_REFERENCE, &entry.content)?;
+        add_doc(&entry.name, &entry.content)?;
     }
 
-    // Source 2: structured pine-data behavior exports. Indexes signatures,
-    // param prose, examples, and polymorphism notes so users can discover a
-    // symbol when they only remember a behavior or concept.
+    // Source 2: structured pine-data behavior exports - signatures, param
+    // prose, examples, polymorphism notes.
     for entry in behavior::search_entries() {
-        add_doc(&entry.name, entry.category, KIND_BEHAVIOR, &entry.content)?;
+        add_doc(&entry.name, &entry.content)?;
     }
 
     writer.commit()?;
@@ -134,23 +102,15 @@ fn build() -> Result<Engine> {
         index,
         reader,
         name_field,
-        category_field,
-        kind_field,
-        content_field,
         content_query_field,
     })
 }
 
-pub fn query(q: &str, limit: usize, kind_filter: Option<&str>) -> Result<Vec<SearchHit>> {
-    // Validate the kind filter first so `po search "" --kind bogus` returns
-    // the "unknown search kind" error rather than an empty-vec no-op. The empty
-    // query short-circuit is still below this so a valid-but-empty query still
-    // returns an empty slice without building the index.
-    let kind_filter = kind_filter.map(str::to_ascii_lowercase);
-    let kind_filter = kind_filter.as_deref();
-    if let Some(kind) = kind_filter {
-        validate_kind(kind)?;
-    }
+/// Ranked, deduplicated names matching `q`. Each name's score is the sum of its
+/// per-source BM25 scores; results are sorted descending and truncated to
+/// `limit`. An empty / whitespace query returns an empty vec without building
+/// the index.
+pub fn query(q: &str, limit: usize) -> Result<Vec<NameHit>> {
     if q.trim().is_empty() {
         return Ok(Vec::new());
     }
@@ -166,97 +126,34 @@ pub fn query(q: &str, limit: usize, kind_filter: Option<&str>) -> Result<Vec<Sea
     let boosted_name: Box<dyn Query> = Box::new(BoostQuery::new(name_q, NAME_BOOST));
     let scored: Box<dyn Query> = Box::new(BooleanQuery::union(vec![boosted_name, content_q]));
 
-    // With a kind filter: push the filter into tantivy as an AND clause so the
-    // searcher returns exactly `limit` matching docs without any post-filter
-    // dance (which could silently under-deliver when the filtered kind is a
-    // small fraction of the top-ranked BM25 hits).
-    //
-    // Without a kind filter: over-fetch 4x from tantivy, then apply the
-    // BEHAVIOR_UNFILTERED_DAMPEN multiplier and re-sort. The 4x factor gives
-    // the dampening step enough headroom to reorder behavior hits without
-    // starving the final `limit`-length result set.
-    let final_query: Box<dyn Query> = match kind_filter {
-        Some(kind) => {
-            let term = Term::from_field_text(e.kind_field, kind);
-            let kind_q: Box<dyn Query> = Box::new(TermQuery::new(term, IndexRecordOption::Basic));
-            Box::new(BooleanQuery::intersection(vec![scored, kind_q]))
-        }
-        None => scored,
-    };
-
-    let collect_limit = if kind_filter.is_some() {
-        limit
-    } else {
-        // 4x over-fetch: see comment above.
-        limit.saturating_mul(4).max(limit)
-    };
+    // Over-fetch so both source-hits for a name land in the window before we
+    // group and sum (see GROUP_OVERFETCH).
+    let collect_limit = limit.saturating_mul(GROUP_OVERFETCH).max(limit);
     let collector = TopDocs::with_limit(collect_limit).order_by_score();
-    let top = searcher.search(&final_query, &collector)?;
+    let top = searcher.search(&scored, &collector)?;
 
-    let mut hits = Vec::with_capacity(top.len());
+    // Group by name, summing the per-source BM25 scores.
+    let mut sums: HashMap<String, f32> = HashMap::new();
     for (score, addr) in top {
         let doc: TantivyDocument = searcher.doc(addr)?;
-        let name = first_text(&doc, e.name_field).unwrap_or_default();
-        let category = first_text(&doc, e.category_field).unwrap_or_default();
-        let kind = first_text(&doc, e.kind_field).unwrap_or_default();
-        let content = first_text(&doc, e.content_field).unwrap_or_default();
-        let score = if kind_filter.is_none() && kind == KIND_BEHAVIOR {
-            score * BEHAVIOR_UNFILTERED_DAMPEN
-        } else {
-            score
-        };
-        hits.push(SearchHit {
-            kind,
-            category,
-            name,
-            score,
-            content,
-        });
+        if let Some(name) = first_text(&doc, e.name_field) {
+            *sums.entry(name).or_insert(0.0) += score;
+        }
     }
-    if kind_filter.is_none() {
-        hits.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        hits.truncate(limit);
-    }
+
+    let mut hits: Vec<NameHit> = sums
+        .into_iter()
+        .map(|(name, score)| NameHit { name, score })
+        .collect();
+    hits.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            // Stable tiebreak so equal-scored names have a deterministic order.
+            .then_with(|| a.name.cmp(&b.name))
+    });
+    hits.truncate(limit);
     Ok(hits)
-}
-
-pub fn kind_catalog() -> Vec<SearchKindInfo> {
-    vec![
-        SearchKindInfo {
-            kind: KIND_REFERENCE,
-            category: "Reference",
-            description: "TradingView v6 reference entries",
-            count: reference::all_entries().len(),
-        },
-        SearchKindInfo {
-            kind: KIND_BEHAVIOR,
-            category: "Behavior",
-            description: "pine-data signatures, params, examples, and polymorphism notes",
-            count: behavior_doc_count(),
-        },
-    ]
-}
-
-/// Returns `true` when `kind` is the catalog sentinel `"?"`.
-/// Thin delegate to the binary's `output::CATALOG_MARKER`; kept here so
-/// library consumers that depend on the `pine_oracle::search` surface don't
-/// need to import the binary-internal `output` module.
-pub fn is_kind_catalog_request(kind: &str) -> bool {
-    kind == "?"
-}
-
-fn validate_kind(kind: &str) -> Result<()> {
-    if SEARCH_KIND_NAMES.contains(&kind) {
-        return Ok(());
-    }
-    bail!(
-        "unknown search kind `{kind}`; expected one of: {}",
-        SEARCH_KIND_NAMES.join(", ")
-    )
 }
 
 fn first_text(doc: &TantivyDocument, field: Field) -> Option<String> {
@@ -266,8 +163,8 @@ fn first_text(doc: &TantivyDocument, field: Field) -> Option<String> {
         .map(String::from)
 }
 
-/// Count of behavior-kind documents indexed in the BM25 engine.
-/// Computed once and cached; `pine version` calls this on every invocation.
+/// Count of behavior-source documents indexed in the BM25 engine.
+/// Computed once and cached; `po version` calls this on every invocation.
 pub fn behavior_doc_count() -> usize {
     static COUNT: OnceLock<usize> = OnceLock::new();
     *COUNT.get_or_init(|| behavior::search_entries().len())
@@ -279,7 +176,7 @@ mod tests {
 
     #[test]
     fn rsi_query_ranks_ta_rsi_first() {
-        let hits = query("rsi", 5, None).expect("search must succeed");
+        let hits = query("rsi", 5).expect("search must succeed");
         assert!(!hits.is_empty(), "expected at least one hit for rsi");
         assert_eq!(
             hits[0].name,
@@ -287,18 +184,17 @@ mod tests {
             "ta.rsi should rank first, got {:?}",
             hits.iter().map(|h| &h.name).collect::<Vec<_>>()
         );
-        assert_eq!(hits[0].kind, "reference");
     }
 
     #[test]
     fn empty_query_returns_empty() {
-        let hits = query("", 10, None).expect("empty query must not error");
+        let hits = query("", 10).expect("empty query must not error");
         assert!(hits.is_empty());
     }
 
     #[test]
     fn math_max_finds_the_function() {
-        let hits = query("math max", 10, None).expect("search must succeed");
+        let hits = query("math max", 10).expect("search must succeed");
         assert!(
             hits.iter().any(|h| h.name == "math.max"),
             "math max must surface math.max, got {:?}",
@@ -306,165 +202,68 @@ mod tests {
         );
     }
 
+    // The core dedup property: a name indexed in both reference and behavior
+    // (every named function) must appear exactly once in the results.
     #[test]
-    fn hits_carry_non_empty_content() {
-        let hits = query("rsi", 3, None).expect("search must succeed");
-        assert!(!hits.is_empty());
-        let ta_rsi = hits.iter().find(|h| h.name == "ta.rsi").expect("ta.rsi");
-        assert!(
-            !ta_rsi.content.is_empty(),
-            "ta.rsi hit must carry stored content"
-        );
-        assert!(ta_rsi.content.len() > 30);
-    }
-
-    #[test]
-    fn kind_filter_returns_only_matching_kind() {
-        // Push the filter into tantivy: every returned hit must carry the
-        // requested kind.
-        let hits = query("array", 10, Some("behavior")).expect("search must succeed");
-        assert!(!hits.is_empty(), "expected behavior-kind hits for `array`");
-        assert!(
-            hits.iter().all(|h| h.kind == "behavior"),
-            "kind filter leaked non-behavior hits: {:?}",
-            hits.iter()
-                .map(|h| (h.kind.as_str(), h.name.as_str()))
-                .collect::<Vec<_>>()
-        );
-    }
-
-    #[test]
-    fn kind_filter_is_case_insensitive() {
-        let hits = query("rsi", 10, Some("REFERENCE")).expect("search must succeed");
-        assert!(!hits.is_empty(), "expected reference-kind hits for `rsi`");
-        assert!(hits.iter().all(|h| h.kind == "reference"));
-    }
-
-    #[test]
-    fn kind_catalog_lists_all_supported_kinds_with_counts() {
-        let kinds = kind_catalog();
+    fn names_are_deduplicated() {
+        let hits = query("lower", 25).expect("search must succeed");
+        let lower_rows = hits.iter().filter(|h| h.name == "str.lower").count();
         assert_eq!(
-            kinds.iter().map(|kind| kind.kind).collect::<Vec<_>>(),
-            vec!["reference", "behavior"]
+            lower_rows, 1,
+            "str.lower must appear exactly once (deduped across sources), got {lower_rows}"
         );
-        assert!(kinds.iter().all(|kind| kind.count > 0));
+        // No name may repeat anywhere in the result set.
+        let mut seen = std::collections::HashSet::new();
+        for h in &hits {
+            assert!(
+                seen.insert(&h.name),
+                "duplicate name in results: {}",
+                h.name
+            );
+        }
     }
 
+    // Summing across sources: a name matching in both reference and behavior
+    // should outscore the bare per-source contribution. `request.security_lower_tf`
+    // matches in both, so it should rank at or above `str.lower` for `lower`
+    // (matching the hand-computed mockup where multi-source corroboration won).
     #[test]
-    fn invalid_kind_filter_errors() {
-        let err = query("rsi", 10, Some("behaviour")).expect_err("must reject unknown kind");
-        assert!(err.to_string().contains("unknown search kind"));
+    fn multi_source_name_ranks_above_single_source() {
+        let hits = query("lower", 25).expect("search must succeed");
+        let pos = |name: &str| hits.iter().position(|h| h.name == name);
+        let multi = pos("request.security_lower_tf").expect("multi-source name present");
+        let single = pos("str.upper");
+        if let Some(single) = single {
+            assert!(
+                multi < single,
+                "multi-source `request.security_lower_tf` (#{multi}) should rank \
+                 above single-source `str.upper` (#{single})"
+            );
+        }
     }
 
+    // The 5x NAME_BOOST must seat the exact-name hit first. `ta.sma` is the
+    // canonical reference entry whose name IS "ta.sma"; "sma" also appears in
+    // many other bodies, so without the boost a content-heavy doc could win.
     #[test]
-    fn kind_filter_can_deliver_full_limit_when_kind_is_sparse() {
-        // tantivy filters during retrieval so the limit is honored whenever
-        // the underlying index has enough matching docs of the requested kind.
-        let hits = query("function", 20, Some("reference")).expect("search must succeed");
-        assert!(
-            hits.len() >= 15,
-            "kind filter under-delivered: got {} reference hits for `function`, expected >=15",
-            hits.len()
-        );
-        assert!(hits.iter().all(|h| h.kind == "reference"));
-    }
-
-    #[test]
-    fn behavior_entries_appear_in_search() {
-        let hits = query("polymorphic return allowed types", 25, Some("behavior"))
-            .expect("search must succeed");
-        assert!(!hits.is_empty(), "expected behavior-kind hits");
-        assert!(hits.iter().all(|h| h.kind == "behavior"));
-        assert!(
-            hits.iter().any(|h| h.category == "Function"),
-            "expected at least one function behavior hit, got {:?}",
-            hits.iter()
-                .map(|h| (h.category.as_str(), h.name.as_str()))
-                .collect::<Vec<_>>()
-        );
-    }
-
-    // The pine-data type + annotation catalogs are indexed under the behavior
-    // kind (categories "Type" / "Annotation"). A name-token query for each must
-    // surface them.
-    #[test]
-    fn type_and_annotation_catalogs_appear_in_search() {
-        let type_hits = query("chart.point", 25, Some("behavior")).expect("search must succeed");
-        assert!(
-            type_hits
-                .iter()
-                .any(|h| h.category == "Type" && h.name == "chart.point"),
-            "expected a Type-category hit for chart.point, got {:?}",
-            type_hits
-                .iter()
-                .map(|h| (h.category.as_str(), h.name.as_str()))
-                .collect::<Vec<_>>()
-        );
-
-        let annotation_hits = query("version", 25, Some("behavior")).expect("search must succeed");
-        assert!(
-            annotation_hits
-                .iter()
-                .any(|h| h.category == "Annotation" && h.name == "@version="),
-            "expected an Annotation-category hit for @version=, got {:?}",
-            annotation_hits
-                .iter()
-                .map(|h| (h.category.as_str(), h.name.as_str()))
-                .collect::<Vec<_>>()
-        );
-    }
-
-    // The 5x NAME_BOOST must seat the exact-name hit above every content-only
-    // hit by a meaningful margin. We use "sma" as the probe token: `ta.sma` is
-    // the canonical reference entry whose name IS "ta.sma", while "sma" also
-    // appears in the body text of many other reference / behavior entries.
-    #[test]
-    fn name_boost_dominates_over_content_match() {
-        let hits = query("sma", 10, None).expect("search must succeed");
-        assert!(
-            hits.len() >= 2,
-            "expected at least two hits for `sma`, got {}",
-            hits.len()
-        );
+    fn name_boost_seats_exact_name_first() {
+        let hits = query("sma", 10).expect("search must succeed");
         assert_eq!(
             hits[0].name,
             "ta.sma",
             "ta.sma (exact name match) must rank first; got {:?}",
             hits.iter().map(|h| &h.name).collect::<Vec<_>>()
         );
-        assert_eq!(hits[0].kind, "reference");
-        let top_score = hits[0].score;
-        let second_score = hits[1].score;
-        // 1.3x floor catches accidental boost removal while staying robust
-        // against BM25 saturation that flattens score ratios at high IDF.
-        assert!(
-            top_score >= second_score * 1.3,
-            "expected name-boosted hit to score at least 1.3x the second hit \
-             (top={top_score:.4}, second={second_score:.4}); \
-             NAME_BOOST={NAME_BOOST} may have been reduced or removed"
-        );
     }
 
-    // The BEHAVIOR_UNFILTERED_DAMPEN factor must not apply when `--kind
-    // behavior` is set (raw BM25 applies), and the const value is pinned.
+    // A name only present in the behavior source (via its rich signature
+    // content) must still surface - search indexes both sources.
     #[test]
-    fn behavior_kind_dampened_when_unfiltered() {
-        let hits_filtered = query("array", 10, Some("behavior")).expect("search must succeed");
+    fn behavior_sourced_names_surface() {
+        let hits = query("polymorphic return", 25).expect("search must succeed");
         assert!(
-            !hits_filtered.is_empty(),
-            "expected behavior-kind hits for filtered `array` query"
-        );
-        assert_eq!(
-            hits_filtered[0].kind,
-            "behavior",
-            "top hit must be behavior-kind when kind=behavior is requested; got {:?}",
-            hits_filtered.iter().map(|h| &h.kind).collect::<Vec<_>>()
-        );
-        // Pin the const so a silent change forces a conscious update here.
-        assert_eq!(
-            BEHAVIOR_UNFILTERED_DAMPEN, 0.65,
-            "BEHAVIOR_UNFILTERED_DAMPEN changed from 0.65; verify the new \
-             dampening level is intentional and update this assertion"
+            !hits.is_empty(),
+            "expected hits for a behavior-flavored query"
         );
     }
 }

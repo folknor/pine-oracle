@@ -178,14 +178,11 @@ enum Command {
         grep: Option<String>,
     },
 
-    /// BM25 search across the v6 reference and pine-data behavior
+    /// Ranked identifier names matching a query - the index into `po lookup`
     Search {
         query: String,
         #[arg(long, default_value_t = 25)]
         limit: usize,
-        /// Restrict hits to one source. Pass `?` to list source kinds.
-        #[arg(long)]
-        kind: Option<String>,
     },
 
     /// Type errors, syntax errors, behavior warnings
@@ -196,7 +193,7 @@ enum Command {
         strict: bool,
     },
 
-    /// pine-data snapshot date + reference / docs / behavior bake counts
+    /// pine-data snapshot date + reference / behavior bake counts
     Version,
 }
 
@@ -227,9 +224,7 @@ fn main() -> Result<()> {
             style,
             cli.quiet,
         ),
-        Command::Search { query, limit, kind } => {
-            commands::search::run(&query, limit, kind.as_deref(), format, style, cli.quiet)
-        }
+        Command::Search { query, limit } => commands::search::run(&query, limit, style, cli.quiet),
         Command::Validate { source, strict } => {
             let code = source.read()?;
             commands::validate::run(&code, strict, format, style, cli.quiet)
@@ -493,21 +488,6 @@ mod tests {
                 assert_eq!(grep, None);
             }
             _ => panic!("expected lookup command"),
-        }
-    }
-
-    #[test]
-    fn search_kind_catalog_parses_literal_question_mark() {
-        let cli = Cli::try_parse_from(["pine", "search", "x", "--kind", "?"])
-            .expect("search kind catalog args should parse");
-
-        match cli.command {
-            Command::Search { query, limit, kind } => {
-                assert_eq!(query, "x");
-                assert_eq!(limit, 25);
-                assert_eq!(kind.as_deref(), Some("?"));
-            }
-            _ => panic!("expected search command"),
         }
     }
 
