@@ -461,6 +461,27 @@ use super::*;
         assert!(kinds.iter().all(|kind| kind.count > 0));
     }
 
+    // keywords.json is mid-migration from a bare string[] to objects with
+    // prose. The untagged RawKeywordEntry must accept both in the same array so
+    // the binary works before and after the schema lands.
+    #[test]
+    fn keywords_accept_bare_and_object_shapes() {
+        let json = r#"["for", {"name":"switch","remarks":"only one block runs","seeAlso":["if","?:"]}]"#;
+        let entries: Vec<RawKeywordEntry> = serde_json::from_str(json).expect("must parse mixed");
+        let kws: Vec<RawKeyword> = entries
+            .into_iter()
+            .map(RawKeywordEntry::into_keyword)
+            .collect();
+        // Bare string -> name only, no prose.
+        assert_eq!(kws[0].name, "for");
+        assert!(kws[0].remarks.is_none());
+        assert!(kws[0].see_also.is_empty());
+        // Object -> name + prose sub-sections.
+        assert_eq!(kws[1].name, "switch");
+        assert_eq!(kws[1].remarks.as_deref(), Some("only one block runs"));
+        assert_eq!(kws[1].see_also, vec!["if", "?:"]);
+    }
+
     // Operators are a first-class catalog now: lookup must resolve a symbol and
     // carry its prose sub-sections.
     #[test]

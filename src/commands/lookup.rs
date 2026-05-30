@@ -236,6 +236,7 @@ fn print_behavior_text(b: &behavior::Behavior) {
         }
         behavior::Behavior::Keyword(k) => {
             println!("keyword {}", k.name);
+            print_prose(&k.remarks, &k.see_also);
         }
         behavior::Behavior::Type(t) => {
             println!("type {}", t.name);

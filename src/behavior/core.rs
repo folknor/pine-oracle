@@ -268,6 +268,39 @@ pub struct RawAnnotation {
     pub see_also: Vec<String>,
 }
 
+/// A keyword entry. `keywords.json` is transitioning from a bare `string[]` to
+/// objects carrying prose sub-sections; this untagged form accepts both so the
+/// binary works against either schema. A bare string normalises to a
+/// `RawKeyword` with no prose.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum RawKeywordEntry {
+    Bare(String),
+    Rich(RawKeyword),
+}
+
+impl RawKeywordEntry {
+    fn into_keyword(self) -> RawKeyword {
+        match self {
+            Self::Bare(name) => RawKeyword {
+                name,
+                remarks: None,
+                see_also: Vec::new(),
+            },
+            Self::Rich(k) => k,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RawKeyword {
+    pub name: String,
+    #[serde(default)]
+    pub remarks: Option<String>,
+    #[serde(rename = "seeAlso", default)]
+    pub see_also: Vec<String>,
+}
+
 /// Raw operator entry from operators.json. Operators carry no namespace, no
 /// typed return (only a prose `returnsDescription`), and no parameters.
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -354,6 +387,8 @@ pub struct ConstantBehavior {
 #[derive(Debug, Clone, Serialize)]
 pub struct KeywordBehavior {
     pub name: String,
+    pub remarks: Option<String>,
+    pub see_also: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -505,7 +540,7 @@ struct BehaviorIndex {
     functions: HashMap<String, RawFunction>,
     variables: HashMap<String, RawVariable>,
     constants: HashMap<String, RawConstant>,
-    keywords: Vec<String>,
+    keywords: Vec<RawKeyword>,
     types: HashMap<String, RawType>,
     annotations: HashMap<String, RawAnnotation>,
     operators: HashMap<String, RawOperator>,
@@ -520,7 +555,11 @@ fn build_index() -> anyhow::Result<BehaviorIndex> {
     let functions: Vec<RawFunction> = serde_json::from_str(FUNCTIONS_JSON)?;
     let variables: Vec<RawVariable> = serde_json::from_str(VARIABLES_JSON)?;
     let constants: Vec<RawConstant> = serde_json::from_str(CONSTANTS_JSON)?;
-    let keywords: Vec<String> = serde_json::from_str(KEYWORDS_JSON)?;
+    let keywords: Vec<RawKeywordEntry> = serde_json::from_str(KEYWORDS_JSON)?;
+    let keywords: Vec<RawKeyword> = keywords
+        .into_iter()
+        .map(RawKeywordEntry::into_keyword)
+        .collect();
     let types: Vec<RawType> = serde_json::from_str(TYPES_JSON)?;
     let annotations: Vec<RawAnnotation> = serde_json::from_str(ANNOTATIONS_JSON)?;
     let operators: Vec<RawOperator> = serde_json::from_str(OPERATORS_JSON)?;
@@ -567,9 +606,15 @@ pub fn lookup(name: &str) -> Option<Behavior> {
     if let Some(result) = lookup_in(idx, name) {
         return Some(result);
     }
-    if idx.keywords.iter().any(|k| k.eq_ignore_ascii_case(name)) {
+    if let Some(k) = idx
+        .keywords
+        .iter()
+        .find(|k| k.name.eq_ignore_ascii_case(name))
+    {
         return Some(Behavior::Keyword(KeywordBehavior {
-            name: name.to_string(),
+            name: k.name.clone(),
+            remarks: k.remarks.clone(),
+            see_also: k.see_also.clone(),
         }));
     }
     // Generic-placeholder fallback: try conventional suffixes in decreasing
@@ -782,7 +827,7 @@ pub fn list(kind_filter: Option<&str>, grep: Option<&str>) -> Result<Vec<Behavio
         for keyword in &idx.keywords {
             out.push(BehaviorListing {
                 kind: BehaviorKind::Keyword,
-                name: keyword.clone(),
+                name: keyword.name.clone(),
                 namespace: None,
                 detail: String::new(),
                 polymorphic: false,
@@ -902,8 +947,8 @@ pub fn search_entries() -> Vec<BehaviorSearchEntry> {
     for keyword in &idx.keywords {
         out.push(BehaviorSearchEntry {
             category: "Keyword",
-            name: keyword.clone(),
-            content: "Reserved Pine keyword.".to_string(),
+            name: keyword.name.clone(),
+            content: keyword_search_content(keyword),
         });
     }
     for ty in idx.types.values() {
@@ -1077,6 +1122,12 @@ fn annotation_search_content(annotation: &RawAnnotation) -> String {
     parts.join("\n")
 }
 
+fn keyword_search_content(keyword: &RawKeyword) -> String {
+    let mut parts = vec!["Reserved Pine keyword.".to_string()];
+    push_prose(&mut parts, &keyword.remarks, &[], &keyword.see_also);
+    parts.join("\n")
+}
+
 fn operator_search_content(operator: &RawOperator) -> String {
     let mut parts = Vec::new();
     if let Some(syntax) = &operator.syntax {
@@ -1163,7 +1214,7 @@ fn build_syntax_builtins() -> BuiltinsTable {
             .or_insert_with(|| parse_value_type(&constant.ty));
     }
     for keyword in &idx.keywords {
-        table.keywords.insert(keyword.clone());
+        table.keywords.insert(keyword.name.clone());
     }
 
     table
