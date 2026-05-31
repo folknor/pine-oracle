@@ -70,6 +70,9 @@ piners-syntax = { path = "../piners/crates/piners-syntax" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+include_dir = { version = "0.7", features = ["glob"] }
+owo-colors = "4"
+pulldown-cmark = "0.13"
 tantivy = "0.26"
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 

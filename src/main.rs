@@ -1,6 +1,6 @@
 use anyhow::{Result, bail};
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use pine_oracle::{behavior, suggest};
+use pine_oracle::{behavior, manual, suggest};
 use std::io::{IsTerminal, Read};
 use std::path::{Path, PathBuf};
 
@@ -178,6 +178,15 @@ enum Command {
         grep: Option<String>,
     },
 
+    /// Search the Pine User Manual prose (how does X work)
+    Search {
+        /// A query, a `page#anchor` section ref, or a page path.
+        query: String,
+        /// Max sections to return for a query.
+        #[arg(long, default_value_t = 8)]
+        limit: usize,
+    },
+
     /// Type errors, syntax errors, behavior warnings
     Validate {
         #[command(flatten)]
@@ -217,6 +226,9 @@ fn main() -> Result<()> {
             style,
             cli.quiet,
         ),
+        Command::Search { query, limit } => {
+            commands::search::run(&query, limit, format, style, cli.quiet)
+        }
         Command::Validate { source, strict } => {
             let code = source.read()?;
             commands::validate::run(&code, strict, format, style, cli.quiet)
@@ -229,6 +241,8 @@ fn cmd_version(format: ResolvedFormat, quiet: bool) -> Result<()> {
     let binary = env!("CARGO_PKG_VERSION");
     let indexed_names = suggest::indexed_name_count();
     let pine_data = behavior::snapshot();
+    let manual_pages = manual::page_count();
+    let manual_sections = manual::section_count();
     match format {
         ResolvedFormat::Json => {
             print_json(&serde_json::json!({
@@ -245,6 +259,10 @@ fn cmd_version(format: ResolvedFormat, quiet: bool) -> Result<()> {
                         "operator_count": pine_data.operator_count,
                         "polymorphic_function_count": pine_data.polymorphic_function_count,
                         "indexed_name_count": indexed_names,
+                },
+                "manual": {
+                    "page_count": manual_pages,
+                    "section_count": manual_sections,
                 },
             }))?;
         }
@@ -268,6 +286,7 @@ fn cmd_version(format: ResolvedFormat, quiet: bool) -> Result<()> {
                 pine_data.annotation_count,
                 pine_data.operator_count
             );
+            println!("manual:         {manual_pages} pages, {manual_sections} sections");
         }
     }
     Ok(())
@@ -361,7 +380,7 @@ mod tests {
     #[test]
     fn cmd_version_json_shape() {
         use crate::output::versioned_json;
-        use pine_oracle::{behavior, suggest};
+        use pine_oracle::{behavior, manual, suggest};
 
         let binary = env!("CARGO_PKG_VERSION");
         let indexed_names = suggest::indexed_name_count();
@@ -381,6 +400,10 @@ mod tests {
                 "operator_count": pine_data.operator_count,
                 "polymorphic_function_count": pine_data.polymorphic_function_count,
                 "indexed_name_count": indexed_names,
+            },
+            "manual": {
+                "page_count": manual::page_count(),
+                "section_count": manual::section_count(),
             },
         });
 

@@ -2,3 +2,10 @@ project = "pine-oracle"
 
 [test]
 default_package = "pine-oracle"
+
+[gremlins]
+# The vendored Pine User Manual is third-party prose that legitimately carries
+# typographic punctuation (curly quotes, em-dashes, the registered mark). It is
+# data, not source, so the gremlin scan skips it; the rest of the tree stays
+# strict.
+exclude = ["vendor/pine-manual"]

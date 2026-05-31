@@ -180,6 +180,12 @@ impl Style {
         )
     }
 
+    /// Whether ANSI styling is on. `po search` passes the inverse to the
+    /// markdown renderer as its `no_color` flag.
+    pub(crate) fn enabled(self) -> bool {
+        self.enabled
+    }
+
     pub(crate) fn red(self, s: &str) -> String {
         self.wrap(s, "31")
     }

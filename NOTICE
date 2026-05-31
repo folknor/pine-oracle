@@ -19,6 +19,23 @@ vendor/pine-data/v6/
   See vendor/pine-data/v6/NOTICE; the MIT text is the pine-tools repo's
   LICENSE at https://github.com/folknor/pine-tools.
 
+vendor/pine-manual/v6/
+  Pine v6 User Manual, a per-page markdown tree scraped from TradingView's
+  published documentation via pine-tools. This is TradingView's documentation
+  content; trademarks and copyright belong to TradingView (see Trademarks
+  below). Vendored as data for `po search`, not modified beyond the markdown
+  conversion.
+
+Adapted sources
+---------------
+
+src/render.rs
+  Markdown -> terminal renderer adapted from markdown-peek's emitter/term.rs.
+  Upstream: https://github.com/takeshiD/markdown-peek (MIT, (c) tkcd).
+  Merged into this tree, trimmed (no syntect/emoji/colour-swatch), and
+  relicensed MPL-2.0 as a project source file; the MIT origin is acknowledged
+  here and in the README.
+
 Sibling path dependencies
 -------------------------
 
