@@ -32,11 +32,14 @@ Schema notes:
     reference card straight from pine-data; the markdown reference vendor was
     retired once they landed.
 
-Snapshot: pine-tools scrape 2026-05-31 (keywords.json graduated from a bare
-string array to objects carrying description + remarks / seeAlso /
-returnsDescription). The JSON files are bare arrays with no embedded generation
-timestamp; the snapshot date above is baked into the binary as
-behavior::PINE_DATA_SNAPSHOT for `po version`.
+Snapshot: pine-tools scrape 2026-06-02 (functions.json only: upstream narrowed
+five over-broad parameter type strings to match TradingView's docs - fixnan
+`source` and nz `source`/`replacement` int/float/bool/string/color -> int/float/color,
+int `x` int/float/bool -> int/float, plot `title` series string -> const string;
+entry counts unchanged, the other six files are byte-identical to 2026-05-31).
+The JSON files are bare arrays with no embedded generation timestamp; the
+snapshot date above is baked into the binary as behavior::PINE_DATA_SNAPSHOT for
+`po version`.
 
 Refresh procedure: re-run pine-tools' data pipeline (`pnpm run scrape`), copy
 the resulting JSON files in, update the counts / snapshot ref above and the

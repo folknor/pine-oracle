@@ -54,7 +54,7 @@ const OPERATORS_JSON: &str = include_str!("../../vendor/pine-data/v6/operators.j
 // removed function-behavior.json used to carry one). The snapshot ref/date is
 // baked here from the vendoring pass; see vendor/pine-data/v6/NOTICE.
 const PINE_DATA_VERSION: &str = "6";
-const PINE_DATA_SNAPSHOT: &str = "2026-05-31T00:00:00+02:00";
+const PINE_DATA_SNAPSHOT: &str = "2026-06-02T00:00:00+02:00";
 
 // ---------- raw types (mirror the JSON 1:1) ----------
 
