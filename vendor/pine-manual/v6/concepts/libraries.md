@@ -134,7 +134,8 @@ Note that for the function to return a “simple” value, no “series” value
 
 One can also use the [series](https://www.tradingview.com/pine-script-reference/v6/#type_series) keyword to prefix the type of a library function parameter. However, because library function parameters are qualified as “series” by default, using the keyword to specify the qualifier is often unnecessary.
 
-NoteInstances of [reference types](https://www.tradingview.com/pine-script-docs/language/type-system/#reference-types) automatically inherit the “series” qualifier, regardless of how a script uses them. Therefore, libraries **cannot** create exported functions that rely on reference types and return “simple” values, because all calculations involving “series” data always produce “series” results. See the [Type system](https://www.tradingview.com/pine-script-docs/language/type-system/) page to learn more.
+> [!NOTE]
+> Instances of [reference types](https://www.tradingview.com/pine-script-docs/language/type-system/#reference-types) automatically inherit the “series” qualifier, regardless of how a script uses them. Therefore, libraries **cannot** create exported functions that rely on reference types and return “simple” values, because all calculations involving “series” data always produce “series” results. See the [Type system](https://www.tradingview.com/pine-script-docs/language/type-system/) page to learn more.
 
 ### User-defined types and objects {#user-defined-types-and-objects}
 
@@ -315,8 +316,6 @@ Private libraries can be used in public Protected or Invite-only scripts.
 
 After adding our example library to the chart and setting up a clean chart showing our library plots the way we want them, we use the Pine Editor’s “Publish Script” button. The “Publish Library” window comes up:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Libraries-CreatingALibrary-PublishWindow.DrHv_-QJ_2ra4Nl.webp)
-
 Note that:
 
 -   We leave the library’s title as is (the `title` argument in our [library()](https://www.tradingview.com/pine-script-reference/v6/#fun_library) declaration statement is used as the default). While you can change the publication’s title, it is preferable to keep its default value because the `title` argument is used to reference imported libraries in the [import](https://www.tradingview.com/pine-script-reference/v6/#kw_import) statement. It makes life easier for library users when your publication’s title matches the actual name of the library.
@@ -355,8 +354,6 @@ import PineCoders/AllTimeHighLow/1 as allTime
 ```
 
 As you type the user name of the library’s author, you can use the Editor’s `ctrl` + `space` / `cmd` “Auto-complete” command to display a popup providing selections that match the available libraries:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Libraries-UsingALibrary-1.PrDno7wM_2eHqS.webp)
 
 This is an indicator that reuses our library:
 

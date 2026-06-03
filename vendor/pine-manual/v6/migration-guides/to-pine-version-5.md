@@ -28,8 +28,6 @@ Not all scripts can be automatically converted from v4 to v5. If you want to con
 
 For clarity and consistency, many built-in functions and variables were renamed in v5. The inclusion of v4 function names in a new namespace is the cause of most changes. For example, the [sma()](https://www.tradingview.com/pine-script-reference/v4/#fun_sma) function in v4 is moved to the `ta.` namespace in v5: [ta.sma()](https://www.tradingview.com/pine-script-reference/v5/#fun_ta.sma). Remembering the new namespaces is not necessary; if you type the older name of a function without its namespace in the Editor and press the ‘Auto-complete’ hotkey (`Ctrl` + `Space`, or `Cmd` on MacOS), a popup showing matching suggestions appears:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/v5_autocomplete.R-4HP09V_p1jXD.webp)
-
 Not counting functions moved to new namespaces, only two functions have been renamed:
 
 -   `study()` is now [indicator()](https://www.tradingview.com/pine-script-reference/v5/#fun_indicator).

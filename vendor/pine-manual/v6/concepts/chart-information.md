@@ -58,8 +58,6 @@ Built-in variables in the `syminfo` namespace provide scripts with information o
 
 This script displays these built-in variables and their values for the current symbol in a [table](https://www.tradingview.com/pine-script-docs/concepts/tables/) on the chart:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Chart-information-Symbol-information-1.CS2rX-rO_ZPY4qp.webp)
-
 ```pine
 //@version=6
 indicator("`syminfo.*` built-ins demo", overlay = true)

@@ -32,8 +32,6 @@ Since lengths cannot be zero, it is necessary to add one to a returned value of 
 
 Here’s an example of how to use these principles for a practical purpose. The following example script calculates the highest and lowest price points since the start of a new day. We use [timeframe.change()](https://www.tradingview.com/pine-script-reference/v6/#fun_timeframe.change) to detect the start of a new day, which is our condition. The [ta.barssince()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.barssince) function calculates the number of bars that elapsed since this condition was last met. The script passes this number, or “lookback”, to the [ta.lowest()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.lowest) and [ta.highest()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.highest) functions, which determine the highest and lowest points since the start of the new day:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Functions-How-can-i-calculate-values-depending-on-variable-lengths-that-reset-on-a-condition-1.BG9cnL10_Z2mvmax.webp)
-
 ```pine
 //@version=6
 indicator("Highest/lowest since new day", "", true)
@@ -55,7 +53,8 @@ bgcolor(newDay ? color.new(color.gray, 80) : na)
 plot(lookback, "Lookback", display = display.data_window)
 ```
 
-NoticeIf a script uses a dynamic value as the argument for a built-in function parameter that defines a lookback length, such as the `length` parameter of [ta.sma()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.sma), an error can occur if the value increases unpredictably. This behavior is most common on realtime bars, but it can also happen on historical bars in some cases. Refer to the section [The requested historical offset (X) is beyond the historical buffer’s limit (Y)](https://www.tradingview.com/pine-script-docs/error-messages/#the-requested-historical-offset-x-is-beyond-the-historical-buffers-limit-y) in the [Error messages](https://www.tradingview.com/pine-script-docs/error-messages/) page for more information about the error and its causes.
+> [!IMPORTANT]
+> If a script uses a dynamic value as the argument for a built-in function parameter that defines a lookback length, such as the `length` parameter of [ta.sma()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.sma), an error can occur if the value increases unpredictably. This behavior is most common on realtime bars, but it can also happen on historical bars in some cases. Refer to the section [The requested historical offset (X) is beyond the historical buffer’s limit (Y)](https://www.tradingview.com/pine-script-docs/error-messages/#the-requested-historical-offset-x-is-beyond-the-historical-buffers-limit-y) in the [Error messages](https://www.tradingview.com/pine-script-docs/error-messages/) page for more information about the error and its causes.
 
 ## How can I round a number to x increments? {#how-can-i-round-a-number-to-x-increments}
 
@@ -159,7 +158,8 @@ if barstate.islast
     label.delete(baseUnitLabel[1])
 ```
 
-NoteThis function might not address all potential scenarios. Therefore, we recommend confirming this function’s results with the pip values shown by your broker.
+> [!NOTE]
+> This function might not address all potential scenarios. Therefore, we recommend confirming this function’s results with the pip values shown by your broker.
 
 ## How do I calculate averages? {#how-do-i-calculate-averages}
 
@@ -192,8 +192,6 @@ The example script below imports a [library](https://www.tradingview.com/pine-sc
 
 The condition for these conditional averages is _session opening bars_, which we determine using the [session.isfirstbar\_regular](https://www.tradingview.com/pine-script-reference/v6/#var_session.isfirstbar_regular) variable.
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Functions-How-can-i-calculate-an-average-only-when-a-certain-condition-is-true-1.zmzMnsL2_Z1a0skY.webp)
-
 ```pine
 //@version=6
 indicator("Average session opening volume")
@@ -214,7 +212,8 @@ plot(PCca.avgWhen(source = volume, condition = session.isfirstbar_regular), "avg
 plot(PCca.avgWhenLast(source = volume, condition = session.isfirstbar_regular, count = 5), "avgWhenInLast()", #00FF00)
 ```
 
-TipSome built-in functions, such as [ta.sma()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.sma) _ignore_ the bars with [na](https://www.tradingview.com/pine-script-reference/v6/#var_na) values in their calculations. Therefore, it is possible to perform some condition-based calculations using these functions. For example, the call `ta.sma(session.isfirstbar_regular ? volume : na, 5)` returns the same result as the `PCca.avgWhenLast()` call in the example above, because its calculation includes only the [volume](https://www.tradingview.com/pine-script-reference/v6/#var_volume) values from the latest five bars where the value of [session.isfirstbar\_regular](https://www.tradingview.com/pine-script-reference/v6/#var_session.isfirstbar_regular) is `true`.
+> [!TIP]
+> Some built-in functions, such as [ta.sma()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.sma) _ignore_ the bars with [na](https://www.tradingview.com/pine-script-reference/v6/#var_na) values in their calculations. Therefore, it is possible to perform some condition-based calculations using these functions. For example, the call `ta.sma(session.isfirstbar_regular ? volume : na, 5)` returns the same result as the `PCca.avgWhenLast()` call in the example above, because its calculation includes only the [volume](https://www.tradingview.com/pine-script-reference/v6/#var_volume) values from the latest five bars where the value of [session.isfirstbar\_regular](https://www.tradingview.com/pine-script-reference/v6/#var_session.isfirstbar_regular) is `true`.
 
 ## How can I generate a random number? {#how-can-i-generate-a-random-number}
 

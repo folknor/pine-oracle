@@ -43,8 +43,6 @@ plot(signal, color = color.orange)
 
 Our first Pine script is now running on the chart, which should look like this:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/First-indicator-First-version-1.WiOSM08Z_Q3f4I.webp)
-
 Let’s look at our script’s code, line by line:
 
 Line 1: `//@version=6`
@@ -117,8 +115,6 @@ Let’s repeat the same process as before to create our new indicator:
 5.  Select “Add to chart” in the Pine Editor’s menu bar. The “MACD #2” indicator appears in a _separate pane_ under the “MACD #1” indicator.
 
 Our second Pine script is now running on the chart. If we double-click on the indicator’s name on the chart, it displays the script’s “Settings/Inputs” tab, where we can now change the fast and slow lengths used in the MACD calculation:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/First-indicator-Second-version-1.ByY_7z4B_Z2q4TN9.webp)
 
 Let’s look at the lines that have changed in the second version of our script:
 

@@ -14,8 +14,6 @@ However, scripts _can_ plot values conditionally, by changing the series or colo
 
 Our example script plots two [ALMA](https://www.tradingview.com/support/solutions/43000594683/) moving averages only when the shorter average is below the longer one. It fills between the two averages on every bar, but the fill color is [na](https://www.tradingview.com/pine-script-reference/v6/#var_na) unless the shorter average is above or equal to the longer one.
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-Why-cant-i-use-a-plot-in-an-if-or-for-statement-1.3rjsIGWF_19Q5U0.webp)
-
 ```pine
 //@version=6
 indicator("Conditional plot example", "", true)
@@ -61,8 +59,6 @@ The default value of the `style` argument for the [plot()](https://www.tradingvi
 
 The functions [ta.pivotlow()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.pivotlow) and [ta.pivothigh()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.pivothigh) return [na](https://www.tradingview.com/pine-script-reference/v6/#var_na) for all bars except those with identified pivots. The following example script draws diagonal lines joining pivot highs and lows using [plot()](https://www.tradingview.com/pine-script-reference/v6/#fun_plot).
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-Can-i-plot-diagonals-between-two-points-on-the-chart-1.Dcpal7Wj_Z1hKgJm.webp)
-
 ```pine
 //@version=6
 indicator("Diagonal plots", overlay = true)
@@ -94,8 +90,6 @@ Note that:
 [Line objects](https://www.tradingview.com/pine-script-docs/concepts/lines-and-boxes/#lines) provide more flexibility than plots. The [plot()](https://www.tradingview.com/pine-script-reference/v6/#fun_plot) function can plot a line, symbol, or area only at the bar on which the script is executing (or at a _fixed_ offset from it). In contrast, line objects can be created on _any_ bar. Similarly, whereas plots are fixed once the bar closes, line properties can be updated at any time.
 
 The following example script demonstrates these advantages. Like the example script in the previous section, [Using plots](https://www.tradingview.com/pine-script-docs/faq/visuals/#using-plots), this script draws lines between pivot highs and lows. In this case, however, the pivot highs and lows are confirmed an _unpredictable_ number of bars afterwards, so plots are completely unsuitable for drawing lines between them. Line drawings are suitable because scripts can offset lines an arbitrary and dynamic number of bars into the past. The script below also retroactively _changes_ the color of drawn lines, which are initially white, depending on whether the _next_ line of the same type slopes up or down. Such updates are not possible with plots.
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-Can-i-plot-diagonals-between-two-points-on-the-chart-2.ZmicdTOe_Z1udlu8.webp)
 
 ```pine
 //@version=6
@@ -187,8 +181,6 @@ Using [na](https://www.tradingview.com/pine-script-reference/v6/#var_na) values 
 
 The following example script shows the effect of these two methods. It plots two straight lines above the chart bars, one using each method. At a configurable interval, the `series` or `color` argument is [na](https://www.tradingview.com/pine-script-reference/v6/#var_na), and the background color changes for that bar.
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-How-can-i-plot-a-line-with-gaps-1.D6RMbvkI_ZtXxDl.webp)
-
 ```pine
 //@version=6
 indicator("Lines with gaps demo", "", true)
@@ -220,8 +212,6 @@ To plot a line based on start and stop criteria, consider the following structur
 4.  Optionally, use debug. For example, plot logical states using the [plotchar()](https://www.tradingview.com/pine-script-reference/v6/#fun_plotchar) function.
 
 In the following example script, the start condition is the detection of a new pivot. The start condition turns on the `doPlot` Boolean flag that controls when to plot, and captures the value to plot in the `savedValue` “float” variable. The stop condition is price closing above the pivot level. The script uses a bar timer as an extra stop condition. Either stop condition turns off the flag and _resets_ the plot value to [na](https://www.tradingview.com/pine-script-reference/v6/#var_na). The script plots debug characters for all logical conditions.
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-How-do-i-plot-a-line-using-start-stop-criteria-1.D0se5nwy_ZWMSQY.webp)
 
 ```pine
 //@version=6
@@ -271,8 +261,6 @@ Different analysts — and different Pine scripts — understand and implement s
 ### Plotting support and resistance {#plotting-support-and-resistance}
 
 The following example script tracks levels of support and resistance until price action breaks them. The script uses the `ta.pivot*()` built-in functions to detect pivot highs and lows, then draws horizontal lines from these points. This script visualizes lows as support (green lines) and highs as resistance (red lines) for simplicity. If the [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) of a bar crosses a line, the script stops extending that line:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-How-do-i-plot-a-support-or-a-trend-line-1.zCbz0Lc8_1PqXml.webp)
 
 ```pine
 //@version=6
@@ -334,8 +322,6 @@ Note that:
 ### Plotting trend lines {#plotting-trend-lines}
 
 The following example script uses the `ta.pivot*()` built-in functions to detect pivot highs and lows, and then draws lines that connect the two most recent pivots of the same type. The lines extend indefinitely to the right. If the script draws a new line that causes the total number of lines to exceed a specified maximum number, it deletes the oldest line:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-How-do-i-plot-a-support-or-a-trend-line-2.CDeAY9mr_Z1o1Qox.webp)
 
 ```pine
 //@version=6
@@ -419,10 +405,6 @@ The [color.from\_gradient()](https://www.tradingview.com/pine-script-reference/v
 Scripts can [create shaded areas](https://www.tradingview.com/pine-script-docs/concepts/fills/) between lines, plots, or hlines, as well as within boxes and polylines. Fills can be especially useful for highlighting ranges, zones, or contrasts.
 
 In our example script below, we use various color display techniques such as conditional colors, fills, and gradients to depict areas of rising or falling values, as well as overbought and oversold levels. The script automatically recognizes whether the user’s chart background is light or dark, and adjusts the color scheme accordingly. For a light theme, it captures the ambiance of a day at the beach with coastal teal and coral hues, while for a dark theme, it reflects the vibrant neon hues of city nightlife:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-How-can-i-use-colors-in-my-indicator-plots-1.Cp4v-X8j_ZTB0lc.webp)
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-How-can-i-use-colors-in-my-indicator-plots-2.BUNwe5Dz_Z2aQkLP.webp)
 
 ```pine
 //@version=6
@@ -555,7 +537,8 @@ bgcolor(bar_index % 10 == 0 ? chart.fg_color : na)
 
 Scripts can toggle the display of horizontal levels plotted using [hline()](https://www.tradingview.com/pine-script-reference/v6/#fun_hline) in several ways. Conditionally setting the argument of the `price` or `color` parameter to [na](https://www.tradingview.com/pine-script-reference/v6/#var_na) shows or hides the level in a similar way that setting the `series` or `color` to [na](https://www.tradingview.com/pine-script-reference/v6/#var_na) does for plotted lines, as described in the entry [How do I plot a line using start/stop criteria?](https://www.tradingview.com/pine-script-docs/faq/visuals/#how-do-i-plot-a-line-using-startstop-criteria) above.
 
-NoteUnlike the `series` and `color` parameters of the `plot.*()` functions, the `price` and `color` parameters of the [hline()](https://www.tradingview.com/pine-script-reference/v6/#fun_hline) function require “input” or “const” values. Therefore, the function cannot dynamically show or hide its displayed value on each bar. Users can toggle horizontal levels only by using inputs.
+> [!NOTE]
+> Unlike the `series` and `color` parameters of the `plot.*()` functions, the `price` and `color` parameters of the [hline()](https://www.tradingview.com/pine-script-reference/v6/#fun_hline) function require “input” or “const” values. Therefore, the function cannot dynamically show or hide its displayed value on each bar. Users can toggle horizontal levels only by using inputs.
 
 Additionally, the `display` parameter of the [hline()](https://www.tradingview.com/pine-script-reference/v6/#fun_hline) function can take an input value as its argument. This parameter controls where the line displays.
 
@@ -585,11 +568,10 @@ The [bar\_index](https://www.tradingview.com/pine-script-reference/v6/#var_bar_i
 
 To project a certain number of bars into the future or past, simply add or subtract that number from the current [bar\_index](https://www.tradingview.com/pine-script-reference/v6/#var_bar_index). For instance, `bar_index + 20` positions the object 20 bars into the future.
 
-NoticeScripts can position drawings a [maximum of 500 bars](https://www.tradingview.com/pine-script-docs/writing/limitations/#maximum-bars-forward) into the future or [10,000 bars into the past](https://www.tradingview.com/pine-script-docs/writing/limitations/#maximum-bars-back) using this method.
+> [!IMPORTANT]
+> Scripts can position drawings a [maximum of 500 bars](https://www.tradingview.com/pine-script-docs/writing/limitations/#maximum-bars-forward) into the future or [10,000 bars into the past](https://www.tradingview.com/pine-script-docs/writing/limitations/#maximum-bars-back) using this method.
 
 The following example script draws lines and labels on the most recent pivot high and low, and extends the lines into the future beyond the last bar:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-How-can-i-draw-lines-or-labels-into-the-future-1.jzxOMGSo_PelPy.webp)
 
 ```pine
 //@version=6
@@ -651,7 +633,8 @@ The two most robust and scalable ways to keep only the last _n_ number of drawin
 -   Using the appropriate built-in `*.all` array.
 -   Adding drawings to an array and using the array as a queue.
 
-NoteThe arguments of `max_labels_count` and the other `max_*_count` parameters in the [indicator()](https://www.tradingview.com/pine-script-reference/v6/#fun_indicator) and [strategy()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy) declaration statements represent _approximate_ values. To maintain a _precise_ number of active drawings, use one of the two methods explained below.
+> [!NOTE]
+> The arguments of `max_labels_count` and the other `max_*_count` parameters in the [indicator()](https://www.tradingview.com/pine-script-reference/v6/#fun_indicator) and [strategy()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy) declaration statements represent _approximate_ values. To maintain a _precise_ number of active drawings, use one of the two methods explained below.
 
 ### Using a `*.all` array {#using-a-all-array}
 
@@ -727,8 +710,6 @@ This method is particularly useful for joining many points with a single object.
 
 The following example script creates five sets of _interactive points_ by placing price and time inputs inline. When the user adds the script to the chart, the script prompts them to place five points on the chart. The script adds the points to an array and passes the array to the [polyline.new()](https://www.tradingview.com/pine-script-reference/v6/#fun_polyline.new) function, which connects the points with lines, constructing a shape.
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-Is-it-possible-to-draw-geometric-shapes-1.ChBhMig6_1gAyys.webp)
-
 ```pine
 //@version=6
 indicator("Polylines example", overlay = true)
@@ -786,8 +767,6 @@ Lines are simpler than polylines. A [line](https://www.tradingview.com/pine-scri
 An advantage of using separate lines is that scripts can customize the style of each line separately. Additionally, arrays are optional for line management — as opposed to mandatory for polylines — which can result in simpler code in some cases. For large, complex shapes, however, polylines are more convenient.
 
 The following example script creates six sets of _interactive points_ by pairing price and time inputs, using the same `inline` arguments. When the script is added to the chart, it prompts the user to click six points on the chart (because the inputs use `confirm = true`). The script joins the points and creates two triangles.
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-Is-it-possible-to-draw-geometric-shapes-2.DEB53-5u_ZAOwU8.webp)
 
 ```pine
 //@version=6

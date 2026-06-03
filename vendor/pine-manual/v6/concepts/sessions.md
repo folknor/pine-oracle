@@ -59,11 +59,10 @@ To interpret the time zone of the specified `session`, the [time()](https://www.
 
 Additionally, the [input.session()](https://www.tradingview.com/pine-script-reference/v6/#fun_input.session) function also takes a time-based session string as its `defval` argument, to determine the input’s default value. Using this input type, users can define session times (but not days of the week) from a script’s “Inputs” tab. See the [Session input](https://www.tradingview.com/pine-script-docs/concepts/inputs/#session-input) section for more information.
 
-NoteThe three functions mentioned above are the _only_ ones that accept time-based string arguments. Scripts cannot use `request.*()` functions to get data from tickers created using time-based sessions — such usage requires [named sessions](https://www.tradingview.com/pine-script-docs/concepts/sessions/#named-sessions).
+> [!NOTE]
+> The three functions mentioned above are the _only_ ones that accept time-based string arguments. Scripts cannot use `request.*()` functions to get data from tickers created using time-based sessions — such usage requires [named sessions](https://www.tradingview.com/pine-script-docs/concepts/sessions/#named-sessions).
 
 The following example script checks whether the start and end time of a bar fall within a user-defined session. If the bar’s opening time, as returned by [time()](https://www.tradingview.com/pine-script-reference/v6/#fun_time), is within the session (i.e., the value is not [na](https://www.tradingview.com/pine-script-reference/v6/#var_na)), the script draws a [label](https://www.tradingview.com/pine-script-docs/visuals/text-and-shapes/#labels) above the bar. Similarly, if the closing time returned by [time\_close()](https://www.tradingview.com/pine-script-reference/v6/#fun_time_close) is not [na](https://www.tradingview.com/pine-script-reference/v6/#var_na), it draws a label below the bar. The labels display the bar open or close times and compare them to the selected session. Here, we run the script on an hourly chart with a short default morning session of “0900-1130”:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Sessions-Time-based-sessions-Using-time-based-sessions-1.DjE__CSm_f3bbr.webp)
 
 ```pine
 //@version=6
@@ -91,11 +90,10 @@ Note that:
 
 -   The script draws labels for the opening and closing times of _all_ bars that start within the session, even though the closing time of the last chart bar is _outside_ the session. This is because the [time()](https://www.tradingview.com/pine-script-reference/v6/#fun_time) and [time\_close()](https://www.tradingview.com/pine-script-reference/v6/#fun_time_close) functions create their own bar representations according to their parameters. In the image above, which is of an hourly chart, the session ends at 11:30 , so the final calculated bar representation in the session starts at 11:00 and ends at 11:30 . Therefore, the last bar’s end time is reported as being within the session, even though the chart bar ends at 12:00 .
 
-NoticeTo avoid unexpected results, align the start and end times of time-based sessions with the start and end times of chart bars at the expected timeframe.
+> [!IMPORTANT]
+> To avoid unexpected results, align the start and end times of time-based sessions with the start and end times of chart bars at the expected timeframe.
 
 Scripts can create _dynamic_ sessions, whose values can change during script execution, by calculating a “series string” argument for the `session` parameter of the [time()](https://www.tradingview.com/pine-script-reference/v6/#fun_time) or [time\_close()](https://www.tradingview.com/pine-script-reference/v6/#fun_time_close) functions. The following example script creates a dynamic time-based session string that differs on weekdays and weekends. The script uses the [time()](https://www.tradingview.com/pine-script-reference/v6/#fun_time) function to determine whether the current bar is within this dynamic session, and colors the background green if so:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Sessions-Time-based-sessions-Using-time-based-sessions-2.hZF43quX_Z19FhyN.webp)
 
 ```pine
 //@version=6
@@ -124,8 +122,6 @@ Scripts can retrieve the opening and closing times for a bar other than the curr
 The following script determines if a user-defined session is currently active by checking if the last bar is in the session. If so, the script displays the ending time of the active session in a [label](https://www.tradingview.com/pine-script-docs/visuals/text-and-shapes/#labels) positioned on the future bar that marks the end of the session. To find the last valid bar closing time in the session, the script uses a [loop](https://www.tradingview.com/pine-script-docs/language/loops/) to increment a dynamic `bars_back` argument for [time\_close()](https://www.tradingview.com/pine-script-reference/v6/#fun_time_close), stopping the loop when the returned closing time is [na](https://www.tradingview.com/pine-script-reference/v6/#var_na). If the session is not active, the label displays a message to that effect at the current bar.
 
 On the example chart below, we added a [vertical line](https://www.tradingview.com/support/solutions/43000518093-vertical-line/) using the chart’s [drawing tools](https://www.tradingview.com/support/solutions/43000703396-drawing-tools-available-on-tradingview/) to show that the bar time matches the session label:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Sessions-Time-based-sessions-Using-time-based-sessions-3.De0KWtmX_Z1nE79V.webp)
 
 ```pine
 //@version=6
@@ -191,8 +187,6 @@ Unlike custom [time-based session](https://www.tradingview.com/pine-script-docs/
 
 The following example script retrieves the name of the active session from the current chart using [syminfo.session](https://www.tradingview.com/pine-script-reference/v6/#var_syminfo.session) and displays it in a [table](https://www.tradingview.com/pine-script-docs/visuals/tables/). The example chart below shows the script running on an hourly chart of the US stock “NASDAQ:AAPL”. We selected “Extended trading hours” from this chart’s “Sessions” menu (shown in the bottom-right corner of the image), so the session string displayed in the table is `"extended"`:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Sessions-Named-sessions-Retrieving-named-sessions-1.BogWTX77_ZbUokw.webp)
-
 ```pine
 //@version=6
 indicator("Display active session name", overlay = true)
@@ -210,15 +204,12 @@ If we select “Regular trading hours” from the chart settings, the script dis
 
 For most US equities, the string `"regular"` is equivalent to the built-in constant [session.regular](https://www.tradingview.com/pine-script-reference/v6/#const_session.regular), and the string `"extended"` is equivalent to the built-in constant [session.extended](https://www.tradingview.com/pine-script-reference/v6/#const_session.extended). However, this is **not always** the case. Let’s look at the same script applied to the “S&P 500 E-mini futures” chart (ticker “ES1!”), with the “Electronic trading hours” session selected:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Sessions-Named-sessions-Retrieving-named-sessions-2.BguOjBJY_1yHMz0.webp)
-
 In the example above, the table shows that the active session is `"regular"`, even though the chart displays the “Electronic trading hours” session, which is _longer_ than the “Regular trading hours” session. If we switch to “Regular trading hours” on this chart, the active session is `"us_regular"`, _not_ `"regular"`.
 
-NoticeFor most futures contracts, the longer, **electronic** session “ETH” is considered the default, and therefore uses the session `"regular"`. There is no “Extended trading hours” session available on the chart, and using [session.extended](https://www.tradingview.com/pine-script-reference/v6/#const_session.extended) is equivalent to [session.regular](https://www.tradingview.com/pine-script-reference/v6/#const_session.regular).
+> [!IMPORTANT]
+> For most futures contracts, the longer, **electronic** session “ETH” is considered the default, and therefore uses the session `"regular"`. There is no “Extended trading hours” session available on the chart, and using [session.extended](https://www.tradingview.com/pine-script-reference/v6/#const_session.extended) is equivalent to [session.regular](https://www.tradingview.com/pine-script-reference/v6/#const_session.regular).
 
 Now let’s look at some non-standard named sessions. Applying our previous example script to the “DAX Futures” chart (ticker “FDAX1!”), we can choose between the “Regular trading hours”, “Xetra trading hours”, and “Frankfurt trading hours” sessions on the chart, and the script displays the active session as `"regular"`, `"xetr_regular"`, and `"fwb_regular"`, respectively:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Sessions-Named-sessions-Retrieving-named-sessions-3.CkU2q5IS_ZM5L9G.webp)
 
 ### Creating a session-specific ticker {#creating-a-session-specific-ticker}
 
@@ -233,8 +224,6 @@ The example script below creates the following five tickers for the “NASDAQ:AA
 3.  A new ticker with an extended session, using [ticker.new()](https://www.tradingview.com/pine-script-reference/v6/#fun_ticker.new).
 4.  A modified version of the first ticker with an extended session, using [ticker.modify()](https://www.tradingview.com/pine-script-reference/v6/#fun_ticker.modify).
 5.  A new ticker with an extended session, using [ticker.modify()](https://www.tradingview.com/pine-script-reference/v6/#fun_ticker.modify).
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Sessions-Named-sessions-Creating-a-session-specific-ticker-1.GBcsODWV_Z28xUm7.webp)
 
 ```pine
 //@version=6
@@ -277,8 +266,6 @@ Scripts use session-specific tickers in [request.security()](https://www.trading
 
 This simple example script visualizes the [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) prices of the current asset from both the regular and extended sessions, using the [syminfo.prefix](https://www.tradingview.com/pine-script-reference/v6/#var_syminfo.prefix) and [syminfo.ticker](https://www.tradingview.com/pine-script-reference/v6/#var_syminfo.ticker) variables to create session-specific tickers for the symbol currently on the chart. It plots the prices from the extended session as a black line, and the prices from the regular session as red circles. First, we run the script on a 30-minute chart of “NASDAQ:AAPL”, with the “Extended trading hours” session selected:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Sessions-Named-sessions-Requesting-data-from-session-specific-tickers-1.CzPwQFV0_Z1qab5Q.webp)
-
 ```pine
 //@version=6
 indicator("Visualizing extended session data")
@@ -306,11 +293,7 @@ Note that:
 
 Now let’s run the same script on the “S&P 500 E-mini futures” chart (ticker “ES1!”), with the “Electronic trading hours” session selected:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Sessions-Named-sessions-Requesting-data-from-session-specific-tickers-2.BEqf9Rvs_Z22rFE5.webp)
-
 Notice that _both_ plots are exactly the same, covering the entire extended trading session. This is because, as we saw in the [Retrieving named sessions](https://www.tradingview.com/pine-script-docs/concepts/sessions/#retrieving-named-sessions) section, most US futures symbols use `"regular"` and `"us_regular"` as their session names. We can update our code to add a third plot that uses the `"us_regular"` session:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Sessions-Named-sessions-Requesting-data-from-session-specific-tickers-3.BjOnjfGD_1gjzkP.webp)
 
 ```pine
 //@version=6
@@ -344,8 +327,6 @@ Note that:
 
 Lastly, let’s look at an example of using data from non-standard sessions. By applying the first example script from the [Retrieving named sessions](https://www.tradingview.com/pine-script-docs/concepts/sessions/#retrieving-named-sessions) section to the “DAX Futures chart” (ticker “FDAX1!”), we discovered that the chart sessions “Regular trading hours”, “Xetra trading hours”, and “Frankfurt trading hours” have the named sessions `"regular"`, `"xetr_regular"`, and `"fwb_regular"`, respectively. The following example plots the chart’s [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) prices with a blue line, and requests the “Frankfurt trading hours” session’s [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) prices to plot with teal circles. Here we run the script on the hourly “FDAX1!” chart with “Regular trading hours” selected on the chart:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Sessions-Named-sessions-Requesting-data-from-session-specific-tickers-4.Bv0e2Ok__ZLhyna.webp)
-
 ```pine
 //@version=6
 indicator("Visualizing non-standard session data")
@@ -365,7 +346,8 @@ Note that:
 -   The “Frankfurt trading hours” session is shorter than the “Regular trading hours” session.
 -   Running this script on a chart that _does not_ define a named session `"fwb_regular"` plots circles for _all_ the bars.
 
-NoteIf a script attempts to retrieve data using a named session that does not exist for that symbol, the default session is used instead.
+> [!NOTE]
+> If a script attempts to retrieve data using a named session that does not exist for that symbol, the default session is used instead.
 
 ## Session variables reference {#session-variables-reference}
 

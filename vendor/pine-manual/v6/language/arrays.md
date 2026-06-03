@@ -6,7 +6,8 @@ section: language
 
 # Arrays {#arrays}
 
-TipThis page contains _advanced_ material. If you’re new to Pine Script®, start by learning about core language components — such as the [type system](https://www.tradingview.com/pine-script-docs/language/type-system/) and [the basics](https://www.tradingview.com/pine-script-docs/language/execution-model/#the-basics) of the [execution model](https://www.tradingview.com/pine-script-docs/language/execution-model/) — and explore other, more accessible features before venturing further.
+> [!TIP]
+> This page contains _advanced_ material. If you’re new to Pine Script®, start by learning about core language components — such as the [type system](https://www.tradingview.com/pine-script-docs/language/type-system/) and [the basics](https://www.tradingview.com/pine-script-docs/language/execution-model/#the-basics) of the [execution model](https://www.tradingview.com/pine-script-docs/language/execution-model/) — and explore other, more accessible features before venturing further.
 
 ## Introduction {#introduction}
 
@@ -18,13 +19,10 @@ Similar to [lines](https://www.tradingview.com/pine-script-docs/visuals/lines-an
 
 Scripts access specific elements in an array by specifying an _index_ in calls to these functions. The index starts at 0 and extends to one less than the number of elements in the array. Arrays in Pine Script can have dynamic sizes that vary across bars, as scripts can change the number of elements in an array on any execution. A single script can create multiple array instances. The total number of elements in any array cannot exceed 100,000.
 
-Note
-
-We often refer to index 0 as the _beginning_ of an array, and the highest index value as the _end_ of the array.
-
-  
-
-Additionally, for the sake of brevity, we sometimes use the term “array” to mean “array ID”.
+> [!NOTE]
+> We often refer to index 0 as the _beginning_ of an array, and the highest index value as the _end_ of the array.
+>
+> Additionally, for the sake of brevity, we sometimes use the term “array” to mean “array ID”.
 
 ## Declaring arrays {#declaring-arrays}
 
@@ -38,7 +36,8 @@ Where `<type>` is a _type template_ that defines the type of elements that the a
 
 When declaring an array variable, programmers can use the [array](https://www.tradingview.com/pine-script-reference/v6/#type_array) keyword followed by a type template to explicitly define the variable’s _type identifier_ (e.g., `array<int>` for a variable that can reference an array of “int” values).
 
-NoticeIt is also possible to specify an array variable’s type by prefixing its declaration with the _element_ type keyword, followed by empty _square brackets_ (`[]`). For example, a variable whose declaration includes `int[]` as the type keyword accepts the type `array<int>`. However, this _legacy_ format is _deprecated_; future versions of Pine Script might not support it. Therefore, we recommend using the `array<type>` format to define type identifiers for consistency.
+> [!IMPORTANT]
+> It is also possible to specify an array variable’s type by prefixing its declaration with the _element_ type keyword, followed by empty _square brackets_ (`[]`). For example, a variable whose declaration includes `int[]` as the type keyword accepts the type `array<int>`. However, this _legacy_ format is _deprecated_; future versions of Pine Script might not support it. Therefore, we recommend using the `array<type>` format to define type identifiers for consistency.
 
 Specifying a type identifier for a variable or function parameter that holds array references is usually optional. The only exceptions are when initializing an identifier with an [`na` value](https://www.tradingview.com/pine-script-docs/language/type-system/#na-value), defining exported [library functions](https://www.tradingview.com/pine-script-docs/concepts/libraries/#library-functions) whose parameters accept array IDs, or declaring [user-defined types](https://www.tradingview.com/pine-script-docs/language/type-system/#user-defined-types) with fields for storing array IDs. Even when not required, note that specifying an array variable’s type helps promote readability, and it helps the Pine Editor provide relevant code suggestions.
 
@@ -56,13 +55,10 @@ The following example creates an empty “float” array and assigns its ID to a
 prices = array.new<float>(0)
 ```
 
-Note
-
-The `array` namespace also includes _legacy functions_ for creating arrays of specific _built-in types_. These functions include [array.new\_int()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.new_int), [array.new\_float()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.new_float), [array.new\_bool()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.new_bool), [array.new\_color()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.new_color), [array.new\_string()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.new_string), [array.new\_line()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.new_line), [array.new\_linefill()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.new_linefill), [array.new\_label()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.new_label), [array.new\_box()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.new_box) and [array.new\_table()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.new_table).
-
-  
-
-However, we recommend using the general-purpose [array.new<type>()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.new<type>) function, because it can create an array of _any_ supported type, including [user-defined types](https://www.tradingview.com/pine-script-docs/language/type-system/#user-defined-types).
+> [!NOTE]
+> The `array` namespace also includes _legacy functions_ for creating arrays of specific _built-in types_. These functions include [array.new\_int()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.new_int), [array.new\_float()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.new_float), [array.new\_bool()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.new_bool), [array.new\_color()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.new_color), [array.new\_string()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.new_string), [array.new\_line()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.new_line), [array.new\_linefill()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.new_linefill), [array.new\_label()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.new_label), [array.new\_box()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.new_box) and [array.new\_table()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.new_table).
+>
+> However, we recommend using the general-purpose [array.new<type>()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.new<type>) function, because it can create an array of _any_ supported type, including [user-defined types](https://www.tradingview.com/pine-script-docs/language/type-system/#user-defined-types).
 
 The `initial_value` parameter of the `array.new*()` functions enables users to set _all_ initial elements in the array to a specified value or reference. If a call to these functions does not include an `initial_value` argument, it creates an array filled with [na](https://www.tradingview.com/pine-script-reference/v6/#var_na) elements.
 
@@ -104,21 +100,18 @@ if barstate.islast
 
 The same code without the [var](https://www.tradingview.com/pine-script-reference/v6/#kw_var) keyword would _reinitialize_ the `a` variable with the ID of a new, empty array on every execution. In that case, after execution of the [array.push()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.push) call, the [array.size()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.size) _method_ call (`a.size()`) would return a value of 1.
 
-Notice
-
-Array variables declared using [varip](https://www.tradingview.com/pine-script-reference/v6/#kw_varip) behave similarly to those declared using [var](https://www.tradingview.com/pine-script-reference/v6/#kw_var), with two key differences. Firstly, the arrays that they reference can finalize updates to their elements on _any_ available tick — not only on a bar’s closing tick. Secondly, arrays referenced by [varip](https://www.tradingview.com/pine-script-reference/v6/#kw_varip) variables can contain only the following data:
-
--   Values of any [fundamental type](https://www.tradingview.com/pine-script-docs/language/type-system/#types).
--   IDs of the [chart.point](https://www.tradingview.com/pine-script-reference/v6/#type_chart.point), [footprint](https://www.tradingview.com/pine-script-reference/v6/#type_footprint), or [volume\_row](https://www.tradingview.com/pine-script-reference/v6/#type_volume_row) type.
--   References to objects of a [user-defined type](https://www.tradingview.com/pine-script-docs/language/type-system/#user-defined-types) that have fields for storing only data of either of the above types or the IDs of other [collections](https://www.tradingview.com/pine-script-docs/language/type-system/#collections) containing only these types.
+> [!IMPORTANT]
+> Array variables declared using [varip](https://www.tradingview.com/pine-script-reference/v6/#kw_varip) behave similarly to those declared using [var](https://www.tradingview.com/pine-script-reference/v6/#kw_var), with two key differences. Firstly, the arrays that they reference can finalize updates to their elements on _any_ available tick — not only on a bar’s closing tick. Secondly, arrays referenced by [varip](https://www.tradingview.com/pine-script-reference/v6/#kw_varip) variables can contain only the following data:
+>
+> -   Values of any [fundamental type](https://www.tradingview.com/pine-script-docs/language/type-system/#types).
+> -   IDs of the [chart.point](https://www.tradingview.com/pine-script-reference/v6/#type_chart.point), [footprint](https://www.tradingview.com/pine-script-reference/v6/#type_footprint), or [volume\_row](https://www.tradingview.com/pine-script-reference/v6/#type_volume_row) type.
+> -   References to objects of a [user-defined type](https://www.tradingview.com/pine-script-docs/language/type-system/#user-defined-types) that have fields for storing only data of either of the above types or the IDs of other [collections](https://www.tradingview.com/pine-script-docs/language/type-system/#collections) containing only these types.
 
 ## Reading and writing array elements {#reading-and-writing-array-elements}
 
 Scripts can write values to existing individual array elements using [array.set()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.set), and read using [array.get()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.get). When using these functions, it is imperative that the `index` in the function call is always less than or equal to the array’s size (because array indices start at zero). To get the size of an array, use the [array.size()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.size) function.
 
 The following example uses the [set()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.set) method to populate a `fillColors` array with instances of one base color using different transparency levels. It then uses [array.get()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.get) to retrieve one of the colors from the array based on the location of the bar with the highest price within the last `lookbackInput` bars:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Arrays-ReadingAndWriting-DistanceFromHigh.B8Ur_B4a_Z1k6KFS.webp)
 
 ```pine
 //@version=6
@@ -278,8 +271,6 @@ label.new(bar_index, high, text = labelText)
 
 Users can declare arrays within the global scope of a script, as well as the local scopes of [functions](https://www.tradingview.com/pine-script-docs/language/user-defined-functions/), [methods](https://www.tradingview.com/pine-script-docs/language/methods/), and [conditional structures](https://www.tradingview.com/pine-script-docs/language/conditional-structures/). Unlike some of the other built-in types, namely _fundamental_ types, scripts can modify globally-assigned arrays from within local scopes, allowing users to implement global variables that any function in the script can directly interact with. We use the functionality here to calculate progressively lower or higher price levels:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Arrays-Scope-Bands.BasWVnm1_1neIb9.webp)
-
 ```pine
 //@version=6
 indicator("Bands", "", true)
@@ -305,8 +296,6 @@ plot(nextLevel(factorInput))
 The history-referencing operator [\[\]](https://www.tradingview.com/pine-script-reference/v6/#op_[]) can access the history of array variables, allowing scripts to interact with past array instances previously assigned to a variable.
 
 To illustrate this, let’s create a simple example to show how one can fetch the previous bar’s `close` value in two equivalent ways. This script uses the [\[\]](https://www.tradingview.com/pine-script-reference/v6/#op_[]) operator to get the array instance assigned to `a` on the previous bar, then uses an [array.get()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.get) method call to retrieve the value of the first element (`previousClose1`). For `previousClose2`, we use the history-referencing operator on the `close` variable directly to retrieve the value. As we see from the plots, `previousClose1` and `previousClose2` both return the same value:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Arrays-History-referencing.D1DIjFIM_ZrOKv5.webp)
 
 ```pine
 //@version=6
@@ -336,8 +325,6 @@ The following three functions can insert new elements into an array.
 [array.unshift()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.unshift) inserts a new element at the beginning of an array (index 0) and increases the index values of any existing elements by one.
 
 [array.insert()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.insert) inserts a new element at the specified `index` and increases the index of existing elements at or after the `index` by one.
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Arrays-InsertingAndRemovingArrayElements-Insert.jdY5CZ2M_l5Sjm.webp)
 
 ```pine
 //@version=6
@@ -391,8 +378,6 @@ Stacks are LIFO (last in, first out) constructions. They behave somewhat like a 
 
 See how the functions are used here to track successive lows in rallies:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Arrays-InsertingAndRemovingArrayElements-LowsFromNewHighs.V3h-ojnF_ZOXQlB.webp)
-
 ```pine
 //@version=6
 indicator("Lows from new highs", "", true)
@@ -438,8 +423,6 @@ When a new pivot is detected, we create a label for it, saving the label’s ID 
 
 Lastly, we de-queue the oldest label by removing the array’s first element using [array.shift()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.shift) and deleting the label referenced by that array element’s value. As we have now de-queued an element from our queue, the array contains `pivotCountInput` elements once again. Note that on the dataset’s first bars we will be deleting `na` label IDs until the maximum number of labels has been created, but this does not cause runtime errors. Let’s look at our code:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Arrays-InsertingAndRemovingArrayElements-ShowLastnHighPivots.WcryVum8_20BIFB.webp)
-
 ```pine
 //@version=6
 MAX_LABELS = 100
@@ -484,8 +467,6 @@ myArray.get(-5)                       // Returns "first" element
 Like positive indexing, negative indexing is bound by the size of the array. For example, functions operating on an array of 5 elements only accept indices of 0 to 4 (first to last element) or -1 to -5 (last to first element). Any other indices are [out of bounds](https://www.tradingview.com/pine-script-docs/language/arrays/#index-xx-is-out-of-bounds-array-size-is-yy) and will raise a runtime error.
 
 We can use negative indices to retrieve, update, add, and remove array elements. This simple script creates an “int” `countingArray` and calls the [array.get()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.get), [array.set()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.set), [array.insert()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.insert), and [array.remove()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.remove) functions to perform various array operations using negative indices. It displays each array operation and its corresponding result using a [table](https://www.tradingview.com/pine-script-reference/v6/#type_table):
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Arrays-Negative-indexing-1.BuqdF9oM_Z2e5woW.webp)
 
 ```pine
 //@version=6
@@ -558,8 +539,6 @@ Note that contrary to the usual mathematical functions in Pine Script, those use
 
 Two arrays can be merged — or concatenated — using [array.concat()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.concat). When arrays are concatenated, the second array is appended to the end of the first, so the first array is modified while the second one remains intact. The function returns the array ID of the first array:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Arrays-ManipulatingArrays-Concat.CQ5DQ3gZ_EfecJ.webp)
-
 ```pine
 //@version=6
 indicator("`array.concat()`")
@@ -582,8 +561,6 @@ Scripts can create copies of an array by using [array.copy()](https://www.tradin
 
 For example, the following script creates a new array with `array.new<float>()` and assigns its ID to the `a` variable. Then, it calls `array.copy(a)` to copy that array, and it assigns the copied array’s ID to the `b` variable. Any changes to the array referenced by `b` do not affect the one referenced by `a`, because both variables refer to _separate_ array objects:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Arrays-ManipulatingArrays-Copy.CEsYR745_PW9in.webp)
-
 ```pine
 //@version=6
 indicator("`array.copy()`")
@@ -603,8 +580,6 @@ Note that assigning one variable’s stored array ID to another variable _does n
 The [array.join()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.join) function converts an “int”, “float”, or “string” array’s elements into strings, then _joins_ each one to form a single “string” value with a specified `separator` inserted between each combined value. It provides a convenient alternative to converting values to strings with [str.tostring()](https://www.tradingview.com/pine-script-reference/v6/#fun_str.tostring) and performing repeated string concatenation operations.
 
 The following script demonstrates the [array.join()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.join) function’s behaviors. It requests [tuples](https://www.tradingview.com/pine-script-docs/language/type-system/#tuples) of “string”, “int”, and “float” values from three different contexts with [request.security()](https://www.tradingview.com/pine-script-reference/v6/#fun_request.security) calls, creates separate arrays for each type with [array.from()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.from), then creates joined strings with the [array.join()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.join) function. Lastly, it creates another array from those strings with [array.from()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.from) and joins them with another [array.join()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.join) call, using a newline as the separator, and displays the final string in the [table](https://www.tradingview.com/pine-script-reference/v6/#type_table):
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Arrays-Manipulating-arrays-Joining-1.CfCS9a-3_Zy2b3y.webp)
 
 ```pine
 //@version=6
@@ -652,8 +627,6 @@ If an array contains “int” or “float” elements, the [array.sort()](https
 
 The following example script uses the [array.from()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.from) function to create an array of arbitrary “float” values on the last historical bar. It then sorts the array in ascending order, and then in descending order, using two [array.sort()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.sort) calls. The script creates a string representation of the array after each step, then formats those representations into a single string and displays the result in a [label](https://www.tradingview.com/pine-script-docs/visuals/text-and-shapes/#labels):
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Arrays-Manipulating-arrays-Sorting-1.B2Z2o2FX_Z2nCqOR.webp)
-
 ```pine
 //@version=6
 indicator("Sorting numeric arrays demo")
@@ -685,8 +658,6 @@ if barstate.islastconfirmedhistory
 If an array contains “string” elements, the [array.sort()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.sort) function sorts the elements based on the [Unicode](https://en.wikipedia.org/wiki/Unicode) values of the strings’ _individual characters_. The sorting algorithm initially compares the _first_ character in each string, then compares subsequent characters as necessary if multiple strings have matching characters at the same position. The strings that have leading characters with the lowest Unicode values move to the beginning of the array if the order is ascending, or to the end of the array if the order is descending.
 
 The example script below defines an arbitrary [literal string](https://www.tradingview.com/pine-script-docs/concepts/strings/#literal-strings), then uses the [str.split()](https://www.tradingview.com/pine-script-reference/v6/#fun_str.split) function to [split](https://www.tradingview.com/pine-script-docs/concepts/strings/#splitting-strings) the string and construct an array of substrings. Afterward, the script calls the [array.sort()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.sort) function to sort the array’s elements in ascending order. The script displays formatted text representing the original string, and the array’s structure before and after sorting, in a label on the last historical bar:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Arrays-Manipulating-arrays-Sorting-2.Ct3XAMDP_ZPqBeg.webp)
 
 ```pine
 //@version=6
@@ -727,8 +698,6 @@ To access an array’s sorted elements without modifying the array, programmers 
 
 The following example script queues [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) values into a persistent array across the chart. It calls the [array.sort\_indices()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.sort_indices) function on the last historical bar to get the ID of an array containing sorted indices, and constructs a string representation of both arrays. Then, it loops through the array of indices using a [for…in](https://www.tradingview.com/pine-script-reference/v6/#kw_for...in) loop. On each iteration, the script concatenates the string with another string representing a value from the `prices` array, that value’s index in the array, and the value’s sorted position. It then displays the final string in a label:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Arrays-Manipulating-arrays-Sorting-3.Bmfa0k8P_1StOhX.webp)
-
 ```pine
 //@version=6
 indicator("Getting sorted indices demo")
@@ -764,7 +733,8 @@ if barstate.islastconfirmedhistory
     )
 ```
 
-NoteIf an “int”, “float”, or “string” array contains elements with [`na` values](https://www.tradingview.com/pine-script-docs/language/type-system/#na-value) or empty strings (e.g., `""`), an [array.sort()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.sort) call moves those elements to the _end_ of the array if the `order` argument is [order.ascending](https://www.tradingview.com/pine-script-reference/v6/#const_order.ascending), or to the _beginning_ of the array if the argument is [order.descending](https://www.tradingview.com/pine-script-reference/v6/#const_order.descending). Likewise, the array constructed by an [array.sort\_indices()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.sort_indices) call stores the indices for [na](https://www.tradingview.com/pine-script-reference/v6/#var_na) values or empty strings as its _first_ or _last_ elements, depending on the `order` argument.
+> [!NOTE]
+> If an “int”, “float”, or “string” array contains elements with [`na` values](https://www.tradingview.com/pine-script-docs/language/type-system/#na-value) or empty strings (e.g., `""`), an [array.sort()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.sort) call moves those elements to the _end_ of the array if the `order` argument is [order.ascending](https://www.tradingview.com/pine-script-reference/v6/#const_order.ascending), or to the _beginning_ of the array if the argument is [order.descending](https://www.tradingview.com/pine-script-reference/v6/#const_order.descending). Likewise, the array constructed by an [array.sort\_indices()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.sort_indices) call stores the indices for [na](https://www.tradingview.com/pine-script-reference/v6/#var_na) values or empty strings as its _first_ or _last_ elements, depending on the `order` argument.
 
 #### Sorting arrays of user-defined types {#sorting-arrays-of-user-defined-types}
 
@@ -778,8 +748,6 @@ The `sort_field` parameter of these functions specifies _which_ object field the
 The default `sort_field` value is 0, meaning that an [array.sort()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.sort) or [array.sort\_indices()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.sort_indices) call attempts to compare values from the first field of each object referenced by the specified array if no argument is specified.
 
 The following example script demonstrates the sorting behavior for arrays of UDT elements. The script declares a custom type named `myType` with three fields: `field0`, `field1`, and `field2`. On the last historical bar, it creates five `myType` objects, stores their IDs in an array, then executes an [array.sort()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.sort) call to sort the array in ascending order using each object’s first, second, or third field, depending on the selected [inputs](https://www.tradingview.com/pine-script-docs/concepts/inputs/). The script loops through the sorted array using a [for…in](https://www.tradingview.com/pine-script-reference/v6/#kw_for...in) loop to create a custom string representation of its structure, then displays the resulting string’s text in a label:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Arrays-Manipulating-arrays-Sorting-Sorting-arrays-of-user-defined-types-1.-ouZHBWl_2scT59.webp)
 
 ```pine
 //@version=6
@@ -886,8 +854,6 @@ barcolor(id.c)
 
 To resolve the error, we can either rearrange the type declaration to list one of the type’s “float” fields as the _first_ one, or include a `sort_field` argument in the [array.sort()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.sort) call to specify one of those fields. For example:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Arrays-Manipulating-arrays-Sorting-Sorting-arrays-of-user-defined-types-2.fIqlSHLc_Z2uPtcw.webp)
-
 ```pine
 //@version=6
 indicator("Changing first field demo", overlay = true)
@@ -961,8 +927,6 @@ To prevent such errors, _remove_ all [na](https://www.tradingview.com/pine-scrip
 
 For example, the script version below includes a [user-defined function](https://www.tradingview.com/pine-script-docs/language/user-defined-functions/) named `replaceNa()`, which replaces [na](https://www.tradingview.com/pine-script-reference/v6/#var_na) `Number` IDs in an array with the IDs of new objects that contain [na](https://www.tradingview.com/pine-script-reference/v6/#var_na) `value` fields. Using this function before sorting the array with the [array.sort()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.sort) call prevents the runtime error:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Arrays-Manipulating-arrays-Sorting-Sorting-arrays-of-user-defined-types-3.D057sqF1_ZPy9Tt.webp)
-
 ```pine
 //@version=6
 indicator("Replacing `na` IDs for sorting demo")
@@ -1027,8 +991,6 @@ The shallow copy created by the slice acts like a window on the parent array’s
 
 Additionally, once the shallow copy is created, operations on the copy are mirrored on the parent array. Adding an element to the end of the shallow copy, as is done in the following example, will widen the window by one element and also insert that element in the parent array at index 3. In this example, to slice the subset from index 0 to index 2 of array `a`, we must use `sliceOfA = array.slice(a, 0, 3)`:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Arrays-ManipulatingArrays-Slice.DDHrRFqO_ZD64ST.webp)
-
 ```pine
 //@version=6
 indicator("`array.slice()`")
@@ -1072,7 +1034,8 @@ if barstate.islast
 
 We can also perform a binary search on an array but note that performing a binary search on an array means that the array will first need to be sorted in ascending order only. The [array.binary\_search()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.binary_search) function will return the value’s index if it was found or -1 if it wasn’t. If we want to always return an existing index from the array even if our chosen value wasn’t found, then we can use one of the other binary search functions available. The [array.binary\_search\_leftmost()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.binary_search_leftmost) function, which returns an index if the value was found or the first index to the left where the value would be found. The [array.binary\_search\_rightmost()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.binary_search_rightmost) function is almost identical and returns an index if the value was found or the first index to the right where the value would be found.
 
-NoticeSearch functions like [array.indexof()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.indexof) and [array.binary\_search()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.binary_search) return an array index if the requested element is found, or `-1` if it’s not present. Note that these functions only return _positive indices_, while other functions like [array.get()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.get) accept _both_ positive and [negative indices](https://www.tradingview.com/pine-script-docs/language/arrays/#negative-indexing). Ensure that scripts do **not** misconstrue a search function’s returned `-1` result as a negative index in their subsequent logic.
+> [!IMPORTANT]
+> Search functions like [array.indexof()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.indexof) and [array.binary\_search()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.binary_search) return an array index if the requested element is found, or `-1` if it’s not present. Note that these functions only return _positive indices_, while other functions like [array.get()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.get) accept _both_ positive and [negative indices](https://www.tradingview.com/pine-script-docs/language/arrays/#negative-indexing). Ensure that scripts do **not** misconstrue a search function’s returned `-1` result as a negative index in their subsequent logic.
 
 ## Error handling {#error-handling}
 

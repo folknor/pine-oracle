@@ -19,13 +19,15 @@ Pine Script® uses _runtime errors_, _compilation errors_, and _compiler warning
 
 This page provides an overview of the common runtime errors, compilation errors, and warnings described in the User Manual’s “Errors and warnings” section.
 
-TipYou can also find information about other errors and warnings for specific features on the pages that describe those features in the User Manual. For example, the sections in the [Type system](https://www.tradingview.com/pine-script-docs/language/type-system/) page include details about common type-related errors.
+> [!TIP]
+> You can also find information about other errors and warnings for specific features on the pages that describe those features in the User Manual. For example, the sections in the [Type system](https://www.tradingview.com/pine-script-docs/language/type-system/) page include details about common type-related errors.
 
 ## Error reference table {#error-reference-table}
 
 The reference table below lists the current errors and warnings documented in this section of the User Manual. The codes in the “Error/warning code” column link to the pages that contain detailed information about the issues and possible solutions.
 
-NoteThis list is not exhaustive. New pages for other common errors and warnings will likely be added over time.
+> [!NOTE]
+> This list is not exhaustive. New pages for other common errors and warnings will likely be added over time.
 
 | Error/warning code | Message | Solution |
 | --- | --- | --- |

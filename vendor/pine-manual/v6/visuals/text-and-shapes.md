@@ -50,8 +50,6 @@ printTable(txt) => var table t = table.new(position.middle_right, 1, 1), table.c
 printTable("•TABLE•\n" + str.tostring(bar_index + 1) + " bars\nin the dataset")
 ```
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/TextAndShapes-Introduction-01.Caf7GxqL_1bHwpV.webp)
-
 Note that:
 
 -   The method used to display each text string is shown with the text, except for the lime up arrows displayed using [plotchar()](https://www.tradingview.com/pine-script-reference/v6/#fun_plotchar), as it can only display one character.
@@ -81,8 +79,6 @@ indicator("", "", true)
 plotchar(bar_index, "Bar index", "", location.top)
 ```
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/TextAndShapes-Plotchar-01.Bocx9V6g_ZD6wX3.webp)
-
 Note that:
 
 -   The cursor is on the chart’s last bar.
@@ -97,8 +93,6 @@ indicator("", "", true)
 bool longSignal = ta.rising(close, 2) and ta.rising(high, 2) and (na(volume) or ta.rising(volume, 2))
 plotchar(longSignal, "Long", "▲", location.belowbar, color = na(volume) ? color.gray : color.blue, size = size.tiny)
 ```
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/TextAndShapes-Plotchar-02.CP9gwRwQ_ZdX6um.webp)
 
 Note that:
 
@@ -117,8 +111,6 @@ plot(longSignal ? low - ta.tr : na, "Long", color.blue, 2, plot.style_circles)
 ```
 
 This method has the inconvenience that, since there is no relative positioning mechanism with [plot()](https://www.tradingview.com/pine-script-reference/v6/#fun_plot) one must shift the circles down using something like [ta.tr](https://www.tradingview.com/pine-script-reference/v6/#var_ta.tr) (the bar’s “True Range”):
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/TextAndShapes-Plotchar-03.lnUtjJIt_Z10hG01.webp)
 
 ## `plotshape()` {#plotshape}
 
@@ -141,8 +133,6 @@ plotshape(longSignal, "Long", shape.arrowup, location.belowbar)
 
 Note that here, rather than using an arrow character, we are using the `shape.arrowup` argument for the `style` parameter.
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/TextAndShapes-Plotshape-01.JOPpSRCa_ZwsWMC.webp)
-
 It is possible to use different [plotshape()](https://www.tradingview.com/pine-script-reference/v6/#fun_plotshape) calls to superimpose text on bars. You need to use the newline character sequence, `\n`. The newline needs to be the **last** one in the string for text going up, and the **first** one when you are plotting under the bar and text is going down:
 
 ```pine
@@ -154,18 +144,16 @@ plotshape(true, "", shape.arrowdown, location.belowbar, color.red,    text = "C"
 plotshape(true, "", shape.arrowdown, location.belowbar, color.maroon, text = "\nD")
 ```
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/TextAndShapes-Plotshape-02.CuvXGcSI_Z1xQ7NX.webp)
-
 The available shapes you can use with the `style` parameter are:
 
 | Argument | Shape | With Text | Argument | Shape | With Text |
 | --- | --- | --- | --- | --- | --- |
-| `shape.xcross` | ![Plotshape\_xcross](https://www.tradingview.com/pine-script-docs/_astro/Plotshape_xcross.CqpTSatD_1hKuG.webp) | ![Xcross\_with\_text](https://www.tradingview.com/pine-script-docs/_astro/Xcross_with_text.CsITFsrT_14IjeQ.webp) | `shape.arrowup` | ![Plotshape\_arrowup](https://www.tradingview.com/pine-script-docs/_astro/Plotshape_arrowup.CW1yrDMp_Z2uqFTN.webp) | ![Arrowup\_with\_text](https://www.tradingview.com/pine-script-docs/_astro/Arrowup_with_text.DZDHU0_8_1GF3pu.webp) |
-| `shape.cross` | ![Plotshape\_cross](https://www.tradingview.com/pine-script-docs/_astro/Plotshape_cross.CKH3VPKx_2qCdf2.webp) | ![Cross\_with\_text](https://www.tradingview.com/pine-script-docs/_astro/Cross_with_text.CtReU8CU_ZJsbQd.webp) | `shape.arrowdown` | ![Plotshape\_arrowdown](https://www.tradingview.com/pine-script-docs/_astro/Plotshape_arrowdown.B-q2lOyW_13DXqc.webp) | ![Arrowdown\_with\_text](https://www.tradingview.com/pine-script-docs/_astro/Arrowdown_with_text.DjuzMvwv_277AwY.webp) |
-| `shape.circle` | ![Plotshape\_circle](https://www.tradingview.com/pine-script-docs/_astro/Plotshape_circle.C1i8wH61_Z2whXoz.webp) | ![Circle\_with\_text](https://www.tradingview.com/pine-script-docs/_astro/Circle_with_text.WA6whkZO_Y62Yp.webp) | `shape.square` | ![Plotshape\_square](https://www.tradingview.com/pine-script-docs/_astro/Plotshape_square.C0HqeKpT_Z2cwCk7.webp) | ![Square\_with\_text](https://www.tradingview.com/pine-script-docs/_astro/Square_with_text.Cs7f7vtU_Z24wjST.webp) |
-| `shape.triangleup` | ![Plotshape\_triangleup](https://www.tradingview.com/pine-script-docs/_astro/Plotshape_triangleup.DSdn-Z9j_Z127TFO.webp) | ![Triangleup\_with\_text](https://www.tradingview.com/pine-script-docs/_astro/Triangleup_with_text.QVon6H1r_1hWoAQ.webp) | `shape.diamond` | ![Plotshape\_diamond](https://www.tradingview.com/pine-script-docs/_astro/Plotshape_diamond.CPu2rKgV_ZNMv3F.webp) | ![Diamond\_with\_text](https://www.tradingview.com/pine-script-docs/_astro/Diamond_with_text.CGBBjhsU_Z84uQC.webp) |
-| `shape.triangledown` | ![Plotshape\_triangledown](https://www.tradingview.com/pine-script-docs/_astro/Plotshape_triangledown.D3CZ8Iw5_1OnjGi.webp) | ![Triangledown\_with\_text](https://www.tradingview.com/pine-script-docs/_astro/Triangledown_with_text.BNalFnw6_1iS4Ch.webp) | `shape.labelup` | ![Plotshape\_labelup](https://www.tradingview.com/pine-script-docs/_astro/Plotshape_labelup.BEl-5lc0_1OezMJ.webp) | ![Labelup\_with\_text](https://www.tradingview.com/pine-script-docs/_astro/Labelup_with_text.BZCbEuFR_1zNAil.webp) |
-| `shape.flag` | ![Plotshape\_flag](https://www.tradingview.com/pine-script-docs/_astro/Plotshape_flag.Cj1OxWfL_1Mk7T3.webp) | ![Flag\_with\_text](https://www.tradingview.com/pine-script-docs/_astro/Flag_with_text.PGNhrE2y_Z1blD4n.webp) | `shape.labeldown` | ![Plotshape\_labeldown](https://www.tradingview.com/pine-script-docs/_astro/Plotshape_labeldown.CoBObOmO_1CPFqL.webp) | ![Labeldown\_with\_text](https://www.tradingview.com/pine-script-docs/_astro/Labeldown_with_text.lJXVqT03_1fjvoS.webp) |
+| `shape.xcross` |  |  | `shape.arrowup` |  |  |
+| `shape.cross` |  |  | `shape.arrowdown` |  |  |
+| `shape.circle` |  |  | `shape.square` |  |  |
+| `shape.triangleup` |  |  | `shape.diamond` |  |  |
+| `shape.triangledown` |  |  | `shape.labelup` |  |  |
+| `shape.flag` |  |  | `shape.labeldown` |  |  |
 
 ## `plotarrow()` {#plotarrow}
 
@@ -194,8 +182,6 @@ body = close - open
 plotarrow(body, colorup = color.teal, colordown = color.orange)
 ```
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/TextAndShapes-Plotarrow-01.KkXXJXUI_Zl0IHw.webp)
-
 Note how the height of arrows is proportional to the relative size of the bar bodies.
 
 You can use any series to plot the arrows. Here we use the value of the “Chaikin Oscillator” to control the location and size of the arrows:
@@ -209,8 +195,6 @@ osc = ta.ema(ta.accdist, fastLengthInput) - ta.ema(ta.accdist, slowLengthInput)
 plotarrow(osc)
 ```
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/TextAndShapes-Plotarrow-02.ChRmPIiy_tCl9l.webp)
-
 Note that we display the actual “Chaikin Oscillator” in a pane below the chart, so you can see what values are used to determine the position and size of the arrows.
 
 ## Labels {#labels}
@@ -219,7 +203,8 @@ Labels are only available in v4 and higher versions of Pine Script. They work ve
 
 Labels are objects, like [lines and boxes](https://www.tradingview.com/pine-script-docs/visuals/lines-and-boxes/), or [tables](https://www.tradingview.com/pine-script-docs/visuals/tables/). Like them, they are referred to using an ID, which acts like a pointer. Label IDs are of “label” type. As with other objects, labels IDs are “time series” and all the functions used to manage them accept “series” arguments, which makes them very flexible.
 
-NoteThe Supercharts interface features a set of _drawing tools_ that enable users to draw on the chart using mouse actions. Although some of those drawings might resemble the outputs of a script’s drawing objects, it’s crucial to understand that they are **unrelated** entities. Scripts cannot interact with the chart’s drawing tools. Additionally, mouse actions do not directly affect a script’s drawing objects.
+> [!NOTE]
+> The Supercharts interface features a set of _drawing tools_ that enable users to draw on the chart using mouse actions. Although some of those drawings might resemble the outputs of a script’s drawing objects, it’s crucial to understand that they are **unrelated** entities. Scripts cannot interact with the chart’s drawing tools. Additionally, mouse actions do not directly affect a script’s drawing objects.
 
 Labels are advantageous because:
 
@@ -288,8 +273,6 @@ indicator("", "", true)
 label.new(bar_index, high)
 ```
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/TextAndShapes-CreatingLabels-01.BHaO-o78_g31DW.webp)
-
 Note that:
 
 -   The label is created with the parameters `x = bar_index` (the index of the current bar, [bar\_index](https://www.tradingview.com/pine-script-reference/v6/#var_bar_index)) and `y = high` (the bar’s [high](https://www.tradingview.com/pine-script-reference/v6/#var_high) value).
@@ -322,8 +305,6 @@ if ta.change(hi) != 0
     label.set_tooltip(lbl, tooltipText)
 ```
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/TextAndShapes-CreatingLabels-02.CaxmDfMG_1porx0.webp)
-
 Note that:
 
 -   We create the label on the first bar only by using the [var](https://www.tradingview.com/pine-script-reference/v6/#kw_var) keyword to declare the `lbl` variable that contains the label’s ID. The `x`, `y` and `text` arguments in that [label.new()](https://www.tradingview.com/pine-script-reference/v6/#fun_label.new) call are irrelevant, as the label will be updated on further bars. We do, however, take care to use the `color` and `style` we want for the labels, so they don’t need updating later.
@@ -347,8 +328,6 @@ else
     label.set_yloc( lbl, yloc.abovebar)
     label.set_style(lbl, label.style_label_down)
 ```
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/TextAndShapes-CreatingLabels-03.ClglPmUL_9zu2U.webp)
 
 ### Positioning labels {#positioning-labels}
 
@@ -378,16 +357,16 @@ These are the available `style` arguments:
 
 | Argument | Label | Label with text | Argument | Label | Label with text |
 | --- | --- | --- | --- | --- | --- |
-| `label.style_xcross` | ![label\_style\_xcross](https://www.tradingview.com/pine-script-docs/_astro/label.style_xcross.C9JSUQRE_2uQQjE.webp) | ![label\_style\_xcross\_t](https://www.tradingview.com/pine-script-docs/_astro/label.style_xcross_t.DPHiuTMd_2dUYai.webp) | `label.style_label_up` | ![label\_style\_label\_up](https://www.tradingview.com/pine-script-docs/_astro/label.style_labelup.BwgLLtO1_Z1yoSlq.webp) | ![label\_style\_label\_up\_t](https://www.tradingview.com/pine-script-docs/_astro/label.style_labelup_t.BGJ7MtwJ_1ox3I4.webp) |
-| `label.style_cross` | ![label\_style\_cross](https://www.tradingview.com/pine-script-docs/_astro/label.style_cross.rv8J58or_2jbtwo.webp) | ![label\_style\_cross\_t](https://www.tradingview.com/pine-script-docs/_astro/label.style_cross_t.CMucKs6T_2rFeaO.webp) | `label.style_label_down` | ![label\_style\_label\_down](https://www.tradingview.com/pine-script-docs/_astro/label.style_labeldown.BFAq-8ZE_2k5vmt.webp) | ![label\_style\_label\_down\_t](https://www.tradingview.com/pine-script-docs/_astro/label.style_labeldown_t.L-NIjl15_2snuDQ.webp) |
-| `label.style_flag` | ![label\_style\_flag](https://www.tradingview.com/pine-script-docs/_astro/label.style_flag.B5SqpJOR_1rdTYf.webp) | ![label\_style\_flag\_t](https://www.tradingview.com/pine-script-docs/_astro/label.style_flag_t.Yd9se8TY_Z1heo5W.webp) | `label.style_label_left` | ![label\_style\_label\_left](https://www.tradingview.com/pine-script-docs/_astro/TextAndShapes-LabelStyles-labelleft.CoJwMI_X_2mqJC5.webp) | ![label\_style\_label\_left\_t](https://www.tradingview.com/pine-script-docs/_astro/TextAndShapes-LabelStyles-labelleft_t.CMNu0DBH_Z2k27Vy.webp) |
-| `label.style_circle` | ![label\_style\_circle](https://www.tradingview.com/pine-script-docs/_astro/label.style_circle.B1NdiRhT_ZWWl84.webp) | ![label\_style\_circle\_t](https://www.tradingview.com/pine-script-docs/_astro/label.style_circle_t.DfdC3pj7_Z1JcTk8.webp) | `label.style_label_right` | ![label\_style\_label\_right](https://www.tradingview.com/pine-script-docs/_astro/TextAndShapes-LabelStyles-labelright.DgXGrRa9_Ti54x.webp) | ![label\_style\_label\_right\_t](https://www.tradingview.com/pine-script-docs/_astro/TextAndShapes-LabelStyles-labelright_t.D44pTqgu_Z1k6Iek.webp) |
-| `label.style_square` | ![label\_style\_square](https://www.tradingview.com/pine-script-docs/_astro/label.style_square.CUNIiJ9b_Z1u3wy1.webp) | ![label\_style\_square\_t](https://www.tradingview.com/pine-script-docs/_astro/label.style_square_t.-OUB179q_Z23MudO.webp) | `label.style_label_lower_left` | ![label\_style\_label\_lower\_left](https://www.tradingview.com/pine-script-docs/_astro/TextAndShapes-LabelStyles-labellowerleft.D2hZptp3_2lTg8.webp) | ![label\_style\_label\_lower\_left\_t](https://www.tradingview.com/pine-script-docs/_astro/TextAndShapes-LabelStyles-labellowerleft_t.Kwxk7klP_Z1oa00i.webp) |
-| `label.style_diamond` | ![label\_style\_diamond](https://www.tradingview.com/pine-script-docs/_astro/label.style_diamond.COncn0Zi_1FXrD4.webp) | ![label\_style\_diamond\_t](https://www.tradingview.com/pine-script-docs/_astro/label.style_diamond_t.e7SsTV_d_Z28NrtM.webp) | `label.style_label_lower_right` | ![label\_style\_label\_lower\_right](https://www.tradingview.com/pine-script-docs/_astro/TextAndShapes-LabelStyles-labellowerright.GvDkEi7V_Z1y1uqF.webp) | ![label\_style\_label\_lower\_right\_t](https://www.tradingview.com/pine-script-docs/_astro/TextAndShapes-LabelStyles-labellowerright_t.CT8ecmHn_1YCYJ7.webp) |
-| `label.style_triangleup` | ![label\_style\_triangleup](https://www.tradingview.com/pine-script-docs/_astro/label.style_triangleup.DHU9hA18_1FYqhn.webp) | ![label\_style\_triangleup\_t](https://www.tradingview.com/pine-script-docs/_astro/label.style_triangleup_t.C6XS8y_c_Z16ipb9.webp) | `label.style_label_upper_left` | ![label\_style\_label\_upper\_left](https://www.tradingview.com/pine-script-docs/_astro/TextAndShapes-LabelStyles-labelupperleft.DzaMZ6Lm_EN0nz.webp) | ![label\_style\_label\_upper\_left\_t](https://www.tradingview.com/pine-script-docs/_astro/TextAndShapes-LabelStyles-labelupperleft_t.jBf41_qj_JL1jG.webp) |
-| `label.style_triangledown` | ![label\_style\_triangledown](https://www.tradingview.com/pine-script-docs/_astro/label.style_triangledown.CVD8jP47_bGUmY.webp) | ![label\_style\_triangledown\_t](https://www.tradingview.com/pine-script-docs/_astro/label.style_triangledown_t.Ds2S1BfO_Z1aGEzu.webp) | `label.style_label_upper_right` | ![label\_style\_label\_upper\_right](https://www.tradingview.com/pine-script-docs/_astro/TextAndShapes-LabelStyles-labelupperright.Cs_tEjae_ZE3VpC.webp) | ![label\_style\_label\_upper\_right\_t](https://www.tradingview.com/pine-script-docs/_astro/TextAndShapes-LabelStyles-labelupperright_t.gHx7FqVU_2Uvev.webp) |
-| `label.style_arrowup` | ![label\_style\_arrowup](https://www.tradingview.com/pine-script-docs/_astro/label.style_arrowup.Bnnvniie_719tM.webp) | ![label\_style\_arrowup\_t](https://www.tradingview.com/pine-script-docs/_astro/label.style_arrowup_t.CSukCsAU_ZTiKPu.webp) | `label.style_label_center` | ![label\_style\_label\_center](https://www.tradingview.com/pine-script-docs/_astro/TextAndShapes-LabelStyles-labelcenter.BDNM-3_M_Z28aFzz.webp) | ![label\_style\_label\_center\_t](https://www.tradingview.com/pine-script-docs/_astro/TextAndShapes-LabelStyles-labelcenter_t.DGjIAaki_V9JPp.webp) |
-| `label.style_arrowdown` | ![label\_style\_arrowdown](https://www.tradingview.com/pine-script-docs/_astro/label.style_arrowdown.DHUuQ7Xu_11h5g1.webp) | ![label\_style\_arrowdown\_t](https://www.tradingview.com/pine-script-docs/_astro/label.style_arrowdown_t.BsY5apvs_2rFKbB.webp) | `label.style_none` |  | ![label\_style\_none\_t](https://www.tradingview.com/pine-script-docs/_astro/label.style_none_t.iibFInW6_aXb68.webp) |
+| `label.style_xcross` |  |  | `label.style_label_up` |  |  |
+| `label.style_cross` |  |  | `label.style_label_down` |  |  |
+| `label.style_flag` |  |  | `label.style_label_left` |  |  |
+| `label.style_circle` |  |  | `label.style_label_right` |  |  |
+| `label.style_square` |  |  | `label.style_label_lower_left` |  |  |
+| `label.style_diamond` |  |  | `label.style_label_lower_right` |  |  |
+| `label.style_triangleup` |  |  | `label.style_label_upper_left` |  |  |
+| `label.style_triangledown` |  |  | `label.style_label_upper_right` |  |  |
+| `label.style_arrowup` |  |  | `label.style_label_center` |  |  |
+| `label.style_arrowdown` |  |  | `label.style_none` |  |  |
 
 When using [xloc.bar\_time](https://www.tradingview.com/pine-script-reference/v6/#const_xloc.bar_time), the `x` value must be a UNIX timestamp in milliseconds. See the page on [Time](https://www.tradingview.com/pine-script-docs/concepts/time/) for more information. The start time of the current bar can be obtained from the [time](https://www.tradingview.com/pine-script-reference/v6/#var_time) built-in variable. The bar time of previous bars is `time[1]`, `time[2]` and so on. Time can also be set to an absolute value with the [timestamp()](https://www.tradingview.com/pine-script-reference/v6/#fun_timestamp) function. You may add or subtract periods of time to achieve relative time offset.
 
@@ -460,8 +439,6 @@ if myRSI > ta.highest(myRSI, 20)[1]
 plot(myRSI)
 ```
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/TextAndShapes-DeletingLabels-01.CQiqGcEC_Z29qiCe.webp)
-
 Note that:
 
 -   We define a `MAX_LABELS` constant to hold the maximum quantity of labels a script can accommodate. We use that value to set the `max_labels_count` parameter’s value in our [indicator()](https://www.tradingview.com/pine-script-reference/v6/#fun_indicator) call, and also as the `maxval` value in our [input.int()](https://www.tradingview.com/pine-script-reference/v6/#fun_input.int) call to cap the user value.
@@ -527,8 +504,6 @@ This table lists the `size.*` constants and their equivalent “int” sizes for
 | `size.huge` | 36 | 24 |
 
 The example below creates a [label](https://www.tradingview.com/pine-script-reference/v6/#type_label) and [table](https://www.tradingview.com/pine-script-reference/v6/#type_table) on the last available bar. The label displays a string representation of the current [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) value. The single-cell table displays a string representing the price and percentage difference between the current [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) and [open](https://www.tradingview.com/pine-script-reference/v6/#var_open) values. The label’s text size is defined by a [string input](https://www.tradingview.com/pine-script-docs/concepts/inputs/#string-input) that returns the value of a built-in `size.*` constant, and the table’s text size is defined by an [integer input](https://www.tradingview.com/pine-script-docs/concepts/inputs/#integer-input). Additionally, the script creates a [box](https://www.tradingview.com/pine-script-reference/v6/#type_box) that visualizes the range from the highest to lowest price over the last 20 bars. The box displays custom text, with a constant `text_size` of 19, to show the distance from the [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) value to the current highest or lowest price. The two [Boolean inputs](https://www.tradingview.com/pine-script-docs/concepts/inputs/#boolean-input) specify whether all three drawings apply bold and italic text formats to their displayed text:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Text-and-shapes-Text-formatting-1.BNSgpIL__Zf4JRs.webp)
 
 ```pine
 //@version=6

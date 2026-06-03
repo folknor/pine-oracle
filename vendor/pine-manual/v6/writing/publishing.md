@@ -12,23 +12,18 @@ TradingView hosts a large global community of Pine Script® programmers, and mil
 
 This page explains the script publishing process and provides recommendations to help authors publish their Pine scripts effectively.
 
-NoticeBefore you publish a script, ensure you read and understand our [House Rules](https://www.tradingview.com/house-rules/), [Script Publishing Rules](https://www.tradingview.com/support/solutions/43000590599-script-publishing-rules/), and [Vendor Requirements](https://www.tradingview.com/support/solutions/43000549951-vendor-requirements/).
+> [!IMPORTANT]
+> Before you publish a script, ensure you read and understand our [House Rules](https://www.tradingview.com/house-rules/), [Script Publishing Rules](https://www.tradingview.com/support/solutions/43000590599-script-publishing-rules/), and [Vendor Requirements](https://www.tradingview.com/support/solutions/43000549951-vendor-requirements/).
 
 ## Script publications {#script-publications}
 
 When an _editable_ script is on the chart and opened in the Pine Editor, users can select the “Publish indicator/strategy/library” button in the top-right corner to open the “Publish script” window and create a _script publication_:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Publishing-scripts-Script-publications-1.J697I8lX_1NyPtK.webp)
-
 After the author follows all the necessary steps to [prepare the publication](https://www.tradingview.com/pine-script-docs/writing/publishing/#preparing-a-publication) and selects the “Publish private/public script” button on the last page of the “Publish script” window, TradingView generates a dedicated _script widget_ and _script page_, which feature options for users to boost, share, report, and comment on the publication.
 
 The script widget is a _preview_ of the publication that appears in all relevant locations on TradingView, depending on the specified [privacy](https://www.tradingview.com/pine-script-docs/writing/publishing/#privacy-types) and [visibility](https://www.tradingview.com/pine-script-docs/writing/publishing/#visibility-types) settings. It shows the script’s title, a compressed view of the published chart, and a brief preview of the script’s description. An icon in the top-right corner of the widget indicates whether the published script is an [indicator](https://www.tradingview.com/pine-script-reference/v6/#fun_indicator), [strategy](https://www.tradingview.com/pine-script-docs/concepts/strategies/), or [library](https://www.tradingview.com/pine-script-docs/concepts/libraries/):
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Publishing-scripts-Script-publications-2.G0ylHOYP_Z1rEHBq.webp)
-
 Clicking on the widget opens the script page. The top of the page shows information about the script’s visibility, its title, and an enlarged view of the published chart:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Publishing-scripts-Script-publications-3.s71gTejL_Z2kv2SD.webp)
 
 For published [strategies](https://www.tradingview.com/pine-script-docs/concepts/strategies/), the script page also includes the option for users to view the [Strategy Tester](https://www.tradingview.com/pine-script-docs/concepts/strategies/#strategy-tester) report below the title.
 
@@ -38,9 +33,8 @@ Below the chart or strategy report are the publication’s complete description,
 
 Script publications have one of two _privacy types_, which determine how users can discover them: [public](https://www.tradingview.com/pine-script-docs/writing/publishing/#public) or [private](https://www.tradingview.com/pine-script-docs/writing/publishing/#private). Public scripts are discoverable to all members of the TradingView community, whereas private scripts are accessible only via their URLs. Authors set a script publication’s privacy type using the “Privacy settings” field on the _second page_ of the “Publish script” window:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Publishing-scripts-Privacy-types-1.CSXHELy0_27yvrN.webp)
-
-NoticeEnsure you select the correct option in this field when you [prepare](https://www.tradingview.com/pine-script-docs/writing/publishing/#preparing-a-publication) a publication, as you **cannot** change a script’s privacy type after you publish it. 
+> [!IMPORTANT]
+> Ensure you select the correct option in this field when you [prepare](https://www.tradingview.com/pine-script-docs/writing/publishing/#preparing-a-publication) a publication, as you **cannot** change a script’s privacy type after you publish it. 
 
 ### Public {#public}
 
@@ -50,7 +44,8 @@ Users can discover public scripts by navigating the Community scripts feed direc
 
 Because public scripts are available to our global community and are **not** for private use, they must meet the criteria defined in our [House Rules](https://www.tradingview.com/house-rules/), [Script Publishing Rules](https://www.tradingview.com/support/solutions/43000590599-script-publishing-rules/), and [Vendor Requirements](https://www.tradingview.com/support/solutions/43000549951-vendor-requirements/). Our _script moderators_ analyze public scripts using these criteria. Script publications that do not follow these rules become _hidden_ from the community.
 
-NoticeWhen you publish a public script, you have only **15 minutes** to edit or delete it. After that period expires, the publication is finalized and **cannot** be changed or removed. Therefore, before you publish a public script, validate that everything appears as intended and complies with our rules. The recommended approach is to start with a [private](https://www.tradingview.com/pine-script-docs/writing/publishing/#private) script, which you can _always_ edit or delete. 
+> [!IMPORTANT]
+> When you publish a public script, you have only **15 minutes** to edit or delete it. After that period expires, the publication is finalized and **cannot** be changed or removed. Therefore, before you publish a public script, validate that everything appears as intended and complies with our rules. The recommended approach is to start with a [private](https://www.tradingview.com/pine-script-docs/writing/publishing/#private) script, which you can _always_ edit or delete. 
 
 ### Private {#private}
 
@@ -58,15 +53,15 @@ A script published with the “Private” setting is _not_ available in the [Com
 
 Authors can **always** edit or delete private script publications, unlike [public](https://www.tradingview.com/pine-script-docs/writing/publishing/#public) scripts, using the available options in the top-right corner of the script page. This capability makes private scripts ideal for testing features, collaborating with friends, and creating [draft publications](https://www.tradingview.com/pine-script-docs/writing/publishing/#private-drafts) before committing to public releases. To learn more about how private publications differ from public ones, see [this article](https://www.tradingview.com/support/solutions/43000548335-how-do-private-ideas-and-scripts-differ-from-public-ones/) in our Help Center.
 
-NoticePrivate scripts are strictly for **private use**. Our script moderators do not analyze privately published scripts as long as they _remain_ private. As per our [Script Publishing Rules](https://www.tradingview.com/support/solutions/43000590599-script-publishing-rules/) and [Vendor Requirements](https://www.tradingview.com/support/solutions/43000549951-vendor-requirements/), you cannot reference or link to private publications in any public TradingView content. Additionally, if you share links to private scripts in social networks or other public content, those scripts are _not_ considered private.
+> [!IMPORTANT]
+> Private scripts are strictly for **private use**. Our script moderators do not analyze privately published scripts as long as they _remain_ private. As per our [Script Publishing Rules](https://www.tradingview.com/support/solutions/43000590599-script-publishing-rules/) and [Vendor Requirements](https://www.tradingview.com/support/solutions/43000549951-vendor-requirements/), you cannot reference or link to private publications in any public TradingView content. Additionally, if you share links to private scripts in social networks or other public content, those scripts are _not_ considered private.
 
 ## Visibility types {#visibility-types}
 
 A script publication’s _visibility type_ determines whether other users can see the source code, and whether anyone or only authorized individuals can use the script. The possible types are [open-source](https://www.tradingview.com/pine-script-docs/writing/publishing/#open), [protected](https://www.tradingview.com/pine-script-docs/writing/publishing/#protected), and [invite-only](https://www.tradingview.com/pine-script-docs/writing/publishing/#invite-only). The “Visibility” options on the _second page_ of the “Publish script” window specify a script’s visibility type:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Publishing-scripts-Visibility-types-1.CtdHkYFb_235J3h.webp)
-
-NoticeAs with the [privacy type](https://www.tradingview.com/pine-script-docs/writing/publishing/#privacy-types), you **cannot** change a script’s visibility type after you publish it. Make sure you select the appropriate option while [preparing](https://www.tradingview.com/pine-script-docs/writing/publishing/#preparing-a-publication) your publication. 
+> [!IMPORTANT]
+> As with the [privacy type](https://www.tradingview.com/pine-script-docs/writing/publishing/#privacy-types), you **cannot** change a script’s visibility type after you publish it. Make sure you select the appropriate option while [preparing](https://www.tradingview.com/pine-script-docs/writing/publishing/#preparing-a-publication) your publication. 
 
 ### Open {#open}
 
@@ -74,11 +69,7 @@ A script published with the “Open” setting is _open-source_, meaning anyone 
 
 An open-source script’s page displays the source code in an expandable window above the comments. The window also includes the option to view the source code directly inside the Pine Editor in a separate tab:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Publishing-scripts-Visibility-types-Open-1.C0tgTdYX_ZrWJjH.webp)
-
 When a user adds the script to their chart, they can also view the source code in the Pine Editor at any time by selecting the “Source code” option in the script’s status line:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Publishing-scripts-Visibility-types-Open-2.CwLD-vSb_2rhO48.webp)
 
 Note that:
 
@@ -86,7 +77,8 @@ Note that:
 -   All open-source scripts on TradingView use the [Mozilla Public License 2.0](https://www.mozilla.org/en-US/MPL/2.0/) by default. Authors wanting to use alternative licenses can specify them in the source code.
 -   All script publications that _reuse_ code from another open-source script must meet the “Open-source reuse” criteria outlined in our [Script Publishing Rules](https://www.tradingview.com/support/solutions/43000590599-script-publishing-rules/). These rules take precedence over any provisions from an open-source license.
 
-TipOpen-source scripts are eligible for inclusion in our [Editors’ picks](https://www.tradingview.com/scripts/editors-picks/) section, which showcases exceptional publications from our growing community of script authors. The Editors’ picks are selected from [public](https://www.tradingview.com/pine-script-docs/writing/publishing/#public), open-source scripts that are original, provide potential value to users, include a helpful description, and comply with our [House Rules](https://www.tradingview.com/house-rules/).
+> [!TIP]
+> Open-source scripts are eligible for inclusion in our [Editors’ picks](https://www.tradingview.com/scripts/editors-picks/) section, which showcases exceptional publications from our growing community of script authors. The Editors’ picks are selected from [public](https://www.tradingview.com/pine-script-docs/writing/publishing/#public), open-source scripts that are original, provide potential value to users, include a helpful description, and comply with our [House Rules](https://www.tradingview.com/house-rules/).
 
 ### Protected {#protected}
 
@@ -100,17 +92,12 @@ A script published with the “Invite-only” setting has closed-source code. No
 
 Below the description on the invite-only script page, the author can see a _“Manage access”_ button. This button opens a dialog box where the author specifies which users have access to the script:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Publishing-scripts-Visibility-types-Invite-only-1.CKjJWSSz_ZkmYIg.webp)
-
 Script authors typically use invite-only publications to provide interested users with unique scripts, often in exchange for payment. As such, invite-only script authors are considered _vendors_. In addition to the [House Rules](https://www.tradingview.com/house-rules/) and [Script Publishing Rules](https://www.tradingview.com/support/solutions/43000590599-script-publishing-rules/), which apply to _all_ script authors, vendors must understand and follow our [Vendor Requirements](https://www.tradingview.com/support/solutions/43000549951-vendor-requirements/).
 
-Notice
-
-[Public](https://www.tradingview.com/pine-script-docs/writing/publishing/#public) invite-only scripts are the **only** published scripts for which authors can require payment to access. Selling access to [private](https://www.tradingview.com/pine-script-docs/writing/publishing/#private) scripts is prohibited, and authors cannot charge users for access to [open-source](https://www.tradingview.com/pine-script-docs/writing/publishing/#open) or [protected](https://www.tradingview.com/pine-script-docs/writing/publishing/#protected) scripts because they are, by definition, _free_ to use.
-
-  
-
-TradingView does not benefit from script sales. Transactions concerning invite-only scripts are strictly between _users_ and _vendors_; they do not involve TradingView.
+> [!IMPORTANT]
+> [Public](https://www.tradingview.com/pine-script-docs/writing/publishing/#public) invite-only scripts are the **only** published scripts for which authors can require payment to access. Selling access to [private](https://www.tradingview.com/pine-script-docs/writing/publishing/#private) scripts is prohibited, and authors cannot charge users for access to [open-source](https://www.tradingview.com/pine-script-docs/writing/publishing/#open) or [protected](https://www.tradingview.com/pine-script-docs/writing/publishing/#protected) scripts because they are, by definition, _free_ to use.
+>
+> TradingView does not benefit from script sales. Transactions concerning invite-only scripts are strictly between _users_ and _vendors_; they do not involve TradingView.
 
 ## Preparing a publication {#preparing-a-publication}
 
@@ -169,8 +156,6 @@ After preparing the [source code](https://www.tradingview.com/pine-script-docs/w
 
 The first page of the “Publish Script” window contains two text fields that _cannot_ be empty:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Publishing-scripts-Preparing-a-publication-Title-and-description-1.Ctto0oi1_Z1OqycD.webp)
-
 The first field determines the publication’s _title_, which appears at the top of the script widget and page. TradingView also uses the specified title to determine the publication’s _URL_. By default, this field proposes the text from the `title` argument of the script’s declaration statement. It is typically best to use that title. However, some authors prefer to use different or modified titles.
 
 When defining the title of a script publication:
@@ -183,8 +168,6 @@ When defining the title of a script publication:
 -   Do not include website references, social media handles, or other forms of advertisement.
 
 The second text field determines the publication’s _description_. The toolbar at the top contains several options that insert _markup tags_ into the field for adding text formats, Pine code blocks, lists, and more. The script page displays the complete, parsed text from this field below the published chart or strategy report:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Publishing-scripts-Preparing-a-publication-Title-and-description-2.BFSUZFJ4_Z1hW7mh.webp)
 
 Most of the markup for publication descriptions requires surrounding raw text with an _opening tag_ (e.g., `[b]`) and a matching _closing tag_ with a forward slash (e.g., `[/b]`). Some tags also require additional syntax. Here, we list the available tags and explain how they work:
 
@@ -208,23 +191,16 @@ Writing a helpful description is a **critical step** in the script publishing pr
 
 The _second_ page of the “Publish script” window is where authors specify a script publication’s settings and search tags. This page is accessible only after adding a [title and description](https://www.tradingview.com/pine-script-docs/writing/publishing/#title-and-description) for the script on the previous page and selecting the “Continue” button:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Publishing-scripts-Preparing-a-publication-Publication-settings-1.CBK9Pq2e_Z1m7Szc.webp)
-
 The two fields at the top of the page specify the script’s [privacy](https://www.tradingview.com/pine-script-docs/writing/publishing/#privacy-types) and [visibility](https://www.tradingview.com/pine-script-docs/writing/publishing/#visibility-types) types. Ensure both fields use the correct options, as these settings **cannot** change after the script is published.
 
-TipEven if you intend to share your script publicly, we recommend publishing a [private](https://www.tradingview.com/pine-script-docs/writing/publishing/#private) version first. You can use the private publication as a _draft_ of the release to ensure the content is correct, then create a new [public](https://www.tradingview.com/pine-script-docs/writing/publishing/#public) version with the verified description. See the section on [private drafts](https://www.tradingview.com/pine-script-docs/writing/publishing/#private-drafts) below to learn more.
+> [!TIP]
+> Even if you intend to share your script publicly, we recommend publishing a [private](https://www.tradingview.com/pine-script-docs/writing/publishing/#private) version first. You can use the private publication as a _draft_ of the release to ensure the content is correct, then create a new [public](https://www.tradingview.com/pine-script-docs/writing/publishing/#public) version with the verified description. See the section on [private drafts](https://www.tradingview.com/pine-script-docs/writing/publishing/#private-drafts) below to learn more.
 
 Note that setting the publication’s visibility type to [invite-only](https://www.tradingview.com/pine-script-docs/writing/publishing/#invite-only) reveals an additional _“Author’s instructions”_ field, which cannot remain empty. This field is where vendors provide necessary information for users to _request access_ to their script, such as direct contact details and links to instructional pages. The contents of this field will appear below the description on the invite-only script page:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Publishing-scripts-Preparing-a-publication-Publication-settings-2.BIum0zP5_Z2uScED.webp)
-
 The remaining input fields on this page provide options to assign _tags_ (keywords) to the publication for discoverability. The “Category” field contains a menu where the author can select up to _three_ preset category tags for the publication. If the script is [public](https://www.tradingview.com/pine-script-docs/writing/publishing/#public), users can search the specified categories to discover it:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Publishing-scripts-Preparing-a-publication-Publication-settings-3.BWQCYFg3_ZYc2KI.webp)
-
 The publication can also include _custom_, non-preset search tags for additional discoverability. To add custom tags to the publication, select the “Show more” option, then enter a list of searchable keywords in the “Tags” field:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Publishing-scripts-Preparing-a-publication-Publication-settings-4.CJgiGbDf_1b5T8J.webp)
 
 ## Publishing and editing {#publishing-and-editing}
 
@@ -232,13 +208,9 @@ After following all necessary steps to [prepare](https://www.tradingview.com/pin
 
 If the publication’s [privacy type](https://www.tradingview.com/pine-script-docs/writing/publishing/#privacy-types) is set to [public](https://www.tradingview.com/pine-script-docs/writing/publishing/#public), there is a checkbox above the “Publish…” button, which the author must select before they can create the publication. This checkbox confirms awareness of the [House Rules](https://www.tradingview.com/house-rules/) and the consequence of the script becoming _hidden_ from the community if it does not follow them:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Publishing-scripts-Publishing-and-editing-1.DcohMtNY_2gp37z.webp)
-
 When the script is published, the “Publish script” window closes automatically, and TradingView opens the new publication’s script page. The page includes “Edit” and “Delete” buttons in the top-right corner. If the script is public, these buttons are available for only _15 minutes_. If private, they are _always_ available.
 
 Selecting the “Edit” button opens the “Edit script” window, where the author can change the title, description, and search tags:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Publishing-scripts-Publishing-and-editing-2.DdXiOIMi_ZrNMDb.webp)
 
 Note that:
 
@@ -251,29 +223,21 @@ Authors can _update_ their [public](https://www.tradingview.com/pine-script-docs
 
 After opening the window, select the “Update existing script” option at the top of the first page:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Publishing-scripts-Script-updates-1.Dj2wF476_1VMmRX.webp)
-
 In this publishing mode, the first text field specifies the _existing_ script to update, **not** the title of a new publication. Enter the existing publication’s title in the field or select the title from the available options in the dropdown menu:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Publishing-scripts-Script-updates-2.BD7A4eH9_Ze0uCL.webp)
 
 Below the title field is a checkbox specifying whether the update will affect the publication’s chart. If unchecked (default), the script page will copy the author’s _current chart_ to showcase the changes. If checked, the publication will continue using its _existing_ chart display:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Publishing-scripts-Script-updates-3.Dbp2E4kN_29SVOM.webp)
-
-NoticeIf you plan to update the publication’s chart, [prepare the chart](https://www.tradingview.com/pine-script-docs/writing/publishing/#chart) before opening the “Publish script” window, just as you would with a new publication.
+> [!IMPORTANT]
+> If you plan to update the publication’s chart, [prepare the chart](https://www.tradingview.com/pine-script-docs/writing/publishing/#chart) before opening the “Publish script” window, just as you would with a new publication.
 
 The text field below the checkbox is where the author explains the _changes_ made to the script. The publication will display the parsed text from this field beneath the description as dated _release notes_ on the script page. The contents of this field **do not** modify the publication’s original description and are displayed _in addition_ to it:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Publishing-scripts-Script-updates-4.C4AWjLxS_Zavnlo.webp)
-
 When publishing release notes, prepare them similarly to the [description](https://www.tradingview.com/pine-script-docs/writing/publishing/#title-and-description). Provide self-contained information allowing users to understand the changes included in the update, how they impact the script’s functionality, and what benefits the changes provide over the previous version.
 
-NoticeAfter you publish a script update, the release notes are finalized _immediately_ and **cannot** be changed. Therefore, we recommend using [private drafts](https://www.tradingview.com/pine-script-docs/writing/publishing/#private-drafts) to validate script updates before committing to [public](https://www.tradingview.com/pine-script-docs/writing/publishing/#public) releases.
+> [!IMPORTANT]
+> After you publish a script update, the release notes are finalized _immediately_ and **cannot** be changed. Therefore, we recommend using [private drafts](https://www.tradingview.com/pine-script-docs/writing/publishing/#private-drafts) to validate script updates before committing to [public](https://www.tradingview.com/pine-script-docs/writing/publishing/#public) releases.
 
 The bottom of the page contains an expandable _difference checker_, which displays a side-by-side or inline comparison between the new source code and the last published version. We recommend inspecting and confirming the code differences _before_ publishing an update, because all updates are preserved in the script’s _version history_:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Publishing-scripts-Script-updates-5.0LHpw9wR_c0nBT.webp)
 
 After confirming the details on the first page of the “Publish script” window, select “Continue” to move to the final page, then select the “Publish new version” button at the bottom to finalize the script update.
 

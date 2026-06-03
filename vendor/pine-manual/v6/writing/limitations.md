@@ -150,8 +150,6 @@ It’s important to note when setting any of a drawing object’s properties to 
 
 The “Buy” label’s `x` value is [na](https://www.tradingview.com/pine-script-reference/v6/#var_na) when the bar index is even, and the “Sell” label’s `x` value is [na](https://www.tradingview.com/pine-script-reference/v6/#var_na) when the bar index is odd. Although the `max_labels_count` is 10 in this example, we can see that the script displays fewer than 10 [labels](https://www.tradingview.com/pine-script-docs/visuals/text-and-shapes/#labels) on the chart since the ones with [na](https://www.tradingview.com/pine-script-reference/v6/#var_na) values also count toward the total:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Limitations-LabelsWithNa-1.BrXz3MoQ_2eMsyz.webp)
-
 ```pine
 //@version=6
 
@@ -175,8 +173,6 @@ plot(shortCondition ? 1 : 0)
 ```
 
 To display the desired number of labels, we must eliminate label drawings we don’t want to show rather than setting their properties to [na](https://www.tradingview.com/pine-script-reference/v6/#var_na). The example below uses an [if](https://www.tradingview.com/pine-script-reference/v6/#kw_if) structure to conditionally draw the “Buy” and “Sell” labels, preventing the script from creating new label IDs when it isn’t necessary:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Limitations-LabelsWithNa-2.CiofVUZK_Z29WYRP.webp)
 
 ```pine
 //@version=6
@@ -224,7 +220,8 @@ A script can use up to 40 _unique_ calls to the functions in the `request.*()` n
 -   [request.economic()](https://www.tradingview.com/pine-script-reference/v6/#fun_request.economic)
 -   [request.seed()](https://www.tradingview.com/pine-script-reference/v6/#fun_request.seed)
 
-NoteThe [request.footprint()](https://www.tradingview.com/pine-script-reference/v6/#fun_request.footprint) function has unique limitations. A script can execute only _one_ unique call to this function. Additionally, only users who have a [Premium or Ultimate plan](https://www.tradingview.com/pricing/) can use scripts that call it. To learn more about this function and how to use it, refer to the [`request.footprint()`](https://www.tradingview.com/pine-script-docs/concepts/other-timeframes-and-data/#requestfootprint) section of the [Other timeframes and data](https://www.tradingview.com/pine-script-docs/concepts/other-timeframes-and-data) page.
+> [!NOTE]
+> The [request.footprint()](https://www.tradingview.com/pine-script-reference/v6/#fun_request.footprint) function has unique limitations. A script can execute only _one_ unique call to this function. Additionally, only users who have a [Premium or Ultimate plan](https://www.tradingview.com/pricing/) can use scripts that call it. To learn more about this function and how to use it, refer to the [`request.footprint()`](https://www.tradingview.com/pine-script-docs/concepts/other-timeframes-and-data/#requestfootprint) section of the [Other timeframes and data](https://www.tradingview.com/pine-script-docs/concepts/other-timeframes-and-data) page.
 
 When a script executes two or more identical `request.*()` function calls, only the _first_ call usually counts toward this limit. The repeated calls do not count because they _reuse_ the data from the first call rather than executing a redundant request. Note that when a script imports [library](https://www.tradingview.com/pine-script-docs/concepts/libraries/) functions containing `request.*()` calls within their scopes, those calls **do** count toward this limit, even if the script already calls the same `request.*()` function with the same arguments in its main scope.
 

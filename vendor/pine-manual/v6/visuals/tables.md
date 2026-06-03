@@ -57,8 +57,6 @@ if barstate.islast
     table.cell(atrDisplay, 0, 0, str.tostring(myAtr))
 ```
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Tables-ATR-1.aAFiA0fe_Z2lQuMA.webp)
-
 Note that:
 
 -   We use the [var](https://www.tradingview.com/pine-script-reference/v6/#kw_var) keyword when creating the table with [table.new()](https://www.tradingview.com/pine-script-reference/v6/#fun_table.new).
@@ -78,8 +76,6 @@ myAtr = ta.atr(atrPeriodInput)
 if barstate.islast
     table.cell(atrDisplay, 0, 0, str.tostring(myAtr, format.mintick), text_color = color.white)
 ```
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Tables-ATR-2.DwFmCnwy_Z1Qkjvb.webp)
 
 Note that:
 
@@ -119,8 +115,6 @@ Note that:
 Tables are ideal to create sophisticated display panels. Not only do they make it possible for display panels to always be visible in a constant position, they provide more flexible formatting because each cell’s properties are controlled separately: background, text color, size and alignment, etc.
 
 Here, we create a basic display panel showing a user-selected quantity of MAs values. We display their period in the first column, then their value with a green/red/gray background that varies with price’s position with regards to each MA. When price is above/below the MA, the cell’s background is colored with the bull/bear color. When the MA falls between the current bar’s [open](https://www.tradingview.com/pine-script-reference/v6/#var_open) and [close](https://www.tradingview.com/pine-script-reference/v6/#var_close), the cell’s background is of the neutral color:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Tables-DisplayPanel-1.BUQMSYyF_1AwPdc.webp)
 
 ```pine
 //@version=6
@@ -181,8 +175,6 @@ Note that:
 ### Displaying a heatmap {#displaying-a-heatmap}
 
 Our next project is a heatmap, which will indicate the bull/bear relationship of the current price relative to its past values. To do so, we will use a table positioned at the bottom of the chart. We will display colors only, so our table will contain no text; we will simply color the background of its cells to produce our heatmap. The heatmap uses a user-selectable lookback period. It loops across that period to determine if price is above/below each bar in that past, and displays a progressively lighter intensity of the bull/bear color as we go further in the past:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Tables-Heatmap-1.BRQU14P0_1voW5h.webp)
 
 ```pine
 //@version=6

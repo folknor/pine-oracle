@@ -42,8 +42,6 @@ The Pine Editor can automatically convert a v5 script to v6. The Pine Editor hig
 
 To convert the script, click the editor’s “Manage script” dropdown menu and select “Convert code to v6”:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/MigrationGuideTov6-Convert-button.BbP6b2UG_ZygYbw.webp)
-
 A script can be converted only if its v5 code compiles successfully. In rare cases, converting the script automatically can result in a v6 script with compilation errors. In that case, the errors are highlighted in the Editor, and you need to resolve them by using the information in the following sections.
 
 ## Dynamic requests {#dynamic-requests}
@@ -64,8 +62,6 @@ _Non-dynamic_ requests are the default in Pine v5. Scripts coded in v5 can execu
 In Pine v6, dynamic requests are _always_ available by default. When a script includes `request.*()` calls, the compiler analyzes the script to determine whether dynamic requests are necessary. If unnecessary for the script, the compiler automatically turns the feature off to optimize performance.
 
 The following v6 example uses a single [request.security()](https://www.tradingview.com/pine-script-reference/v6/#fun_request.security) instance in a [loop](https://www.tradingview.com/pine-script-docs/language/loops/) to retrieve data for multiple symbols stored in an [array](https://www.tradingview.com/pine-script-reference/v6/#type_array). On each iteration, the script dynamically retrieves the [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) price for one of the stored symbols from the “1D” timeframe and pushes the retrieved value into an array with [array.push()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.push). After the loop terminates, the script calculates that array’s average using [array.avg()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.avg) and plots the result. In Pine v5, this script would cause a _compilation error_ unless we included `dynamic_requests = true` in the declaration statement:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/MigrationGuideTov6-Dynamic-requests.CU--JEtI_10wRE5.webp)
 
 ```pine
 //@version=6
@@ -163,8 +159,6 @@ This example v5 script creates a simple [strategy](https://www.tradingview.com/p
 
 Therefore, a boolean `na` value occurs on the first few bars in the dataset before the strategy enters any positions. We can visualize the three “bool” states by setting the [background color](https://www.tradingview.com/pine-script-docs/visuals/backgrounds/) based on the value of `isLong`:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/MigrationGuideTov6-No-bool-na-1.B7b5WX8__Zme8DG.webp)
-
 ```pine
 //@version=5
 strategy("Bool `na` demo v5", overlay=true, margin_long=100, margin_short=100)
@@ -216,11 +210,7 @@ na(isLong)      => color.new(color.red, 40)
 
 In v6, the undefined condition (`strategy.position_size == 0`) now returns `false` instead of `na`. Consequently, the script _incorrectly_ highlights the bars where there are _no_ trade positions the same color as those where there are _short_ positions, since `isLong` has the same `false` result for both conditions:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/MigrationGuideTov6-No-bool-na-2.BCM2Ys_b_Z1LjoLb.webp)
-
 We want to distinguish between _three_ unique states: long positions, short positions, and no entered positions. Therefore, using a two-state Boolean variable in v6 is no longer suitable. Instead, to maintain our desired behavior, we must _rewrite_ the v6 code to replace the “bool” variable with a different type. For example, we can use an “int” variable to represent our three different `position_size` states using -1, 0, and 1:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/MigrationGuideTov6-No-bool-na-3.C2oMRPfl_Z235h1o.webp)
 
 ```pine
 //@version=6
@@ -280,8 +270,6 @@ In v5, passing [na](https://www.tradingview.com/pine-script-reference/v6/#var_na
 In v6, parameters that expect unique types **no longer** accept [na](https://www.tradingview.com/pine-script-reference/v6/#var_na) values. Additionally, [conditional expressions](https://www.tradingview.com/pine-script-docs/language/conditional-structures/) that return these unique types must be used in a form that **cannot** result in an [na](https://www.tradingview.com/pine-script-reference/v6/#var_na) value. For example, a [switch](https://www.tradingview.com/pine-script-reference/v6/#kw_switch)\-statement must have a `default` block, and an [if](https://www.tradingview.com/pine-script-reference/v6/#kw_if)\-statement must have an `else`\-block, because these conditional expressions can return [na](https://www.tradingview.com/pine-script-reference/v6/#var_na) otherwise.
 
 The following example script shows two code structures that work in v5 but raise errors in v6.
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/MigrationGuideTov6-No-enum-na.Rirf8rCY_EpoFn.webp)
 
 ```pine
 //@version=5
@@ -356,8 +344,6 @@ Dividing two integer “const” values can return a fractional value.
 
 In v5, the result of the division of two “int” values is inconsistent. If _both_ values are qualified as “const”, the script performs what is known as _integer division_, and discards any fractional remainder in the result, e.g., `5/2 = 2`. However, if _at least one_ of the integers is qualified as “input”, “simple”, or “series”, the script _preserves_ the fractional remainder in the division result: `5/2 = 2.5`.
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/MigrationGuideTov6-No-int-division-1.vzmEC1NZ_Z25UGGb.webp)
-
 ```pine
 //@version=5
 indicator("`int` division demo")
@@ -378,8 +364,6 @@ plot( 5 / inputNum, "`input int` value", color.purple)
 ```
 
 In v6, dividing two “int” values that are not evenly divisible _always_ results in a number with a _fractional value_, regardless of the type and qualifier of the two arguments used. Therefore, the v6 division result is `5/2 = 2.5`, even if both values involved are “const int”.
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/MigrationGuideTov6-No-int-division-2.DNd_hajv_Wf9Vo.webp)
 
 **Fix:** If you need an “int” division result _without_ a fractional value, wrap the division with the [int()](https://www.tradingview.com/pine-script-reference/v6/#fun_int) function to cast the _result_ to “int”, which discards the fractional remainder. Alternatively, use [math.round()](https://www.tradingview.com/pine-script-reference/v6/#fun_math.round), [math.floor()](https://www.tradingview.com/pine-script-reference/v6/#fun_math.floor), or [math.ceil()](https://www.tradingview.com/pine-script-reference/v6/#fun_math.ceil) to _round_ the division result in a specific direction.
 
@@ -427,8 +411,6 @@ The color values behind some of the `color.*` constants have changed in Pine v6 
 | color.yellow | #FFEB3B | #FDD835 |
 
 Additionally, the default text color for [label.new()](https://www.tradingview.com/pine-script-reference/v6/#fun_label.new) is now `color.white` in v6 (previously `color.black` in v5) to ensure that the text is more visible against the default `color.blue` label.
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/MigrationGuideTov6-Color-changes.BNSaJyQ-_9HCRM.webp)
 
 ```pine
 //@version=6
@@ -489,8 +471,6 @@ In _Pine v6_, the default margin percentage is 100. The strategy **does not open
 
 For example, we can see the difference in strategy behavior by running this simple strategy on the “ARM” symbol’s 4h chart using the v5 and v6 default margin values. When using Pine v5, there are no margin calls:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/MigrationGuideTov6-Margin-calls-1.CnzpPLkm_oF9sY.webp)
-
 ```pine
 //@version=5
 strategy("My strategy", overlay=true, default_qty_type = strategy.percent_of_equity, default_qty_value=100)
@@ -507,8 +487,6 @@ if (shortCondition)
 ```
 
 However, if we adjust this script to `//@version=6` on the same chart, we see that it triggers 14 margin calls because of the new margin percentages:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/MigrationGuideTov6-Margin-calls-2.DY4IZ4xs_ZXQQuW.webp)
 
 **Fix:** To replicate the previous v5 behavior, set the [strategy()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy) function’s `margin_short` and `margin_long` arguments to 0.
 
@@ -536,8 +514,6 @@ else
 In v6, when the total number of orders exceeds 9000, the strategy does _not_ halt. Instead, the orders are _trimmed_ from the beginning until the limit is reached, meaning that the strategy only stores the information for the most recent orders.
 
 Trimmed orders no longer show in the Strategy Tester, and referencing them using the `strategy.closedtrades.*` functions returns [na](https://www.tradingview.com/pine-script-reference/v6/#var_na). Use [strategy.closedtrades.first\_index](https://www.tradingview.com/pine-script-reference/v6/#var_strategy.closedtrades.first_index) to get the index of the first _non-trimmed_ trade:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/MigrationGuideTov6-Order-trimming.CFIVLCGx_ZnANBC.webp)
 
 ```pine
 //@version=6
@@ -586,8 +562,6 @@ In Pine v6, if a [strategy.exit()](https://www.tradingview.com/pine-script-refer
 
 The example below demonstrates how the behavior of this command differs for v5 and v6 scripts. This v5 script creates a long [market order](https://www.tradingview.com/pine-script-docs/concepts/strategies/#market-orders) and an exit order [bracket](https://www.tradingview.com/pine-script-docs/concepts/strategies/#take-profit-and-stop-loss) on each 28th bar. The [strategy.exit()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy.exit) call contains arguments for the relative parameters that determine take-profit and stop-loss levels (`profit` and `loss`), and it includes arguments for the absolute parameters (`limit` and `stop`). The `profit` and `loss` arguments are both 0, which would result in consistent exits at the entry price if the command used them. However, the command never uses these values to determine the exit order levels because the `limit` and `stop` parameters _always_ take precedence when they have specified values:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/To-pine-version-6-Strategies-Strategy-exit-evaluates-parameter-pairs-1.Bq0Yb_zb_1DkUhR.webp)
-
 ```pine
 //@version=5
 strategy("`strategy.exit()` with parameter pairs demo", overlay = true, margin_long = 100, margin_short = 100)
@@ -601,8 +575,6 @@ if bar_index % 28 == 0
 ```
 
 If we convert the script to Pine v6, its behavior changes. Instead of prioritizing the absolute `limit` and `stop` parameters exclusively, the [strategy.exit()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy.exit) command always prioritizes the price levels that will trigger exits _first_. In this example, the market price reaches the `limit` or `stop` value _after_ the `profit` and `loss` distance of 0 ticks. Consequently, the command ignores the `limit` and `stop` values and places its exit orders at the entry price, which causes the strategy to exit each trade immediately after opening it:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/To-pine-version-6-Strategies-Strategy-exit-evaluates-parameter-pairs-2.Q464KiWa_Z1EaWq6.webp)
 
 ```pine
 //@version=6
@@ -628,8 +600,6 @@ In v5, the history-referencing operator `[]` can be used with built-in constants
 
 However, referencing the history of a literal is usually redundant, because by definition every literal represents a fixed value. The only exception where the returned historic value may vary is if the historical offset points to a _non-existent_ bar, in which case referencing the historic literal value returns [na](https://www.tradingview.com/pine-script-reference/v6/#var_na).
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/MigrationGuideTov6-History-for-literals-1.CQYj6Sq2_2dz25a.webp)
-
 ```pine
 //@version=5
 indicator("History-referencing on literals demo")
@@ -649,8 +619,6 @@ if barstate.islastconfirmedhistory
 In _Pine v6_, you can **no longer** use the history-referencing operator `[]` on literals or built-in constants. Trying to do so triggers a compilation error.
 
 **Fix:** Remove any `[]` operators used with literals or constants.
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/MigrationGuideTov6-History-for-literals-2.DnTquvm7_ZIKAR.webp)
 
 ```pine
 //@version=6
@@ -672,8 +640,6 @@ The history-referencing operator `[]` can no longer be used directly on fields o
 In v5, you can use the history-referencing operator `[]` on the _fields_ from [objects](https://www.tradingview.com/pine-script-docs/language/objects/) of [user-defined types](https://www.tradingview.com/pine-script-docs/language/type-system/#user-defined-types). While this does not cause any compilation errors, the behavior itself is erroneous.
 
 For example, the script below draws an arrow [label](https://www.tradingview.com/pine-script-reference/v6/#type_label) on each bar and displays its percentage increase/decrease. The label style, color, and text are set based on a bar’s direction (`close > open`). The script defines a [UDT](https://www.tradingview.com/pine-script-docs/language/objects/) `LblSettings` to initialize an object on each bar that stores these settings. On the last bar, it draws a [table](https://www.tradingview.com/pine-script-reference/v6/#type_table) cell that displays the arrow direction and percentage difference from 10 bars back. In v5, we could use the history-referencing operator `[]` on the required `LblSettings` fields directly:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/MigrationGuideTov6-History-for-UDTs.h94G4ccp_Z1wql3V.webp)
 
 ```pine
 //@version=5
@@ -788,8 +754,6 @@ This change might affect the behavior of older scripts that used `==` to compare
 
 To show the difference between the v5 and v6 [timeframe.period](https://www.tradingview.com/pine-script-reference/v6/#var_timeframe.period) variables, we ran the script below on a daily chart (1D) for each Pine version. The script displays the [timeframe.period](https://www.tradingview.com/pine-script-reference/v6/#var_timeframe.period) string in a [table](https://www.tradingview.com/pine-script-reference/v6/#type_table), and compares the variable’s value with the “string” literals `"D"` and `"1D"`:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/MigrationGuideTov6-Timeframe-multiplier.C0vAAkQ8_Z3k3mi.webp)
-
 ```pine
 //@version=6
 indicator("`timeframe.period` multiplier - v6")
@@ -849,8 +813,6 @@ In v6, [bool](https://www.tradingview.com/pine-script-reference/v6/#type_bool) e
 
 If we convert the script above to v6, we see that the plotted signals _differ_ between the two scripts. This variation occurs because of the lazy bool evaluation – since an `and` condition is only `true` if _all_ its arguments are `true`, when `close > open` is `false`, the `and` condition is _definitely_ `false` regardless of the second argument `ta.rsi(close, 14) > 50`. Consequently, the [ta.rsi()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.rsi) call is _not_ evaluated on every bar, which interferes with the internal history that the RSI function stores for its calculation and results in incorrect values:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/MigrationGuideTov6-Lazy-evaluation.DTwy6SAe_1l0bdV.webp)
-
 **Fix:** Ensure that the script evaluates all functions that rely on previous values on each bar. For example, extract calls that rely on historical context to the _global scope_ and assign them to a variable. Then, reference that _variable_ in the `and` and `or` conditions.
 
 Note that you can and should take advantage of the lazy bool evaluation to create smarter, more concise code.
@@ -903,8 +865,6 @@ In Pine v5, the `offset` parameter in [plot()](https://www.tradingview.com/pine-
 
 For example, this script uses `bar_index / 2` as a “series” `offset` argument while plotting the high points of each bar’s body. Because the [plot()](https://www.tradingview.com/pine-script-reference/v6/#fun_plot) function uses only the _last_ `offset` value, the plot appears offset by 10 bars here for the _entire_ “GOOGL” 12M chart (since the chart’s last `bar_index` is 20 here):
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/MigrationGuideTov6-No-series-offset.DH-Z-RyE_Z18l0uq.webp)
-
 ```pine
 //@version=5
 indicator("`offset` parameter demo", overlay = true)
@@ -925,8 +885,6 @@ Remember that the Pine Script [qualifiers](https://www.tradingview.com/pine-scri
 
 In v5, the `linewidth` parameter of the [plot()](https://www.tradingview.com/pine-script-reference/v6/#fun_plot) and [hline()](https://www.tradingview.com/pine-script-reference/v6/#fun_hline) functions can accept a value smaller than 1, although the width on the chart will still appear as 1 for these drawings:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/MigrationGuideTov6-Minimum-linewidth-1.DK4UaZ1K_2eIa0j.webp)
-
 ```pine
 //@version=5
 indicator("Linewidth demo")
@@ -944,8 +902,6 @@ hline(240, "hline", color.maroon, linewidth = -3)
 In v6, the `linewidth` argument **must** be 1 or greater. Passing a smaller value causes a compilation error.
 
 **Fix:** Replace any `linewidth` argument that is smaller than 1 to ensure all width values are _at least_ 1.
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/MigrationGuideTov6-Minimum-linewidth-2.BTZsUVkx_1xGzb.webp)
 
 ```pine
 //@version=6
@@ -1030,8 +986,6 @@ plot(close, color = color.new(myColor, 80))
 
 If you need to preserve the color inputs in the “Settings/Style” menu, you must ensure that every color that gets passed to every [color.new()](https://www.tradingview.com/pine-script-reference/v6/#fun_color.new) call is qualified as either “const” or “input”. If at least one of these [color](https://www.tradingview.com/pine-script-reference/v6/#type_color) values is calculated dynamically (like the code above), the color selector does not appear in the settings:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/MigrationGuideTov6-Transp-removed.UbKaK0oO_Z7DwDr.webp)
-
 You can learn more about why this happens and how to avoid it [here](https://www.tradingview.com/pine-script-docs/visuals/colors/#maintaining-automatic-color-selectors).
 
 ## Dynamic `for` loop boundaries {#dynamic-for-loop-boundaries}
@@ -1047,8 +1001,6 @@ Because [for](https://www.tradingview.com/pine-script-reference/v6/#kw_for) loop
 **Fix:** If a [for](https://www.tradingview.com/pine-script-reference/v6/#kw_for) loop requires only **one** evaluation of an expression used as the `to_num` argument across iterations, assign the expression to a variable _outside_ the loop’s scope, then use that variable as the `to_num` argument instead.
 
 The following v5 example uses two [user-defined methods](https://www.tradingview.com/pine-script-docs/language/methods/#user-defined-methods) to manage the elements in an [array](https://www.tradingview.com/pine-script-reference/v6/#type_array). The script calls the `dequeue()` method before a [for](https://www.tradingview.com/pine-script-reference/v6/#kw_for) loop to remove the first element from the `data` array. Then, it calls the `queue()` method inside the loop statement to add the current bar’s [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) into the array and return the array’s size for the loop’s end boundary. Within the loop’s scope, the script increments the `belowCount` variable by one for each element with a value below the current bar’s [ohlc4](https://www.tradingview.com/pine-script-reference/v6/#var_ohlc4) value:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/To-pine-version-6-Dynamic-for-loop-boundaries-1.n43JfWKr_2fGXwe.webp)
 
 ```pine
 //@version=5
@@ -1091,8 +1043,6 @@ plot(belowCount, "Closes below OHLC4", color.blue, 3)
 In v5, the above loop statement evaluates `data.queue(close) - 1` only **once**, before it starts the first iteration. It does _not_ execute that expression again across iterations. As such, each script execution queues exactly one new value into the `data` array, and the number of times the loop executes its local code _does not change_ while the loop runs.
 
 However, the script does not work after conversion to v6, because the [for](https://www.tradingview.com/pine-script-reference/v6/#kw_for) loop evaluates `data.queue(close) - 1` before **every iteration**. Each evaluation of the expression adds a _new element_ to the `data` array and _increases_ the `to_num` boundary, causing the loop to iterate indefinitely until the script raises a runtime error:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/To-pine-version-6-Dynamic-for-loop-boundaries-2.XWLzv4MJ_Z1oWT73.webp)
 
 We can fix the script’s behavior by assigning the expression’s initial result to a variable outside the loop’s scope and using that variable in the [for](https://www.tradingview.com/pine-script-reference/v6/#kw_for) loop statement. This change prevents the expression from modifying the array’s size or altering the loop’s end boundary between iterations:
 

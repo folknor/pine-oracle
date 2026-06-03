@@ -33,8 +33,6 @@ If you can find the tools you need already written for you, it can be a good way
 
 To explore and load scripts from your chart, click the “Indicators, metrics, and strategies” button, or use the forward slash `/` keyboard shortcut:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/First-steps-Using-scripts-Loading-scripts-from-the-chart-1.DPgTHVlE_2qHNr.webp)
-
 The dialog box that appears presents different categories of scripts in its left pane:
 
 -   **“Favorites”** lists the scripts you have “favorited” by clicking on the star that appears to the left of the script name when you hover over it.
@@ -46,21 +44,15 @@ The dialog box that appears presents different categories of scripts in its left
 
 Here, we selected the “Technicals” tab to see the TradingView built-in indicators:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/First-steps-Using-scripts-Loading-scripts-from-the-chart-2.BYAmwCpy_ZRx4xX.webp)
-
 Clicking on one of the listed indicators or strategies loads the script on your chart. Strategy scripts are distinguished from indicators by a special symbol that appears to the right of the script name.
 
 ### Browsing community scripts {#browsing-community-scripts}
 
 To access the [Community scripts](https://www.tradingview.com/scripts/) feed from [TradingView’s homepage](https://www.tradingview.com/), select “Indicators and strategies” from the “Community” menu:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/First-steps-Using-scripts-Browsing-community-scripts-1.n_4JUux9_H9YGg.webp)
-
 You can also search for scripts using the homepage’s “Search” field, and filter scripts using different criteria. See this Help Center page explaining the [different types of scripts](https://www.tradingview.com/support/solutions/43000558522) that are available.
 
 The scripts feed generates _script widgets_, which show the title and author of each [publication](https://www.tradingview.com/pine-script-docs/writing/publishing/#script-publications) with a preview of the published chart and description. Clicking on a widget opens the _script page_, which shows the publication’s complete description, an enlarged chart, and any additional release notes. Users can boost, favorite, share, and comment on publications. If it is an [open-source](https://www.tradingview.com/pine-script-docs/writing/publishing/#open) script, the source code is also available on the script page.
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/First-steps-Using-scripts-Browsing-community-scripts-2.DQJ3ybQk_2nO9Jj.webp)
 
 When you find an interesting script in the Community scripts, follow the instructions in the Help Center to [load it on your chart](https://www.tradingview.com/support/solutions/43000555216).
 
@@ -68,13 +60,9 @@ When you find an interesting script in the Community scripts, follow the instruc
 
 Once a script is loaded on the chart, you can double-click on its name or hover over the name and press the “Settings” button to bring up its “Settings/Inputs” tab:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/FirstSteps-ChangingScriptSettings-01.D-SAixbh_Z1HEKso.webp)
-
 The “Inputs” tab allows you to change the settings which the script’s author has decided to make editable. You can configure some of the script’s visuals using the “Style” tab of the same dialog box, and which timeframes the script should appear on using the “Visibility” tab.
 
 Other settings are available to all scripts from the buttons that appear to the right of its name when you mouse over it, and from the “More” menu (the three dots):
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/FirstSteps-ChangingScriptSettings-02.CJECCf_u_27i2gM.webp)
 
 ## Reading scripts {#reading-scripts}
 
@@ -91,11 +79,7 @@ To see the code of a TradingView built-in indicator, load the indicator on your 
 
 For example, this image shows the Pine Editor, where we selected to view the source code from the “Bollinger Bands” indicator on our chart. Initially, the script is _read-only_, as indicated by the orange warning text:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/First-steps-Reading-scripts-1.CxexK5PB_Z8MNtF.webp)
-
 You can also open editable versions of the TradingView built-in scripts from the Pine Editor by using the “Create new” > “Built-in…” menu selection:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/First-steps-Reading-scripts-2.CB2-tfKz_19N9ip.webp)
 
 ## Writing scripts {#writing-scripts}
 

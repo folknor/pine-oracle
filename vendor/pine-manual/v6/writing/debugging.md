@@ -12,15 +12,14 @@ TradingView’s close integration between the Pine Editor and the Supercharts in
 
 Understanding the most effective tools and methods for inspecting a script helps programmers quickly find and fix potential problems in their code, which improves the overall coding experience. This page explains the script outputs that are the most useful for debugging, along with helpful tips and techniques.
 
-TipEffective debugging in the Pine Script environment requires an understanding of the [Execution model](https://www.tradingview.com/pine-script-docs/language/execution-model/), [Time series](https://www.tradingview.com/pine-script-docs/language/execution-model/#time-series) structure, and [Type system](https://www.tradingview.com/pine-script-docs/language/type-system/). We recommend reviewing these topics, along with [string formatting](https://www.tradingview.com/pine-script-docs/concepts/strings/#string-conversion-and-formatting), which the following techniques often use.
+> [!TIP]
+> Effective debugging in the Pine Script environment requires an understanding of the [Execution model](https://www.tradingview.com/pine-script-docs/language/execution-model/), [Time series](https://www.tradingview.com/pine-script-docs/language/execution-model/#time-series) structure, and [Type system](https://www.tradingview.com/pine-script-docs/language/type-system/). We recommend reviewing these topics, along with [string formatting](https://www.tradingview.com/pine-script-docs/concepts/strings/#string-conversion-and-formatting), which the following techniques often use.
 
 ## Common debug outputs {#common-debug-outputs}
 
 Pine scripts can create outputs in several ways, each of which has different advantages. While programmers can use any of them to debug their code, some outputs are more optimal for debugging than others.
 
 The functions in the `log.*` namespace log _interactive messages_ in the [Pine Logs](https://www.tradingview.com/pine-script-docs/writing/debugging/#pine-logs) pane. These logging functions are the most convenient and flexible tools for debugging Pine code. Scripts can call `log.*()` functions on any execution from global or local scopes, enabling programmers to analyze historical and realtime script behaviors in depth with minimal code, for example:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Common-debug-outputs-1.BHcS65Yd_Z1pXAIJ.webp)
 
 ```pine
 //@version=6
@@ -44,8 +43,6 @@ else
 
 Pine [drawings](https://www.tradingview.com/pine-script-docs/writing/debugging/#pine-drawings) display visuals in the main chart pane or the script’s separate pane. Although they do not output results in other locations, such as the Data Window or Pine Logs pane, drawings provide convenient ways to visualize a script’s data and logic within global or local scopes. [Labels](https://www.tradingview.com/pine-script-docs/visuals/text-and-shapes/#labels) are the most flexible drawings for debugging, because they can display colored shapes with formatted text and tooltips at any available chart location, for example:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Common-debug-outputs-2.CKqA9BHP_ZbEfay.webp)
-
 ```pine
 //@version=6
 indicator("Common debug outputs - Pine drawings", overlay = true)
@@ -68,8 +65,6 @@ if newDailyBar
 
 The `plot*()` functions can help to debug numeric values, conditions, and colors from a script’s global scope. They can output results in up to _four_ locations: the main chart pane or the script’s pane, the status line, the price scale, and the Data Window. The display on the chart provides a quick view of the series’ history, and the numbers in the other output locations show calculated information for specific bars:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Common-debug-outputs-3.CzcytxBb_GcDAe.webp)
-
 ```pine
 //@version=6
 indicator("Common debug outputs - Plots")
@@ -79,8 +74,6 @@ plot(bar_index, "bar_index", color.teal, 3)
 ```
 
 The [bgcolor()](https://www.tradingview.com/pine-script-reference/v6/#fun_bgcolor) function displays colors in the background of the main chart pane or the script’s pane. The [barcolor()](https://www.tradingview.com/pine-script-reference/v6/#fun_barcolor) function colors the main chart’s bars or candles. Although these outputs are less flexible than Pine Logs, drawings, and plots, they provide a quick way to inspect calculated colors and visualize conditions from the global scope:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Common-debug-outputs-4.B7ERq33__ZV9NIy.webp)
 
 ```pine
 //@version=6
@@ -104,9 +97,8 @@ Pine Logs do not appear on the chart or in the Data Window. Instead, scripts pri
 
 To access the pane, select “Pine Logs” from the Pine Editor’s “More” menu or from the “More” menu in the status line of a script on the chart that uses the `log.*()` functions:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Pine-logs-1.BKWDgKSp_Z1B7xuP.webp)
-
-NoticeOnly _personal_ scripts can generate Pine Logs. A published script **cannot** create logs, even if its source code contains `log.*()` function calls. Published [libraries](https://www.tradingview.com/pine-script-docs/concepts/libraries/) can export functions containing `log.*()` calls for use in personal scripts, but they cannot generate logs directly.
+> [!IMPORTANT]
+> Only _personal_ scripts can generate Pine Logs. A published script **cannot** create logs, even if its source code contains `log.*()` function calls. Published [libraries](https://www.tradingview.com/pine-script-docs/concepts/libraries/) can export functions containing `log.*()` calls for use in personal scripts, but they cannot generate logs directly.
 
 ### Creating logs {#creating-logs}
 
@@ -130,8 +122,6 @@ Each `log.*()` function has a different _logging level_, allowing programmers to
 
 This simple script demonstrates the difference between all three `log.*()` functions. It calls [log.info()](https://www.tradingview.com/pine-script-reference/v6/#fun_log.info), [log.warning()](https://www.tradingview.com/pine-script-reference/v6/#fun_log.warning), and [log.error()](https://www.tradingview.com/pine-script-reference/v6/#fun_log.error) on the first chart bar to print the values of three [literal strings](https://www.tradingview.com/pine-script-docs/concepts/strings/#literal-strings) in the Pine Logs pane:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Pine-logs-Creating-logs-1.FAyoXrvo_4ir5m.webp)
-
 ```pine
 //@version=6
 indicator("Logging levels demo", overlay = true)
@@ -152,8 +142,6 @@ Scripts can generate logs at _any point_ during their executions, allowing progr
 During historical executions, scripts log a new message _once_ for each `log.*()` call on any bar. During realtime executions, scripts can call the `log.*()` functions to log messages for _any available tick_, regardless of whether the bar is confirmed. The logs created on realtime ticks are _not_ subject to [rollback](https://www.tradingview.com/pine-script-docs/language/execution-model/#executions-on-realtime-bars). All logs remain available in the Pine Logs pane until the script restarts.
 
 The example script below calculates the average ratio of each bar’s `close - open` value to its `high - low` range. When the range is nonzero, the script prints the values of the calculation’s variables in the Pine Logs pane using [log.info()](https://www.tradingview.com/pine-script-reference/v6/#fun_log.info) if the bar is confirmed or [log.warning()](https://www.tradingview.com/pine-script-reference/v6/#fun_log.warning) if the bar is still open (_unconfirmed_). If the bar’s range is zero, making the calculated ratio _undefined_, the script logs an “error” message using [log.error()](https://www.tradingview.com/pine-script-reference/v6/#fun_log.error):
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Pine-logs-Creating-logs-2.BvPUb-vU_q9wDE.webp)
 
 ```pine
 //@version=6
@@ -206,19 +194,11 @@ The following sections use the example script above to demonstrate the Pine Logs
 
 When a script generates a log by calling any `log.*()` function call, the Pine Logs pane automatically prefixes the logged message with an [ISO 8601](https://en.wikipedia.org/wiki/ISO_8601#Combined_date_and_time_representations) _timestamp_ representing the log’s assigned time, expressed in the [chart’s time zone](https://www.tradingview.com/pine-script-docs/concepts/time/#time-zones). The timestamp prefixed to a log on a historical bar represents the bar’s _opening time_, whereas the timestamp for a realtime log represents the _system time_ of the log event:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Pine-logs-Inspecting-logs-1.8xpvIK8H_1Yjrq2.webp)
-
 Additionally, each log includes “Source code” and “Scroll to bar” options, which appear when hovering over the message in the Pine Logs pane. These features provide convenient ways for users to inspect and verify a log’s conditions:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Pine-logs-Inspecting-logs-2.jaYYYDxx_ZmMSDl.webp)
 
 The “Source code” option opens the script in the Pine Editor and highlights the code line containing the specific `log.*()` call that triggered the log event:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Pine-logs-Inspecting-logs-3.Dxr9Y90y_10pluC.webp)
-
 The “Scroll to bar” option navigates the chart to the bar where the `log.*()` call occurred, then displays a temporary label above the bar, containing its date and time information:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Pine-logs-Inspecting-logs-4.CnvC925K_Z1uNlcm.webp)
 
 Note that:
 
@@ -226,15 +206,11 @@ Note that:
 
 It’s important to note that every script on the chart that generates logs maintains an _independent_ log history. The Pine Logs pane shows logs for only _one_ script at a time. To inspect the logs from a specific script when multiple are on the chart, select its title from the dropdown menu at the top of the pane:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Pine-logs-Inspecting-logs-5.ClRTwv_F_ZO3LGY.webp)
-
 ## Filtering logs {#filtering-logs}
 
 The Pine Logs pane displays up to 10,000 logged messages from script executions on historical bars. It then appends a new log for each `log.*()` call executed on _any_ realtime tick.
 
 To help users navigate high volumes of logs efficiently, the pane includes _filters_ that isolate logs based on [logging level](https://www.tradingview.com/pine-script-docs/writing/debugging/#logging-level), [start date and time](https://www.tradingview.com/pine-script-docs/writing/debugging/#start-date), or [search queries](https://www.tradingview.com/pine-script-docs/writing/debugging/#character-and-pattern-search). Users can apply these log filters individually or in combination to show only the messages that meet specific criteria. The filters are accessible from the icons below the “x” in the top-right portion of the pane:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Pine-logs-Filtering-logs-1.Qt-I6kcm_2tz9QU.webp)
 
 For custom filtering options, programmers can use conditional logic to activate specific `log.*()` calls selectively across a script’s executions. See the [Custom code filters](https://www.tradingview.com/pine-script-docs/writing/debugging/#custom-code-filters) section below to learn more.
 
@@ -244,8 +220,6 @@ Selecting the rightmost icon above the messages in the Pine Logs pane opens a �
 
 In the example below, we deactivated the “info” and “warning” levels for our script’s logs, allowing only “error” messages in the Pine Logs pane:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Pine-logs-Filtering-logs-Logging-level-1.CqbnhwLx_2oymTa.webp)
-
 Note that:
 
 -   Deactivating logging levels in this menu hides the relevant messages but _does not_ stop the execution of those `log.*()` calls in the code. For instance, a [log.info()](https://www.tradingview.com/pine-script-reference/v6/#fun_log.info) call still executes and adds to the historical log count even when the “Info” option is unchecked.
@@ -254,11 +228,7 @@ Note that:
 
 The “Start date” option above the logs in the Pine Logs pane opens a dialog box where users can specify a starting date and time to filter the displayed messages:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Pine-logs-Filtering-logs-Start-date-1.IZNVl8zX_1Uv1pc.webp)
-
 After the user sets the filter in the dialog box, a tag showing the selected date and time appears above the logs, indicating it is active. With this filter, only logs with prefixed timestamps from the specified start point onward appear in the Pine Logs pane:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Pine-logs-Filtering-logs-Start-date-2.BDbP45dS_Lsj8M.webp)
 
 ### Character and pattern search {#character-and-pattern-search}
 
@@ -268,8 +238,6 @@ When the search bar is not empty, the pane shows only the messages that fully or
 
 Below, we searched “Confirmed” to identify all logs from our example script that contain the term anywhere in their text:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Pine-logs-Filtering-logs-Character-and-pattern-search-1.D-1crEOA_Z1Kv6AJ.webp)
-
 Note that:
 
 -   The filtered results include logs containing “confirmed” with a lowercase “c” because the search filter performs _case-insensitive_ matching on ASCII characters by default.
@@ -277,15 +245,11 @@ Note that:
 
 The rightmost icon in the search bar opens a dropdown menu containing three options to adjust the search filter’s behavior: [Match case](https://www.tradingview.com/pine-script-docs/writing/debugging/#match-case), [Whole word](https://www.tradingview.com/pine-script-docs/writing/debugging/#whole-word), and [Regex](https://www.tradingview.com/pine-script-docs/writing/debugging/#regex):
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Pine-logs-Filtering-logs-Character-and-pattern-search-2.CGclA-al_ZjsR2g.webp)
-
 #### Match case {#match-case}
 
 The “Match case” search option activates _case-sensitive_ matching. With this setting, the filter’s results include only the logs containing the search query with identical cases for ASCII letter characters.
 
 Here, we enabled the “Match case” setting for our “Confirmed” search, preventing all the script’s logs containing “confirmed” with a _lowercase_ “c” from appearing in the results:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Pine-logs-Filtering-logs-Character-and-pattern-search-Match-case-1.BprO1bQS_Z1b1395.webp)
 
 Note that:
 
@@ -296,8 +260,6 @@ Note that:
 The “Whole word” search option activates _whole-word_ matching. With this setting enabled, the filter includes logs containing the searched term, but only if it is separated from other text by _whitespace_ characters or any of the following non-word characters: `.` (period), `,` (comma), `:` (colon), `;` (semicolon), `'` (apostrophe), or `"` (quotation mark).
 
 For example, searching for “Confirmed” in our script’s logs with the “Whole word” setting prevents the messages containing “unconfirmed” from appearing in the results:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Pine-logs-Filtering-logs-Character-and-pattern-search-Whole-word-1.-3nPjDxx_S2aPh.webp)
 
 Note that:
 
@@ -316,15 +278,11 @@ For instance, this regex search query specifies that the displayed logs must con
 average:\s*(?:0\.5\d*[1-9]\d*|0\.[6-9]\d*|(?:1\.0*|1))
 ```
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Pine-logs-Filtering-logs-Character-and-pattern-search-Regex-1.CnCNzCEk_Z2mOm3N.webp)
-
 The more advanced search query below specifies that the logs must contain prefixed timestamps representing any time of day equal to or after 09:30 and before 16:00 in the chart’s time zone:
 
 ```
 (?<=^\[\d{4}-\d{2}-\d{2}\x54)(?:09:3\d:[0-5]\d\.\d{3}|1[1-5]:(?:[0-5]\d[:\.]){2}\d{3})
 ```
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Pine-logs-Filtering-logs-Character-and-pattern-search-Regex-2.BubI1o13_Z1FguP1.webp)
 
 For more information about regular expressions, consult the [Regex syntax reference](https://www.tradingview.com/pine-script-docs/concepts/strings/#regex-syntax-reference) in this manual’s [Strings](https://www.tradingview.com/pine-script-docs/concepts/strings/) page. Most of the described syntax works the same within the Pine Logs search filter, with a few notable differences:
 
@@ -341,8 +299,6 @@ If the filtering options in the Pine Logs pane are not sufficient, programmers c
 The script below calculates an RMA of [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) prices and creates a compound condition from four distinct individual conditions. It plots the RMA on the chart and highlights the background when the `compoundCondition` value is `true`. For debugging, the script uses [log.info()](https://www.tradingview.com/pine-script-reference/v6/#fun_log.info) to display a formatted string representing the `close` and `rma` values, the values of all the “bool” variables that form the compound condition, and the final `compoundCondition` value.
 
 The `filterLogsInput`, `logStartInput`, and `logEndInput` variables define a custom _time filter_ for generating logs. When `filterLogsInput` is `true`, the script uses the [time inputs](https://www.tradingview.com/pine-script-docs/concepts/inputs/#time-input) assigned to `logStartInput` and `logEndInput` to filter the [log.info()](https://www.tradingview.com/pine-script-reference/v6/#fun_log.info) calls, allowing a new log only when the bar’s [time](https://www.tradingview.com/pine-script-reference/v6/#var_time) is within the specified range:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Pine-logs-Filtering-logs-Custom-code-filters-1.BDemxPLh_Zj1SX.webp)
 
 ```pine
 //@version=6
@@ -428,8 +384,6 @@ When inspecting values of varying magnitudes or different types across bars, a s
 
 In this example, we’ve modified the “Average bar ratio” script from the [Pine Logs](https://www.tradingview.com/pine-script-docs/writing/debugging/#pine-logs) section above. Instead of creating formatted text and displaying information using `log.*()` function calls, this script formats the values separately, then calls [label.new()](https://www.tradingview.com/pine-script-reference/v6/#fun_label.new) to show the results on the chart within labels anchored to each bar’s [high](https://www.tradingview.com/pine-script-reference/v6/#var_high):
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Pine-drawings-Labels-Drawing-on-successive-bars-1.Y0IdYgw-_ZgHKix.webp)
-
 ```pine
 //@version=6
 indicator("Drawing on successive bars demo", "Average bar ratio")
@@ -480,8 +434,6 @@ The above example allows users to inspect the script’s confirmed values or lat
 An alternative, more _compact_ way to display text with labels on successive bars is to utilize the [label.new()](https://www.tradingview.com/pine-script-reference/v6/#fun_label.new) function’s `tooltip` parameter instead of the `text` parameter, as labels show their tooltips only when the mouse pointer _hovers_ over them.
 
 In the script version below, we changed all the [label.new()](https://www.tradingview.com/pine-script-reference/v6/#fun_label.new) calls to use `debugText` as the `tooltip` argument instead of the `text` argument. Now, we can view a specific bar’s information without visual clutter from other nearby labels:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Pine-drawings-Labels-Drawing-on-successive-bars-2.oXxEu_CI_es7hX.webp)
 
 ```pine
 //@version=6
@@ -534,8 +486,6 @@ if time >= startTime and time <= endTime
 
 Below, we added a condition to the script that draws a label only when the bar’s [time](https://www.tradingview.com/pine-script-reference/v6/#var_time) is between the [chart.left\_visible\_bar\_time](https://www.tradingview.com/pine-script-reference/v6/#var_chart.left_visible_bar_time) and [chart.right\_visible\_bar\_time](https://www.tradingview.com/pine-script-reference/v6/#var_chart.right_visible_bar_time) values. This logic restricts the drawings to _visible_ chart bars, allowing us to scroll through the chart and inspect labels on any bar:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Pine-drawings-Labels-Drawing-on-successive-bars-3.DxYYTLXs_Z150tJv.webp)
-
 ```pine
 //@version=6
 indicator("Drawing in visible ranges demo", "Average bar ratio")
@@ -586,8 +536,6 @@ Note that:
 When debugging information does not change frequently across executions, or only the information from a specific execution requires inspection, programmers often display it using [labels](https://www.tradingview.com/pine-script-docs/visuals/text-and-shapes/#labels) anchored to the _end_ of the chart.
 
 The following example displays price and chart information in four separate labels at the end of the chart. The script’s `printLabel()` function renders a specified string in a label that always anchors to the last available time in the dataset, regardless of when the function call occurs:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Pine-drawings-Labels-Drawing-at-the-end-of-the-chart-1.5mqpohZu_ZVOkdF.webp)
 
 ```pine
 //@version=6
@@ -648,8 +596,6 @@ Because tables appear at consistent relative locations in the pane, unaffected b
 
 This example contains a `printTable()` function that calls [table.new()](https://www.tradingview.com/pine-script-reference/v6/#fun_table.new) and [table.cell()](https://www.tradingview.com/pine-script-reference/v6/#fun_table.cell) to create a single-cell table that displays dynamic text in a relative location on the main chart pane. The script uses a single call to this function to display the same chart information shown by the example script from the [previous section](https://www.tradingview.com/pine-script-docs/writing/debugging/#drawing-at-the-end-of-the-chart):
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Pine-drawings-Tables-1.D2zJtwRb_1tJ10H.webp)
-
 ```pine
 //@version=6
 indicator("Debugging with single-cell tables demo", "Chart info", true, behind_chart = false)
@@ -703,8 +649,6 @@ One of the simplest methods to inspect global numeric series (“int” or “fl
 
 Let’s look at a simple debugging example. The following script calculates a custom oscillator whose value is the average of three separate oscillators. It displays the `oscillator` value in four output locations using a [plot()](https://www.tradingview.com/pine-script-reference/v6/#fun_plot) call:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Plots-and-chart-colors-Plotting-numbers-1._9pJe3gC_Z14bL5r.webp)
-
 ```pine
 //@version=6
 indicator("Plotting numbers demo")
@@ -727,8 +671,6 @@ plot(oscillator, "Combined oscillator", color.purple, 3)
 ```
 
 The above script’s outputs allow inspection of the final `oscillator`, but not the three constituent oscillators that determine its value. Because the script calculates all three series in the global scope, we can inspect them using additional plots. Here, we add three [plot()](https://www.tradingview.com/pine-script-reference/v6/#fun_plot) calls to the script to display each oscillator, allowing us to verify the script’s calculated values and understand how they affect the final result:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Plots-and-chart-colors-Plotting-numbers-2.DpbWG2QO_Zn4nwY.webp)
 
 ```pine
 //@version=6
@@ -761,15 +703,14 @@ Note that:
 -   The numbers in the script’s status line and the Data Window represent the values plotted on the bar at the mouse pointer’s location. When the pointer is _not_ on the chart, these numbers represent the _latest_ bar’s data.
 -   The labels in the price scale show the latest _non-na_ values available in the plotted series up to the last visible bar. If a plotted series does not have a non-na value at any point before that bar, the price scale does _not_ show a label for it.
 
-TipWhen debugging numbers, it is crucial to consider the _decimal precision_ (i.e., number of _fractional digits_) required to inspect them effectively. Programmers can set the precision for a script’s plots using the `precision` parameter of the [indicator()](https://www.tradingview.com/pine-script-reference/v6/#fun_indicator), [strategy()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy), or `plot*()` functions. Alternatively, users can change the precision from the “Precision” field in the script’s “Settings” menu or the chart’s settings. Note that when a `plot*()` function includes a `precision` argument, it uses that value to determine the output’s decimal precision, ignoring the script’s global precision setting.
+> [!TIP]
+> When debugging numbers, it is crucial to consider the _decimal precision_ (i.e., number of _fractional digits_) required to inspect them effectively. Programmers can set the precision for a script’s plots using the `precision` parameter of the [indicator()](https://www.tradingview.com/pine-script-reference/v6/#fun_indicator), [strategy()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy), or `plot*()` functions. Alternatively, users can change the precision from the “Precision” field in the script’s “Settings” menu or the chart’s settings. Note that when a `plot*()` function includes a `precision` argument, it uses that value to determine the output’s decimal precision, ignoring the script’s global precision setting.
 
 #### Plotting without affecting the scale {#plotting-without-affecting-the-scale}
 
 Debugging multiple numeric series by plotting them on the chart can make the results hard to read if the plots affect the price scale, especially if each plotted series has a significantly different value range. Programmers can specify a plot’s _display locations_ to avoid distorting the scale by passing a `display.*` constant or expression to the `display` parameter of the `plot*()` call.
 
 Let’s look at a simple example that calculates a few numeric series with different ranges. This script calculates a weighted moving average with custom weights and plots the result on the chart:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Plots-and-chart-colors-Plotting-numbers-Plotting-without-affecting-the-scale-1.DCLyJ8at_GSYGc.webp)
 
 ```pine
 //@version=6
@@ -799,8 +740,6 @@ Note that:
 
 Suppose we want to inspect _all_ the values in the `average` calculation using plots. If we use `plot*()` functions with the default `display` argument ([display.all](https://www.tradingview.com/pine-script-reference/v6/#const_display.all)), the plotted results appear in all possible locations, including the chart pane. Unlike the example script from the [Plotting numbers](https://www.tradingview.com/pine-script-docs/writing/debugging/#plotting-numbers) section, this script’s visuals become hard to read in the pane because each plot has a significantly different range:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Plots-and-chart-colors-Plotting-numbers-Plotting-without-affecting-the-scale-2.JCRilku2_2mPLac.webp)
-
 ```pine
 //@version=6
 indicator("Plotting without affecting the scale demo", "Weighted average", true, precision = 5)
@@ -829,8 +768,6 @@ plot(denominator, "denominator", color.maroon)
 ```
 
 We can change the `display` argument in each debug [plot()](https://www.tradingview.com/pine-script-reference/v6/#fun_plot) call to view all the calculated values while preserving the chart’s scale. Below, we set the argument to `display.all - display.pane`, meaning all the debug plots show information in all locations _except_ the chart pane. Now, we can visualize how the calculated values affect each bar’s `average` result without distorting the scale:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Plots-and-chart-colors-Plotting-numbers-Plotting-without-affecting-the-scale-3.BdsQvxR3_Z103C4I.webp)
 
 ```pine
 //@version=6
@@ -875,8 +812,6 @@ Programmers can inspect a script’s conditions (“bool” values) with the `pl
 
 The following example uses the above methods to debug a simple condition. The script calculates an RSI with an input length and defines a `crossBelow` condition that is `true` when the RSI crosses 30. It uses [plotshape()](https://www.tradingview.com/pine-script-reference/v6/#fun_plotshape), [plotchar()](https://www.tradingview.com/pine-script-reference/v6/#fun_plotchar), and [bgcolor()](https://www.tradingview.com/pine-script-reference/v6/#fun_bgcolor) calls to visualize the `crossBelow` condition in different ways:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Plots-and-chart-colors-Plotting-and-coloring-conditions-1.BhI2H3mP_cKpDe.webp)
-
 ```pine
 //@version=6
 indicator("Plotting and coloring conditions demo")
@@ -916,8 +851,6 @@ The [plotshape()](https://www.tradingview.com/pine-script-reference/v6/#fun_plot
 
 Let’s explore a debugging example using this approach. The script below calculates an RSI and its median over `lengthInput` bars. Then, it creates five singular conditions and uses them to form a _compound condition_. The script plots the `rsi` and `median` values with the `plot()` function, and it colors the background with [bgcolor()](https://www.tradingview.com/pine-script-reference/v6/#fun_bgcolor) when the `compoundCondition` is `true`:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Plots-and-chart-colors-Plotting-and-coloring-conditions-2.1wtCT3lE_Z17TAu2.webp)
-
 ```pine
 //@version=6
 indicator("Plotting and coloring compound conditions demo")
@@ -953,8 +886,6 @@ bgcolor(compundCondition ? color.new(color.red, 60) : na, title = "compundCondit
 ```
 
 To verify that the script’s logic works as intended, we can inspect each of the conditions that affect the final `compoundCondition` value. Below, we added five [plotchar()](https://www.tradingview.com/pine-script-reference/v6/#fun_plotchar) calls to display information for these conditions, each with the same `location` argument. To label the conditions on the chart, each [plotchar()](https://www.tradingview.com/pine-script-reference/v6/#fun_plotchar) call uses a string containing newline characters (`\n`) and a digit from 1 to 5 as the `text` argument. With these outputs, we can see which sets of conditions trigger each `compoundCondition` occurrence:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Plots-and-chart-colors-Plotting-and-coloring-conditions-3.STxZruzR_Z2mTbLW.webp)
 
 ```pine
 //@version=6
@@ -1022,8 +953,6 @@ One of the best practices for efficient debugging is to _split expressions_, esp
 
 The following script calculates a custom oscillator representing the smoothed median change in the differences between the [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) price and two EMAs over different lengths. The script performs all the calculations in a single expression assigned to the `osc` variable. Then, it creates a compound condition in another expression assigned to the `upSignal` variable and uses that variable to trigger [order placement commands](https://www.tradingview.com/pine-script-docs/concepts/strategies/#order-placement-and-cancellation). The script plots the `osc` series as columns with different colors based on the `upSignal` value:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Tips-and-techniques-Decomposing-expressions-1.DPZlbAAY_EhdjF.webp)
-
 ```pine
 //@version=6
 strategy("Decomposing expressions demo")
@@ -1062,8 +991,6 @@ else
 Because the `osc` and `upSignal` values depend on multiple calculations and conditions, inspecting only the final values does not provide complete information about the script’s behaviors. To verify the script’s workings, we can decompose the expressions assigned to `osc` and `upCondition` into smaller parts and inspect them individually.
 
 The script version below declares several extra variables to hold _different parts_ of the original `osc` and `upCondition` expressions. With this expanded structure, we can inspect each part of the calculations and logic step-by-step using various outputs. In this script, we included a single [log.info()](https://www.tradingview.com/pine-script-reference/v6/#fun_log.info) call at the end that displays [formatted text](https://www.tradingview.com/pine-script-docs/concepts/strings/#formatting-strings) containing each variable’s information in the [Pine Logs](https://www.tradingview.com/pine-script-docs/writing/debugging/#pine-logs) pane:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Tips-and-techniques-Decomposing-expressions-2.CWIhg_Os_Z21t52k.webp)
 
 ```pine
 //@version=6
@@ -1144,8 +1071,6 @@ A common practice when debugging variables declared in a local scope is to extra
 
 The following sections explain techniques for extracting data from local scopes using [return expressions](https://www.tradingview.com/pine-script-docs/writing/debugging/#extraction-using-return-expressions) and [reference types](https://www.tradingview.com/pine-script-docs/writing/debugging/#extraction-using-reference-types). We demonstrate these techniques on the following script, which contains a `customMA()` function that calculates a custom adaptive moving average of a `source` series based on the distance from its current value to its 25th and 75th percentiles over `length` bars. The script contains a local function scope, and a nested block scope from the [if](https://www.tradingview.com/pine-script-reference/v6/#kw_if) structure that sets the `outerRange` value:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Tips-and-techniques-Extracting-data-from-local-scopes-1.7noUNshc_24uJM8.webp)
-
 ```pine
 //@version=6
 indicator("Extracting from local scopes initial demo", overlay = true)
@@ -1193,8 +1118,6 @@ In Pine Script, any [user-defined function](https://www.tradingview.com/pine-scr
 When debugging functions and conditional structures that contain multiple local variables, a common technique to extract data from their scopes is to return [tuples](https://www.tradingview.com/pine-script-docs/language/type-system/#tuples) containing the data that requires inspection.
 
 Here, we’ve modified the [previous](https://www.tradingview.com/pine-script-docs/writing/debugging/#extracting-data-from-local-scopes) example script’s `customMA()` function to return a tuple containing values calculated from the local scopes. With this change, the script can call the function with a _tuple declaration_ to make all the data available to the global scope. The script plots the `q1Dbg` and `q3Dbg` values, highlights the background when `alphaDbg` is 0, and uses [log.info()](https://www.tradingview.com/pine-script-reference/v6/#fun_log.info) to display a formatted string containing all the extracted data in the [Pine Logs](https://www.tradingview.com/pine-script-docs/writing/debugging/#pine-logs) pane:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Tips-and-techniques-Extracting-data-from-local-scopes-Extraction-using-return-expressions-1.gNLzCXLM_Rj8IR.webp)
 
 ```pine
 //@version=6
@@ -1267,8 +1190,6 @@ An advanced, flexible way to extract data from local scopes is to initialize ref
 This technique is especially useful for extracting data from [user-defined functions](https://www.tradingview.com/pine-script-docs/language/user-defined-functions/) and [methods](https://www.tradingview.com/pine-script-docs/language/methods/#user-defined-methods). Although functions can access global variables, they cannot _reassign_ them like global [conditional structures](https://www.tradingview.com/pine-script-docs/language/conditional-structures/) and [loops](https://www.tradingview.com/pine-script-docs/language/loops/) can. Consequently, they _cannot update_ the data held by global variables of fundamental types. However, scripts do not modify reference types by reassigning their variables; they access objects via their references and use _methods_ or _field reassignments_ to update their data. As such, scripts _can_ update global collections or UDT instances from inside function scopes.
 
 For example, this modified version of our [initial script](https://www.tradingview.com/pine-script-docs/writing/debugging/#extracting-data-from-local-scopes) declares a global `debugData` variable that holds the reference of a [map](https://www.tradingview.com/pine-script-reference/v6/#type_map) with “string” keys and “float” values. Each [map.put()](https://www.tradingview.com/pine-script-reference/v6/#fun_map.put) call inside the `customMA()` scope modifies the map by adding a _key-value pair_ containing a local variable’s _name_ and _value_. After calling `customMA()`, the script uses [map.get()](https://www.tradingview.com/pine-script-reference/v6/#fun_map.get) calls on `debugData` to retrieve the stored information for its debugging outputs:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Tips-and-techniques-Extracting-data-from-local-scopes-Extraction-using-reference-types-1.BdAF7qQM_Z1fHdXL.webp)
 
 ```pine
 //@version=6
@@ -1347,8 +1268,6 @@ One of the most effective loop inspection techniques is to use [collections](htt
 
 Let’s look at a simple loop debugging example using this technique. The following script calculates the average rate of change in the [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) price over lengths from 1 to `lookbackInput` bars inside a [for](https://www.tradingview.com/pine-script-reference/v6/#kw_for) loop. It declares an `aroc` variable in the global scope, sums the rates of change inside the loop, and then divides the sum by the `lookbackInput` to calculate the average:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Tips-and-techniques-Inspecting-loops-Collecting-loop-information-1.CbIJsIuS_1RptDD.webp)
-
 ```pine
 //@version=6
 indicator("Collecting loop information demo", "Average ROC")
@@ -1378,8 +1297,6 @@ plot(aroc, "aroc", color.blue, 3)
 To debug the script’s loop and ensure it works as intended, we can collect data from the local scope on each iteration and pass the result to the available output functions after the loop ends. In the script version below, we demonstrate two extraction methods. The first declares a global `logText` variable and concatenates [formatted strings](https://www.tradingview.com/pine-script-docs/concepts/strings/#formatting-strings) containing each loop iteration’s `length` and `roc` values. The second declares a global `rocArray` variable and pushes each iteration’s `roc` value into the referenced [array](https://www.tradingview.com/pine-script-reference/v6/#type_array).
 
 After terminating the loop, the script calls [log.info()](https://www.tradingview.com/pine-script-reference/v6/#fun_log.info) to display the `logText` in the [Pine Logs](https://www.tradingview.com/pine-script-docs/writing/debugging/#pine-logs) pane if the bar is confirmed. It then displays a “string” representation of the `rocArray` inside [label](https://www.tradingview.com/pine-script-reference/v6/#fun_label) tooltips. Lastly, it shows the array’s _first_ and _last_ element values in all possible plot locations with the [plot()](https://www.tradingview.com/pine-script-reference/v6/#fun_plot) function:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Tips-and-techniques-Inspecting-loops-Collecting-loop-information-2.CS9aDiYb_ZPNykR.webp)
 
 ```pine
 //@version=6
@@ -1439,8 +1356,6 @@ An alternative way to inspect a loop, without collecting information for use in 
 
 This simple script calculates a pseudorandom sample from a [binomial distribution](https://en.wikipedia.org/wiki/Binomial_distribution) using a [for](https://www.tradingview.com/pine-script-reference/v6/#kw_for) loop. The plotted `sample` series represents the number of [math.random()](https://www.tradingview.com/pine-script-reference/v6/#fun_math.random) calls across `trialsInput` iterations that return a value not exceeding the `probabilityInput` value. On each iteration where `success` is `false`, the loop _skips_ the rest of its block and moves to the next iteration. On other iterations, it increments the `sample` value by one:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Tips-and-techniques-Inspecting-loops-Tracing-loop-executions-1.KSzq3fPt_ap77Q.webp)
-
 ```pine
 //@version=6
 indicator("Tracing loop executions demo", "Binomial sample")
@@ -1470,8 +1385,6 @@ plot(sample, "Binomial sample", color.teal, 1, plot.style_columns)
 ```
 
 Below, we added `log.*()` function calls to generate [Pine Logs](https://www.tradingview.com/pine-script-docs/writing/debugging/#pine-logs) at specific points in the loop’s local block across iterations. Each loop iteration creates two new logs. The first log shows formatted text containing the local `trial`, `randValue`, and `success` variables’ values. The second log depends on the [if](https://www.tradingview.com/pine-script-reference/v6/#kw_if) statement. When the statement’s local code executes, the log is a `"CONTINUE"` message with the “warning” level. Otherwise, the second log is an “info” message containing the current iteration’s `sample` value:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Tips-and-techniques-Inspecting-loops-Tracing-loop-executions-2.f9od3pWY_Z2dUjRM.webp)
 
 ```pine
 //@version=6
@@ -1533,8 +1446,6 @@ The simplest way to inspect the data of [arrays](https://www.tradingview.com/pin
 
 The following script calls [request.security\_lower\_tf()](https://www.tradingview.com/pine-script-reference/v6/#fun_request.security_lower_tf) to retrieve a “float” [array](https://www.tradingview.com/pine-script-reference/v6/#type_array) containing [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) prices for each lower-timeframe bar within the current chart bar, which it uses to calculate an average intrabar price. Then, it calculates the ratio of the difference between the bar’s price and the intrabar average to the bar’s total range. The script plots the resulting ratio and its EMA in a separate pane:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Tips-and-techniques-Debugging-collections-Displaying-collection-strings-1.C-bZsQtI_14WMLV.webp)
-
 ```pine
 //@version=6
 indicator("Displaying collection strings demo")
@@ -1564,8 +1475,6 @@ plot(smoothed, "", color.new(color.orange, 40), 1, plot.style_area)
 To verify the ratio’s calculations, we can inspect the data stored in the `intrabarPrices` array by converting it to a “string” value and displaying the result for each bar.
 
 The script version below declares a `debugText` variable that holds a [formatted string](https://www.tradingview.com/pine-script-docs/concepts/strings/#formatting-strings) representing the `intrabarPrices` array, the array’s size, and the `avgPrice` value. The script calls the `log.*()` functions to display the `debugText` value for each bar in the [Pine Logs](https://www.tradingview.com/pine-script-docs/writing/debugging/#pine-logs) pane:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Tips-and-techniques-Debugging-collections-Displaying-collection-strings-2.DKihV-eb_HIwbl.webp)
 
 ```pine
 //@version=6
@@ -1609,7 +1518,8 @@ Note that:
 -   The script calls [log.info()](https://www.tradingview.com/pine-script-reference/v6/#fun_log.info) on confirmed bars and [log.warning()](https://www.tradingview.com/pine-script-reference/v6/#fun_log.warning) on the open bar. Users can [filter](https://www.tradingview.com/pine-script-docs/writing/debugging/#filtering-logs) the logs by [logging level](https://www.tradingview.com/pine-script-docs/writing/debugging/#logging-level) to inspect confirmed and unconfirmed bars’ logs separately.
 -   For larger collections whose “string” representations _exceed_ 40,960 characters or cause excessive memory use, programmers can split them into _smaller parts_ and convert them to strings separately. Alternatively, they can inspect [individual elements](https://www.tradingview.com/pine-script-docs/writing/debugging/#inspecting-individual-elements) via the `*.get()` method or [for…in](https://www.tradingview.com/pine-script-reference/v6/#kw_for...in) loops.
 
-TipIn contrast to [arrays](https://www.tradingview.com/pine-script-docs/language/arrays/) and [matrices](https://www.tradingview.com/pine-script-docs/language/matrices/) of numeric values, Boolean values, or strings, [maps](https://www.tradingview.com/pine-script-docs/language/maps/) of such types _do not_ have built-in “string” representations. However, programmers can inspect a map’s contents with this technique by using [map.keys()](https://www.tradingview.com/pine-script-reference/v6/#fun_map.keys) and [map.values()](https://www.tradingview.com/pine-script-reference/v6/#fun_map.values) to retrieve _key_ and _value_ arrays, then calling [str.tostring()](https://www.tradingview.com/pine-script-reference/v6/#fun_str.tostring) to convert those arrays to “string” values.
+> [!TIP]
+> In contrast to [arrays](https://www.tradingview.com/pine-script-docs/language/arrays/) and [matrices](https://www.tradingview.com/pine-script-docs/language/matrices/) of numeric values, Boolean values, or strings, [maps](https://www.tradingview.com/pine-script-docs/language/maps/) of such types _do not_ have built-in “string” representations. However, programmers can inspect a map’s contents with this technique by using [map.keys()](https://www.tradingview.com/pine-script-reference/v6/#fun_map.keys) and [map.values()](https://www.tradingview.com/pine-script-reference/v6/#fun_map.values) to retrieve _key_ and _value_ arrays, then calling [str.tostring()](https://www.tradingview.com/pine-script-reference/v6/#fun_str.tostring) to convert those arrays to “string” values.
 
 #### Inspecting individual elements {#inspecting-individual-elements}
 
@@ -1618,8 +1528,6 @@ Collections of “color” or non-fundamental types (e.g., [labels](https://www.
 To inspect a collection that does not have a built-in “string” format, programmers can retrieve elements individually within [for…in](https://www.tradingview.com/pine-script-reference/v6/#kw_for...in) loops or using methods such as `*.get()`, then use those elements in custom “string” constructions or other output routines.
 
 Consider the following example, which calculates the ratio of [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) changes to the overall [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) range over `lengthInput` bars. It plots the resulting `osc` in a separate pane, and it draws a [label](https://www.tradingview.com/pine-script-reference/v6/#type_label) on the main chart pane each time the variable’s absolute value is 1:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Tips-and-techniques-Debugging-collections-Inspecting-individual-elements-1.DejiM-hQ_ZKsXyw.webp)
 
 ```pine
 //@version=6
@@ -1651,8 +1559,6 @@ plot(osc, "Oscillator", oscColor, 1, plot.style_area)
 When a script creates [labels](https://www.tradingview.com/pine-script-docs/visuals/text-and-shapes/#labels), it _automatically_ maintains an [array](https://www.tradingview.com/pine-script-reference/v6/#type_array) containing each active label’s reference. Programmers can access this array using the [label.all](https://www.tradingview.com/pine-script-reference/v6/#var_label.all) variable, and thus inspect each individual label’s properties on any bar.
 
 In the version below, the script executes a [log.info()](https://www.tradingview.com/pine-script-reference/v6/#fun_log.info) call to display the current [bar\_index](https://www.tradingview.com/pine-script-reference/v6/#var_bar_index) and the size of the [label.all](https://www.tradingview.com/pine-script-reference/v6/#var_label.all) array for the latest bar. Then, it iterates through the array with a [for…in](https://www.tradingview.com/pine-script-reference/v6/#kw_for...in) loop. On each iteration, the script calls [log.info()](https://www.tradingview.com/pine-script-reference/v6/#fun_log.info) to log formatted text containing the array index and the corresponding label’s `x`, `y`, and `text` properties. Additionally, the script plots the oldest and newest active labels’ y-coordinates on each bar:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Tips-and-techniques-Debugging-collections-Inspecting-individual-elements-2.CxLrVvEC_ZACjuz.webp)
 
 ```pine
 //@version=6
@@ -1719,8 +1625,6 @@ The following example defines a custom `Data` type with three fields. The first 
 
 The script uses [array.covariance()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.covariance) and [array.variance()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.variance) on the object’s `prices` and `times` arrays to calculate a time-based slope of the collected data, and then plots the result on the chart:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Tips-and-techniques-Debugging-objects-of-udts-1.BNdDHvUW_4GfGk.webp)
-
 ```pine
 //@version=6
 indicator("Debugging objects of UDTs demo")
@@ -1757,8 +1661,6 @@ plot(slope, "Slope", slope > 0 ? color.teal : color.maroon, 3)
 To verify and understand the script’s calculations, we can _extract_ information from the `Data` object’s _fields_ and inspect the data with [Pine Logs](https://www.tradingview.com/pine-script-docs/writing/debugging/#pine-logs) or other outputs.
 
 The script version below includes a [log.info()](https://www.tradingview.com/pine-script-reference/v6/#fun_log.info) call inside the [if](https://www.tradingview.com/pine-script-reference/v6/#kw_if) structure. The call displays [formatted text](https://www.tradingview.com/pine-script-docs/concepts/strings/#formatting-strings) representing information from the `Data` object’s `prices`, `times`, and `length` fields in the Pine Logs pane. Now, we can view each change to the object’s data to confirm the script’s behavior:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Debugging-Tips-and-techniques-Debugging-objects-of-udts-2.DboJuwuM_nQEyE.webp)
 
 ```pine
 //@version=6

@@ -58,8 +58,6 @@ else
 bgcolor(sessionColor)
 ```
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Backgrounds-Sessions.CXTYPY8S_2pfEaw.webp)
-
 Note that:
 
 -   The script only works on chart timeframes of 30min or less. It prints an error message when the chart’s timeframe is higher than 30min.
@@ -95,8 +93,6 @@ hline(0)
 // Gradient background.
 bgcolor(backgroundColor)
 ```
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Backgrounds-CCI.D0GF9YXt_21I2hV.webp)
 
 Note that:
 

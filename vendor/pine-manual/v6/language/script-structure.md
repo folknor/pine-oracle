@@ -228,8 +228,6 @@ The Pine Editor also features two specialized annotations, `//#region` and `//#e
 
 This example draws a triangle using three interactively selected points on the chart. The script illustrates how one can use compiler and Editor annotations to document code and make it easier to navigate:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/ScriptStructure-CompilerAnnotations01.CdT2JzaQ_Z1O4gPl.webp)
-
 ```pine
 //@version=6
 indicator("Triangle", "", true)

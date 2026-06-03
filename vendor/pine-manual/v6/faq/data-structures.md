@@ -78,8 +78,6 @@ Matrices have many built-in functions available to organize and manipulate their
 
 This script demonstrates a simple example of matrix addition. It creates a 3x3 matrix, calculates its [transpose](https://www.tradingview.com/pine-script-docs/language/matrices/#transposing), then calculates the [matrix.sum()](https://www.tradingview.com/pine-script-reference/v6/#fun_matrix.sum) of the two matrices. This example displays [strings](https://www.tradingview.com/pine-script-docs/concepts/strings) representing the original matrix, its transpose, and the resulting sum matrix in a [table](https://www.tradingview.com/pine-script-docs/concepts/tables/) on the chart:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Data-structures-What-are-the-primary-data-structues-available-in-the-pine-script-1.CN2IZH7V_y3sJJ.webp)
-
 ```pine
 //@version=6
 indicator("Matrix sum example")
@@ -144,8 +142,6 @@ Maps are useful because they can access data directly without searching through 
 
 The following example illustrates the practical application of maps for managing earnings dates and values as key-value pairs, with dates serving as the keys:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Data-structures-What-are-the-primary-data-structues-available-in-the-pine-script-2.F207zRIS_tzrNs.webp)
-
 ```pine
 //@version=6
 indicator("Earnings map", overlay = true)
@@ -180,7 +176,8 @@ Simple calculations can thus be done efficiently using “series” variables. U
 
 Arrays, of course, can do many things that series variables cannot. Scripts can use arrays to store a fixed set of values, collect complex data such as objects of user-defined types, manage drawing instances for visual display, and more. In general, use arrays to handle data that doesn’t fit the time series model, or for complex calculations. Arrays can also mimic series by creating custom datasets, as in the [getSeries](https://www.tradingview.com/script/Bn7QkdZR-getSeries/) library.
 
-NoteAn array itself is part of a series. Scripts can reference the previous committed states of any array by using the history-referencing operator. See the [History referencing](https://www.tradingview.com/pine-script-docs/language/arrays/#history-referencing) section of the [Arrays](https://www.tradingview.com/pine-script-docs/language/arrays/) page for more information.
+> [!NOTE]
+> An array itself is part of a series. Scripts can reference the previous committed states of any array by using the history-referencing operator. See the [History referencing](https://www.tradingview.com/pine-script-docs/language/arrays/#history-referencing) section of the [Arrays](https://www.tradingview.com/pine-script-docs/language/arrays/) page for more information.
 
 ## How do I create and use arrays in Pine Script? {#how-do-i-create-and-use-arrays-in-pine-script}
 
@@ -218,8 +215,6 @@ Because arrays are not [time series](https://www.tradingview.com/pine-script-doc
 This script example demonstrates a practical application of arrays by tracking the opening prices of the last five sessions. The script declares a float array to hold the prices using the [var](https://www.tradingview.com/pine-script-docs/language/variable-declarations/#var) keyword, allowing it to retain its values from bar to bar.
 
 At the start of each session, we update the array by adding the new opening price and removing the oldest one. This process, resembling a [queue](https://www.tradingview.com/pine-script-docs/language/arrays/#using-an-array-as-a-queue), keeps the array’s size constant while maintaining a moving window of the session opens for the last five days. Built-in array functions return the highest, lowest, and average opening price over the last five sessions. We plot these values to the chart.
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Data-structures-How-do-i-create-and-use-arrays-in-pine-script-1.SP394-6D_Z1DQxBa.webp)
 
 ```pine
 //@version=6
@@ -304,8 +299,6 @@ Stacks are particularly useful for accessing the most recent data, such as for t
 
 This script uses arrays as stacks to manage pivot points. It draws [lines](https://www.tradingview.com/pine-script-docs/visuals/lines-and-boxes/#lines) from the pivot points and extends the lines with each new bar until price intersects them. When the script detects a pivot point, it adds (pushes) a new line to the stack. With each new bar, the script extends the end point of each line in the stack. It then checks whether price has intersected the high or low pivot lines at the top of the stack. If so, the script removes (pops) the intersected line from the stack, meaning that it will no longer be extended with new bars. Note that we do not need to iterate through the arrays to check all the lines, because price is always between only the high and low pivot lines at the end of each array.
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Data-structures-What-does-queue-stack-mean-1.DR_kqOoE_Z1u8fFP.webp)
-
 ```pine
 //@version=6
 indicator("Array as a stack", overlay = true)
@@ -362,8 +355,6 @@ removeLines(pivotLoArray, false)
 **Example: Arrays as queues**
 
 This script uses arrays as queues to track pivot points for monitoring recent support and resistance levels. It dynamically updates [lines](https://www.tradingview.com/pine-script-docs/visuals/lines-and-boxes/#lines) extending from the four most recent pivot highs and lows to the current bar with each new bar. When the script detects a new pivot high or low, it adds a line that represents this pivot to the respective queue. To maintain the queue’s size at a constant four items, the script removes the oldest line in the queue whenever it adds a new line.
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Data-structures-What-does-queue-stack-mean-2.B1hrWGZc_11uYgb.webp)
 
 ```pine
 //@version=6
@@ -437,8 +428,6 @@ This first example script uses an array as a [queue](https://www.tradingview.com
 -   It changes the colors of the lines to blue for support or orange for resistance, based on their position relative to the [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) price.
 
 Note that neither of these operations requires knowing the index of the array element.
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Data-structures-How-can-i-perform-operations-on-all-elements-in-an-array-1.Cv5bYrg2_1p3aMC.webp)
 
 ```pine
 //@version=6
@@ -574,7 +563,8 @@ if barstate.islast
 
 If the script requires the position of the element in a sorted array, the function [array.binary\_search()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.binary_search) returns the index of a value more efficiently than [array.indexof()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.indexof). The performance improvement is significant for large arrays. If the value is not found, the function returns `-1`.
 
-NoticeThe [array.binary\_search()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.binary_search) function requires arrays of “int” or “float” values, and the values must be [sorted](https://www.tradingview.com/pine-script-docs/language/arrays/#sorting) in _ascending order_ for correct results.
+> [!IMPORTANT]
+> The [array.binary\_search()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.binary_search) function requires arrays of “int” or “float” values, and the values must be [sorted](https://www.tradingview.com/pine-script-docs/language/arrays/#sorting) in _ascending order_ for correct results.
 
 This script uses a binary search to find the value `100.5` within an array of prices. The script displays the original array, the sorted array, the target value (100.5), and the result of the search. If the value is found, it displays “found”, along with the index of the value. If the value is not found, it displays “not found”.
 
@@ -760,8 +750,6 @@ The script below updates a previous example script from the section on [queues a
 
 The messages in the Pine Logs pane are time stamped and offer detailed information about when elements are added to and removed from the arrays, the current size of the arrays, and the specific prices at which elements were added.
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Data-structures-How-do-i-debug-arrays-1.BCL_wjfL_ZOXuvn.webp)
-
 ```pine
 //@version=6
 indicator("Array as a stack", overlay = true)
@@ -836,8 +824,6 @@ For more information, see the sections on [Matrices](https://www.tradingview.com
 To debug [objects](https://www.tradingview.com/pine-script-docs/language/objects/), create custom functions that break down an object into its constituent fields and convert these fields into strings. See the [Debugging](https://www.tradingview.com/pine-script-docs/writing/debugging/) section of the User Manual for information about methods to display debug information. In particular, [Pine Logs](https://www.tradingview.com/pine-script-docs/writing/debugging/#pine-logs) can display extensive and detailed debug information. See the FAQ section about debugging arrays [using Pine Logs](https://www.tradingview.com/pine-script-docs/faq/data-structures/#using-pine-logs) for an explanation of using logs for debugging.
 
 In our example script, we create a [user-defined type](https://www.tradingview.com/pine-script-docs/language/type-system/#user-defined-types) (UDT) named `openLine`, which includes fields such as `price`, `openTime`, and a line object called `level`. On the first bar of each session, the script initializes a new `openLine` instance. This object tracks the session’s opening price and time, and it draws a line at the open price, extending from the session’s start to its close. An array stores each `openLine` object. A custom function `debugOpenLine()` breaks an `openLine` object into its individual fields, converts the fields to strings, and then logs a message that displays these strings in the console.
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Data-structures-How-can-i-debug-objects-1.C0Wd6CjK_ggbeG.webp)
 
 ```pine
 //@version=6

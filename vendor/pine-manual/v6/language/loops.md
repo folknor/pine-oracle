@@ -24,8 +24,6 @@ In addition, several [built-ins](https://www.tradingview.com/pine-script-docs/la
 
 Let’s consider a simple example demonstrating unnecessary loop usage in Pine Script. To calculate the average [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) over a specified number of bars, newcomers to Pine may write a code like the following, which uses a [for](https://www.tradingview.com/pine-script-reference/v6/#kw_for) loop to calculate the sum of historical values over `lengthInput` bars and divides the result by the `lengthInput`:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Loops-When-loops-are-unnecessary-1.BXNHgEl8_ZeGD3p.webp)
-
 ```pine
 //@version=6
 indicator("Unnecessary loops demo", overlay = true)
@@ -48,8 +46,6 @@ plot(avgClose, "Average close", color.orange, 2)
 ```
 
 Using a [for](https://www.tradingview.com/pine-script-docs/language/loops/#for-loops) loop is an **unnecessary**, inefficient way to accomplish tasks like this in Pine. There are several ways to utilize the [execution model](https://www.tradingview.com/pine-script-docs/language/execution-model/) and the available built-ins to eliminate this loop. Below, we replaced these calculations with a simple call to the [ta.sma()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.sma) function. This code is shorter, and it achieves the same result much more efficiently:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Loops-When-loops-are-unnecessary-2.BqNbiiYY_ZtefQl.webp)
 
 ```pine
 //@version=6
@@ -80,8 +76,6 @@ Although Pine’s [execution model](https://www.tradingview.com/pine-script-docs
 For example, a loop is _necessary_ to identify which past bars’ [high](https://www.tradingview.com/pine-script-reference/v6/#var_high) values are above the current bar’s [high](https://www.tradingview.com/pine-script-reference/v6/#var_high) because the current value is **not** obtainable during a script’s executions on previous bars. The script can only access the current bar’s value while it executes on that bar, and it must _look back_ through the historical series during that execution to compare the previous values.
 
 The script below uses a [for](https://www.tradingview.com/pine-script-docs/language/loops/#for-loops) loop to compare the [high](https://www.tradingview.com/pine-script-reference/v6/#var_high) values of `lengthInput` previous bars with the last historical bar’s [high](https://www.tradingview.com/pine-script-reference/v6/#var_high). Within the loop, it calls [label.new()](https://www.tradingview.com/pine-script-reference/v6/#fun_label.new) to draw a circular [label](https://www.tradingview.com/pine-script-reference/v6/#type_label) above each past bar that has a [high](https://www.tradingview.com/pine-script-reference/v6/#var_high) value exceeding that of the last historical bar:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Loops-When-loops-are-necessary.Bpzukabm_ko7wf.webp)
 
 ```pine
 //@version=6
@@ -138,16 +132,13 @@ Where:
 -   `return_expression` refers to the _last_ code line or block within the loop’s body. The loop returns the results from this code after the final iteration. If the loop skips parts of some iterations or stops prematurely due to a `continue` or `break` statement, the returned values or references are those of the latest iteration that evaluated this code. To use the loop’s returned results, assign them to a variable or [tuple](https://www.tradingview.com/pine-script-docs/language/type-system/#tuples).
 -   `variables` represents an optional variable or tuple to hold the values or references from the last evaluation of the `return_expression`. The script can assign the loop’s returned results to variables only if the results are not [void](https://www.tradingview.com/pine-script-docs/language/type-system/#void). If the loop’s conditions prevent iteration, or if no iterations evaluate the `return_expression`, the variables’ assigned values and references are [na](https://www.tradingview.com/pine-script-reference/v6/#var_na).
 
-Note
-
-If a script initializes a variable with a loop’s result using the above syntax, and that [variable declaration](https://www.tradingview.com/pine-script-docs/language/variable-declarations/) includes the [var](https://www.tradingview.com/pine-script-reference/v6/#kw_var) or [varip](https://www.tradingview.com/pine-script-reference/v6/#kw_varip) keyword, the loop ends _immediately_ after its **first** iteration, even if the header’s criteria allow more iterations.
-
-  
-
-To assign a loop’s result to a [var](https://www.tradingview.com/pine-script-reference/v6/#kw_var) or [varip](https://www.tradingview.com/pine-script-reference/v6/#kw_varip) variable while enabling the loop to perform all required iterations, programmers can do either of the following:
-
--   Declare the variable before the loop, then use the [reassignment operator](https://www.tradingview.com/pine-script-docs/language/operators/#-reassignment-operator) (`:=`) in the above syntax to _update_ the variable.
--   Move the loop into a [user-defined function](https://www.tradingview.com/pine-script-docs/language/user-defined-functions/), then initialize the variable with the result of a call to that function.
+> [!NOTE]
+> If a script initializes a variable with a loop’s result using the above syntax, and that [variable declaration](https://www.tradingview.com/pine-script-docs/language/variable-declarations/) includes the [var](https://www.tradingview.com/pine-script-reference/v6/#kw_var) or [varip](https://www.tradingview.com/pine-script-reference/v6/#kw_varip) keyword, the loop ends _immediately_ after its **first** iteration, even if the header’s criteria allow more iterations.
+>
+> To assign a loop’s result to a [var](https://www.tradingview.com/pine-script-reference/v6/#kw_var) or [varip](https://www.tradingview.com/pine-script-reference/v6/#kw_varip) variable while enabling the loop to perform all required iterations, programmers can do either of the following:
+>
+> -   Declare the variable before the loop, then use the [reassignment operator](https://www.tradingview.com/pine-script-docs/language/operators/#-reassignment-operator) (`:=`) in the above syntax to _update_ the variable.
+> -   Move the loop into a [user-defined function](https://www.tradingview.com/pine-script-docs/language/user-defined-functions/), then initialize the variable with the result of a call to that function.
 
 ### Scope {#scope}
 
@@ -162,8 +153,6 @@ Note that:
 The body of any Pine loop statement can include [conditional structures](https://www.tradingview.com/pine-script-docs/language/conditional-structures/) and _nested_ loop statements. When a loop includes nested structures, each structure within the body maintains a _distinct_ local scope. For example, variables declared within an _outer_ loop’s scope are accessible to an _inner_ loop. However, any variables declared within the inner loop’s scope are **not** accessible to the outer loop.
 
 The simple example below demonstrates how a loop’s local scope works. This script calls [label.new()](https://www.tradingview.com/pine-script-reference/v6/#fun_label.new) within a [for](https://www.tradingview.com/pine-script-reference/v6/#kw_for) loop on the last historical bar to draw [labels](https://www.tradingview.com/pine-script-docs/visuals/text-and-shapes/#labels) above `lengthInput` past bars. The color of each label depends on the `labelColor` variable declared _within_ the loop’s local block, and each label’s location depends on the loop counter (`i`):
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Loops-Common-characteristics-Scope.C3aeQeOf_1ET0ob.webp)
 
 ```pine
 //@version=6
@@ -221,8 +210,6 @@ The example below selectively displays numbers from an [array](https://www.tradi
 
 If neither of the [if](https://www.tradingview.com/pine-script-reference/v6/#kw_if) statement’s conditions occur, the script evaluates the _last expression_ within the loop’s body (i.e., the return expression), which converts the current `number` to a “string” and concatenates the result with the `tempString` value. The loop returns the _last evaluated result_ from this expression after termination. The script assigns the returned value to the `finalLabelText` variable and uses that variable as the `text` argument in the [label.new()](https://www.tradingview.com/pine-script-reference/v6/#fun_label.new) call:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Loops-Common-characteristics-Keywords-and-return-expressions.DPxrsv1p_Z1CymNX.webp)
-
 ```pine
 //@version=6
 indicator("Loop keywords and variable assignment demo")
@@ -278,8 +265,6 @@ Refer to the [Common characteristics](https://www.tradingview.com/pine-script-do
 
 This simple script demonstrates a [for](https://www.tradingview.com/pine-script-reference/v6/#kw_for) loop that draws several [labels](https://www.tradingview.com/pine-script-docs/visuals/text-and-shapes/#labels) at future bar indices during its execution on the last historical chart bar. The loop’s counter starts at 0, then increases by 1 until it reaches a value of 10, at which point the final iteration occurs:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Loops-For-loops-1.JEmTwodf_1FHlbd.webp)
-
 ```pine
 //@version=6
 indicator("Simple `for` loop demo")
@@ -300,8 +285,6 @@ Note that:
 The direction in which a [for](https://www.tradingview.com/pine-script-reference/v6/#kw_for) loop adjusts its counter depends on the _initial_ `from_num` and `to_num` values in the loop’s header, and the direction does not change across iterations. The loop counts _upward_ after each iteration when the `to_num` value is _above_ the `from_num` value, as shown in the previous example. If the `to_num` value is _below_ the `from_num` value, the loop counts _downward_ instead.
 
 The script below calculates and plots the [volume-weighted moving average (VWMA)](https://www.tradingview.com/support/solutions/43000592293-volume-weighted-moving-average-vwma/) of [open](https://www.tradingview.com/pine-script-reference/v6/#var_open) prices across a specified number of bars. Then, it uses a downward-counting [for](https://www.tradingview.com/pine-script-reference/v6/#kw_for) loop to compare the last historical bar’s value to the values from previous bars, starting with the oldest bar in the specified lookback window. On each loop iteration, the script retrieves a previous bar’s `vwmaOpen` value, calculates the difference from the current bar’s value, and displays the result in a [label](https://www.tradingview.com/pine-script-reference/v6/#type_label) at the past bar’s opening price:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Loops-For-loops-2.WC3Reqlz_Z2A29X.webp)
 
 ```pine
 //@version=6
@@ -354,8 +337,6 @@ Note that:
 -   The [for…in](https://www.tradingview.com/pine-script-reference/v6/#kw_for...in) loop statement is often the _preferred_ way to loop through [collections](https://www.tradingview.com/pine-script-docs/language/type-system/#collections). However, programmers may prefer a [for](https://www.tradingview.com/pine-script-reference/v6/#kw_for) loop for some tasks, such as looping through stepped index values, iterating over a collection’s contents in reverse or a nonlinear order, and more. See the [Looping through arrays](https://www.tradingview.com/pine-script-docs/language/loops/#looping-through-arrays) and [Looping through matrices](https://www.tradingview.com/pine-script-docs/language/loops/#looping-through-matrices) sections to learn more about the best practices for looping through these collection types.
 
 The script below executes [ta.rsi()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.rsi) and [ta.mom()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.mom) calls to calculate the RSI and momentum of [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) prices over three different lengths (10, 20, and 50), then displays the results using a [table](https://www.tradingview.com/pine-script-reference/v6/#type_table) on the last chart bar. It stores “string” values for the header title within [arrays](https://www.tradingview.com/pine-script-docs/language/arrays/) and the “float” values of the calculated indicators within a 2x3 [matrix](https://www.tradingview.com/pine-script-reference/v6/#type_matrix). The script uses a [for](https://www.tradingview.com/pine-script-reference/v6/#kw_for) loop to access the elements in the arrays and initialize the `displayTable` header cells. It then uses _nested_ [for](https://www.tradingview.com/pine-script-reference/v6/#kw_for) loops to iterate over the _row_ and _column_ indices in the `taMatrix`, access elements, convert their values to strings, and populate the remaining table cells:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Loops-For-loops-3.LT8BH3HO_Z13lqip.webp)
 
 ```pine
 //@version=6
@@ -415,8 +396,6 @@ It’s important to note that a [for](https://www.tradingview.com/pine-script-re
 
 For example, the following script uses a dynamic [for](https://www.tradingview.com/pine-script-reference/v6/#kw_for) loop to determine the historical offset of the most recent bar whose [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) differs from the current bar’s [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) by at least one standard deviation. The script declares a `barOffset` variable with an initial value of zero and uses that variable to define the loop counter’s `to_num` boundary. Within the loop’s scope, the script increments the `barOffset` by one if the referenced bar’s `close` is not far enough from the current bar’s value. Each time the `barOffset` value increases, the loop increases its final counter value, allowing an _extra iteration_. The script plots the `barOffset` and the corresponding bar’s [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) for visual reference:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Loops-For-loops-4.28vao8At_Zfi1cC.webp)
-
 ```pine
 //@version=6 
 indicator("`for` loop with dynamic `to_num` demo")
@@ -471,8 +450,6 @@ A [while](https://www.tradingview.com/pine-script-reference/v6/#kw_while) loop�
 
 Depending on the specified condition in the loop header, a [while](https://www.tradingview.com/pine-script-reference/v6/#kw_while) loop can behave similarly to a [for](https://www.tradingview.com/pine-script-reference/v6/#kw_for) loop, continuing iteration until a _counter_ variable reaches a specified limit. For example, the following script uses a [for](https://www.tradingview.com/pine-script-reference/v6/#kw_for) loop and [while](https://www.tradingview.com/pine-script-reference/v6/#kw_while) loop to perform the same task. Both loops draw a [label](https://www.tradingview.com/pine-script-reference/v6/#type_label) displaying their respective counter value on each iteration:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Loops-While-loops-1.D6NOmppL_2cDHEK.webp)
-
 ```pine
 //@version=6
 indicator("`while` loop with a counter condition demo")
@@ -506,8 +483,6 @@ Note that:
 Because a [while](https://www.tradingview.com/pine-script-reference/v6/#kw_while) loop’s execution depends on its condition remaining `true`, and the condition might not change on a specific iteration, the _precise_ number of expected iterations might not be knowable _before_ the loop begins. Therefore, [while](https://www.tradingview.com/pine-script-reference/v6/#kw_while) loops are often helpful in scenarios where the exact loop boundaries are _unknown_.
 
 The script below tracks when the chart’s [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) crosses outside Keltner Channels with a user-specified length and channel width. When the price crosses outside the current bar’s channel, the script draws a [box](https://www.tradingview.com/pine-script-reference/v6/#type_box) highlighting all the previous _consecutive_ bars with [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) values within that price window. The script uses a [while](https://www.tradingview.com/pine-script-reference/v6/#kw_while) loop to analyze past bars’ prices and incrementally adjust the left side of each new [box](https://www.tradingview.com/pine-script-reference/v6/#type_box) until the drawing covers all the latest consecutive bars in the current range:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Loops-While-loops-2.CDUKt8KX_14mTLG.webp)
 
 ```pine
 //@version=6
@@ -590,7 +565,8 @@ The iterative behavior of a [for…in](https://www.tradingview.com/pine-script-r
 -   When using a [matrix](https://www.tradingview.com/pine-script-reference/v6/#type_matrix) in the header, the loop performs [_row-wise_ iteration](https://www.tradingview.com/pine-script-docs/language/loops/#looping-through-matrices), which means that each `item` represents a _row array_.
 -   When using a [map](https://www.tradingview.com/pine-script-reference/v6/#type_map) in the header, the loop performs [_pair-wise_ iteration](https://www.tradingview.com/pine-script-docs/language/loops/#looping-through-maps), which retrieves a _key_ and corresponding _value_ on each iteration.
 
-NoteScripts can modify the sizes of arrays and matrices directly within a [for…in](https://www.tradingview.com/pine-script-reference/v6/#kw_for...in) loop’s local scope. When a [for…in](https://www.tradingview.com/pine-script-reference/v6/#kw_for...in) loop changes the size of a collection during an iteration, the loop’s header uses the _updated size_ to control subsequent iterations, just like an equivalent [for](https://www.tradingview.com/pine-script-docs/language/loops/#for-loops) loop that uses `array.size(id) - 1` or `matrix.rows(id) - 1` as the `to_num` argument.
+> [!NOTE]
+> Scripts can modify the sizes of arrays and matrices directly within a [for…in](https://www.tradingview.com/pine-script-reference/v6/#kw_for...in) loop’s local scope. When a [for…in](https://www.tradingview.com/pine-script-reference/v6/#kw_for...in) loop changes the size of a collection during an iteration, the loop’s header uses the _updated size_ to control subsequent iterations, just like an equivalent [for](https://www.tradingview.com/pine-script-docs/language/loops/#for-loops) loop that uses `array.size(id) - 1` or `matrix.rows(id) - 1` as the `to_num` argument.
 
 ### Looping through arrays {#looping-through-arrays}
 
@@ -612,8 +588,6 @@ for element in myArray
 ```
 
 The following example examines bars on a lower timeframe to gauge the strength of _intrabar_ trends within each chart bar. The script uses a [request.security\_lower\_tf()](https://www.tradingview.com/pine-script-reference/v6/#fun_request.security_lower_tf) call to retrieve an [array](https://www.tradingview.com/pine-script-reference/v6/#type_array) of intrabar [hl2](https://www.tradingview.com/pine-script-reference/v6/#var_hl2) prices from a calculated `lowerTimeframe`. Then, it uses a [for…in](https://www.tradingview.com/pine-script-reference/v6/#kw_for...in) loop to access each `price` within the `intrabarPrices` array and compare the value to the current [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) to calculate the bar’s `strength`. The script plots the `strength` as columns in a separate pane:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Loops-For-in-loops-Looping-through-arrays-1.D-rbYJQk_MRmRo.webp)
 
 ```pine
 //@version=6
@@ -651,8 +625,6 @@ for [index, element] in myArray
 
 For example, suppose we want to display a _numerated_ list of [array](https://www.tradingview.com/pine-script-reference/v6/#type_array) elements within a [label](https://www.tradingview.com/pine-script-reference/v6/#type_label) while excluding values at specific indices. We can use the second form of the [for…in](https://www.tradingview.com/pine-script-reference/v6/#kw_for...in) loop structure to accomplish this task. The simple script below declares a `stringArray` variable that references an [array](https://www.tradingview.com/pine-script-reference/v6/#type_array) of predefined “string” values. On the last historical bar, the script uses a [for…in](https://www.tradingview.com/pine-script-reference/v6/#kw_for...in) loop to access each `index` and `element` in the `stringArray` to construct the `labelText`, which it uses in a [label.new()](https://www.tradingview.com/pine-script-reference/v6/#fun_label.new) call after the loop ends:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Loops-For-in-loops-Looping-through-arrays-2.CVOFB_ZV_Z24x6bG.webp)
-
 ```pine
 //@version=6
 indicator("`for [index, item] in array` demo", "Array numerated output")
@@ -685,8 +657,6 @@ Note that:
 Let’s explore an advanced example demonstrating the utility of [for…in](https://www.tradingview.com/pine-script-reference/v6/#kw_for...in) loops. The following indicator draws a fixed number of horizontal [lines](https://www.tradingview.com/pine-script-docs/visuals/lines-and-boxes/#lines) at pivot high values calculated from a [ta.pivothigh()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.pivothigh) call, and it analyzes the lines within a loop to determine which ones represent active (_uncrossed_) pivots.
 
 Each time the script detects a new pivot high point, it creates a new [line](https://www.tradingview.com/pine-script-reference/v6/#type_line), _inserts_ that line at the beginning of the `pivotLines` array, then removes the oldest element and deletes its ID using [line.delete()](https://www.tradingview.com/pine-script-reference/v6/#fun_line.delete). The script accesses each [line](https://www.tradingview.com/pine-script-reference/v6/#type_line) within the [array](https://www.tradingview.com/pine-script-reference/v6/#type_array) using a [for…in](https://www.tradingview.com/pine-script-reference/v6/#kw_for...in) loop, analyzing and [modifying](https://www.tradingview.com/pine-script-docs/visuals/lines-and-boxes/#modifying-lines) the properties of the line referenced on each iteration. When the current [high](https://www.tradingview.com/pine-script-reference/v6/#var_high) crosses above the `pivotLine`, the script changes its style to signify that it is no longer an active level. Otherwise, it extends the line’s `x2` coordinate and uses its price to calculate the average _active_ pivot value. The script also plots each pivot high value and the average active pivot value on the chart:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Loops-For-in-loops-Looping-through-arrays-3.92QH6mmE_Z1FfVqp.webp)
 
 ```pine
 //@version=6
@@ -787,8 +757,6 @@ Note that:
 
 The following example creates a custom string representing the rows of a [matrix](https://www.tradingview.com/pine-script-reference/v6/#type_matrix) with extra information. When the script executes on the last historical bar, it creates a 3x3 matrix populated with values from [math.random()](https://www.tradingview.com/pine-script-reference/v6/#fun_math.random) calls. Using the [first form](https://www.tradingview.com/pine-script-docs/language/loops/#forin-loops) of the [for…in](https://www.tradingview.com/pine-script-reference/v6/#kw_for...in) loop, the script iterates through each row in the matrix to create a “string” value representing the row’s contents, its average, and whether the average is above 0.5. Before the end of each iteration, the script concatenates the constructed string with the `labelText` value. After the loop ends, the script creates a [label](https://www.tradingview.com/pine-script-reference/v6/#type_label) to display the `labelText` variable’s final value:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Loops-For-in-loops-Looping-through-matrices-1.MLIBFwlx_ZVcNC5.webp)
-
 ```pine
 //@version=6
 indicator("`for row in matrix` demo", "Custom matrix label")
@@ -843,8 +811,6 @@ for rowArray in myMatrix
 The script below creates a 3x2 [matrix](https://www.tradingview.com/pine-script-reference/v6/#type_matrix), then accesses and modifies its elements within nested [for…in](https://www.tradingview.com/pine-script-reference/v6/#kw_for...in) loops. Both loops use the [second form](https://www.tradingview.com/pine-script-docs/language/loops/#forin-loops) of the [for…in](https://www.tradingview.com/pine-script-reference/v6/#kw_for...in) statement to retrieve index values and corresponding items. The outer loop accesses a row index and row [array](https://www.tradingview.com/pine-script-reference/v6/#type_array) from the [matrix](https://www.tradingview.com/pine-script-reference/v6/#type_matrix). The inner loop accesses each index and respective element from that [array](https://www.tradingview.com/pine-script-reference/v6/#type_array).
 
 Within the nested loop’s iterations, the script converts each `element` to a “string” and initializes a [table](https://www.tradingview.com/pine-script-reference/v6/#type_table) cell at the `rowIndex` row and `colIndex` column. Then, it uses the loop header variables within [matrix.set()](https://www.tradingview.com/pine-script-reference/v6/#fun_matrix.set) to update the [matrix](https://www.tradingview.com/pine-script-reference/v6/#type_matrix) element. After the outer loop terminates, the script displays a “string” representation of the _updated_ [matrix](https://www.tradingview.com/pine-script-reference/v6/#type_matrix) within a [label](https://www.tradingview.com/pine-script-reference/v6/#type_label):
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Loops-For-in-loops-Looping-through-matrices-2.CZ4aQPdE_dBJbP.webp)
 
 ```pine
 //@version=6
@@ -910,8 +876,6 @@ Note that:
 
 Let’s consider a simple example demonstrating how a [for…in](https://www.tradingview.com/pine-script-reference/v6/#kw_for...in) loop works on a [map](https://www.tradingview.com/pine-script-reference/v6/#type_map). When the script below executes on the last historical bar, it declares a `simpleMap` variable to reference a [map](https://www.tradingview.com/pine-script-reference/v6/#type_map) of “string” keys and “float” values. The script uses [map.put()](https://www.tradingview.com/pine-script-reference/v6/#fun_map.put) to insert the keys from the `newKeys` array into the collection with corresponding values from [math.random()](https://www.tradingview.com/pine-script-reference/v6/#fun_math.random) calls. Then, it uses a [for…in](https://www.tradingview.com/pine-script-reference/v6/#kw_for...in) loop to iterate through the key-value pairs from the map and construct the `displayText` string. After the loop ends, the script uses a [label](https://www.tradingview.com/pine-script-reference/v6/#type_label) to visualize the string:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Loops-For-in-loops-Looping-through-maps.CZTQ1Hx7_15rWVb.webp)
-
 ```pine
 //@version=6
 indicator("Looping through map demo")
@@ -945,14 +909,11 @@ Note that:
 
 -   This script uses [both forms](https://www.tradingview.com/pine-script-docs/language/loops/#forin-loops) of the [for…in](https://www.tradingview.com/pine-script-reference/v6/#kw_for...in) loop statement. The first loop iterates through the “string” elements of the `newKeys` array to put key-value pairs into the map referenced by `simpleMap`, and the second iterates directly through the map’s key-value pairs to construct the custom string.
 
-Notice
-
-In contrast to [arrays](https://www.tradingview.com/pine-script-docs/language/arrays/) and [matrices](https://www.tradingview.com/pine-script-docs/language/matrices/), [maps](https://www.tradingview.com/pine-script-docs/language/maps/) cannot change in size while a script iterates through them directly using a [for…in](https://www.tradingview.com/pine-script-reference/v6/#kw_for...in) loop. Attempting to add or remove a map’s key-value pairs while looping through it with this structure typically causes a _runtime error_.
-
-  
-
-To correctly modify a map’s size within a loop, programmers can do any of the following:
-
--   Make a [copy](https://www.tradingview.com/pine-script-docs/language/maps/#copying-a-map) of the map and loop through that copied instance.
--   Use a [for…in](https://www.tradingview.com/pine-script-reference/v6/#kw_for...in) loop to iterate through the [map.keys()](https://www.tradingview.com/pine-script-reference/v6/#fun_map.keys) _array_.
--   Use a [for](https://www.tradingview.com/pine-script-reference/v6/#kw_for) or [while](https://www.tradingview.com/pine-script-reference/v6/#kw_while) loop instead of a [for…in](https://www.tradingview.com/pine-script-reference/v6/#kw_for...in) loop.
+> [!IMPORTANT]
+> In contrast to [arrays](https://www.tradingview.com/pine-script-docs/language/arrays/) and [matrices](https://www.tradingview.com/pine-script-docs/language/matrices/), [maps](https://www.tradingview.com/pine-script-docs/language/maps/) cannot change in size while a script iterates through them directly using a [for…in](https://www.tradingview.com/pine-script-reference/v6/#kw_for...in) loop. Attempting to add or remove a map’s key-value pairs while looping through it with this structure typically causes a _runtime error_.
+>
+> To correctly modify a map’s size within a loop, programmers can do any of the following:
+>
+> -   Make a [copy](https://www.tradingview.com/pine-script-docs/language/maps/#copying-a-map) of the map and loop through that copied instance.
+> -   Use a [for…in](https://www.tradingview.com/pine-script-reference/v6/#kw_for...in) loop to iterate through the [map.keys()](https://www.tradingview.com/pine-script-reference/v6/#fun_map.keys) _array_.
+> -   Use a [for](https://www.tradingview.com/pine-script-reference/v6/#kw_for) or [while](https://www.tradingview.com/pine-script-reference/v6/#kw_while) loop instead of a [for…in](https://www.tradingview.com/pine-script-reference/v6/#kw_for...in) loop.

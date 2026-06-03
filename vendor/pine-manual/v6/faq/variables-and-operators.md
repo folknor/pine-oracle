@@ -57,8 +57,6 @@ It’s important to note that [varip](https://www.tradingview.com/pine-script-re
 
 To distinguish between [var](https://www.tradingview.com/pine-script-reference/v6/#kw_var) and [varip](https://www.tradingview.com/pine-script-reference/v6/#kw_varip), add the following script to a live market symbol. With realtime updates, the varip plot increments within a bar on each price update, whereas the [var](https://www.tradingview.com/pine-script-reference/v6/#kw_var) plot stays constant within a bar:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Variables-and-operators-What-is-a-varip-1.BwPcn6VA_Z2wjpXX.webp)
-
 ```pine
 //@version=6
 indicator("varip vs var demo")
@@ -154,8 +152,6 @@ For instance, if an exchange feed provides a closing price of 30181.07, which is
 Subtle differences, while not immediately obvious, can lead to significant outcomes, especially in scripts requiring precise calculations or when diagnosing unexpected behaviors in scripts. An example of this is in detecting crossover events. Discrepancies between unrounded and rounded values can cause scripts to identify crossover events in one scenario but not in the other.
 
 One way to mitigate this issue is to round the OHLC built-in variables to the nearest tick size before using them in calculations. The script below highlights discrepancies between actual OHLC values and their rounded counterparts, visually indicating any differences by coloring the background red:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Variables-and-operators-Why-do-the-ohlc-built-ins-sometimes-return-different-values-than-the-ones-shown-on-the-chart-1.Bsg-hKpL_ZRzSzH.webp)
 
 ```pine
 //@version=6

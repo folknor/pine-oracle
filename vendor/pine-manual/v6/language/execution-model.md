@@ -48,19 +48,16 @@ When a user first adds this script to their chart, its code executes _once_ for 
 
 When the script finishes its run from the first bar to the most recent bar, the result is a simple _line plot_ showing the progression of closing prices across the chart’s history:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Execution-model-The-basics-Bar-by-bar-execution-1.D5nkQfFJ_Zan9Wp.webp)
-
 Note that the above script evaluates the [plot()](https://www.tradingview.com/pine-script-reference/v6/#fun_plot) function call once for every bar on the chart, not just once in total. On each separate execution, the call defines the plotted point for the current bar: the chart’s first bar during the first execution, the second bar during the next, and so on.
 
 This pattern illustrates a key principle of Pine’s execution model: on each successive execution, a script _re-evaluates_ function calls and other expressions within its required _scopes_ to perform separate calculations for the current bar.
 
-NoteThe [scope](https://www.tradingview.com/pine-script-docs/faq/programming/#what-does-scope-mean) of an expression is the part of the code where the script can access it. A script evaluates its _global_ scope _once_ per execution, i.e., on _every bar_. In contrast, it evaluates _local_ scopes — such as the code inside [conditional structures](https://www.tradingview.com/pine-script-docs/language/conditional-structures/), [user-defined functions](https://www.tradingview.com/pine-script-docs/language/user-defined-functions/), and [loops](https://www.tradingview.com/pine-script-docs/language/loops/) — _zero_, _one_, or _several_ times per execution, depending on the logic.
+> [!NOTE]
+> The [scope](https://www.tradingview.com/pine-script-docs/faq/programming/#what-does-scope-mean) of an expression is the part of the code where the script can access it. A script evaluates its _global_ scope _once_ per execution, i.e., on _every bar_. In contrast, it evaluates _local_ scopes — such as the code inside [conditional structures](https://www.tradingview.com/pine-script-docs/language/conditional-structures/), [user-defined functions](https://www.tradingview.com/pine-script-docs/language/user-defined-functions/), and [loops](https://www.tradingview.com/pine-script-docs/language/loops/) — _zero_, _one_, or _several_ times per execution, depending on the logic.
 
 Repeated code evaluation also applies to [variable declarations](https://www.tradingview.com/pine-script-docs/language/variable-declarations/). By default, a script does not declare a variable only once throughout its runtime; the script _re-declares_ that variable and assigns an initial value based on the current bar’s data during _each_ new evaluation of its scope.
 
 Let’s look at a simple example. The following script declares an `x` variable of the “int” [type](https://www.tradingview.com/pine-script-docs/language/type-system/#types) with an initial value of 0. Then, it increases the variable’s value by 10 with the addition assignment operator ([+=](https://www.tradingview.com/pine-script-reference/v6/#op_+=)). The script calls [plot()](https://www.tradingview.com/pine-script-reference/v6/#fun_plot) to display the value of `x` on each bar in a separate pane:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Execution-model-The-basics-Bar-by-bar-execution-2.CYV_XhNc_Z22CJ8u.webp)
 
 ```pine
 //@version=6
@@ -82,8 +79,6 @@ As shown above, the script plots a value of 10 on every bar, because the `x` var
 Programmers can change the behavior of a variable, enabling it to _persist_ and preserve updates to its value _across bars_, by including the [var](https://www.tradingview.com/pine-script-reference/v6/#kw_var) keyword in its declaration, as described in the [Declaration modes](https://www.tradingview.com/pine-script-docs/language/variable-declarations/#declaration-modes) section of the [Variable declarations](https://www.tradingview.com/pine-script-docs/language/variable-declarations/) page.
 
 Below, we modify the previous script by adding [var](https://www.tradingview.com/pine-script-reference/v6/#kw_var) to the `x` declaration. Now, the script declares and initializes `x` only _once_ — on the _first bar_ — and that variable persists across _all_ bars that follow. The script now plots a line that _increases_ by 10 on each bar, because `x` preserves the result from each addition across the chart’s history. The value changes from 0 to 10 on the first bar, then to 20 on the second, and so on:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Execution-model-The-basics-Bar-by-bar-execution-3.2eRg8rX8_Z1OsSNk.webp)
 
 ```pine
 //@version=6
@@ -111,8 +106,6 @@ As a script runs on a dataset, the states of its variables, function calls, and 
 
 The example below uses both of the above techniques to perform calculations based on data from previous bars. The script calculates a series of bar-by-bar price returns and plots the result as color-coded columns. It declares two global variables on each bar: `priceReturn` for the calculated returns, and `returnColor` for the plot’s color. The `priceReturn` value is the result of dividing the current one-bar change in closing prices (`ta.change(close, 1)`) by the previous bar’s closing price (`close[1]`). The `returnColor` value is [color.teal](https://www.tradingview.com/pine-script-reference/v6/#const_color.teal) if the current value of `priceReturn` is higher than the value from the previous bar (`priceReturn[1]`), and [color.maroon](https://www.tradingview.com/pine-script-reference/v6/#const_color.maroon) otherwise:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Execution-model-The-basics-Storing-and-using-data-from-previous-bars-1.CZbtEkeL_Z1yKAyd.webp)
-
 ```pine
 //@version=6
 indicator("Storing and using data from previous bars demo")
@@ -132,7 +125,8 @@ Note that:
 
 -   This script does _not_ plot a column on bar 0 (the _first_ bar). The `priceReturn` value is [na](https://www.tradingview.com/pine-script-reference/v6/#var_na) on that bar, because there is _no previous bar_ available for the script to reference at that point.
 
-NoticeFor consistency, use historical references only on variables or expressions that the script evaluates on **every bar**, in the _global_ scope. A script that references the history of variables or expressions defined in _local_ scopes — such as the code inside an [if](https://www.tradingview.com/pine-script-reference/v6/#kw_if) statement — can cause _unintended results_. The compiler warns users about this behavior directly inside the Pine Editor. For _advanced_ details on this behavior, see the [Time series in scopes](https://www.tradingview.com/pine-script-docs/language/execution-model/#time-series-in-scopes) section.
+> [!IMPORTANT]
+> For consistency, use historical references only on variables or expressions that the script evaluates on **every bar**, in the _global_ scope. A script that references the history of variables or expressions defined in _local_ scopes — such as the code inside an [if](https://www.tradingview.com/pine-script-reference/v6/#kw_if) statement — can cause _unintended results_. The compiler warns users about this behavior directly inside the Pine Editor. For _advanced_ details on this behavior, see the [Time series in scopes](https://www.tradingview.com/pine-script-docs/language/execution-model/#time-series-in-scopes) section.
 
 ### Realtime bars {#realtime-bars}
 
@@ -142,17 +136,15 @@ When the rightmost bar on the chart is _open_, it is a _realtime bar_. Unlike a 
 
 Because the final values for a realtime bar are _unknown_ until the bar closes, an indicator executes differently on that bar than it does on historical bars. The script executes not once, but **repeatedly** on the realtime bar — once for each new _update (tick)_ — to _recalculate_ its results using the latest data.
 
-Note
-
-On the open realtime bar, variables such as [high](https://www.tradingview.com/pine-script-reference/v6/#var_high), [low](https://www.tradingview.com/pine-script-reference/v6/#var_low), [close](https://www.tradingview.com/pine-script-reference/v6/#var_close), and [volume](https://www.tradingview.com/pine-script-reference/v6/#var_volume) hold the _latest_ available values for the bar. These values **do not** represent _confirmed_ data for the bar until the script executes on that bar’s _closing tick_.
-
-  
-
-Scripts can identify historical and realtime bars, and whether a realtime bar’s data is confirmed, by using the [barstate.ishistory](https://www.tradingview.com/pine-script-reference/v6/#var_barstate.ishistory), [barstate.isrealtime](https://www.tradingview.com/pine-script-reference/v6/#var_barstate.isrealtime), and [barstate.isconfirmed](https://www.tradingview.com/pine-script-reference/v6/#var_barstate.isconfirmed) variables. See the [Bar states](https://www.tradingview.com/pine-script-docs/concepts/bar-states/) page to learn more.
+> [!NOTE]
+> On the open realtime bar, variables such as [high](https://www.tradingview.com/pine-script-reference/v6/#var_high), [low](https://www.tradingview.com/pine-script-reference/v6/#var_low), [close](https://www.tradingview.com/pine-script-reference/v6/#var_close), and [volume](https://www.tradingview.com/pine-script-reference/v6/#var_volume) hold the _latest_ available values for the bar. These values **do not** represent _confirmed_ data for the bar until the script executes on that bar’s _closing tick_.
+>
+> Scripts can identify historical and realtime bars, and whether a realtime bar’s data is confirmed, by using the [barstate.ishistory](https://www.tradingview.com/pine-script-reference/v6/#var_barstate.ishistory), [barstate.isrealtime](https://www.tradingview.com/pine-script-reference/v6/#var_barstate.isrealtime), and [barstate.isconfirmed](https://www.tradingview.com/pine-script-reference/v6/#var_barstate.isconfirmed) variables. See the [Bar states](https://www.tradingview.com/pine-script-docs/concepts/bar-states/) page to learn more.
 
 Before each recalculation on the realtime bar, the data for a script’s variables, expressions, and outputs on that bar is _cleared_, or _reset_. We refer to this process as _rollback_. The purpose of rollback is to revert the script to the same confirmed state it had when the realtime bar opened. This process ensures that the script’s calculations for the bar operate only on the latest available data, without relying on _temporary data_ from the bar’s _previous ticks_.
 
-NoticeA variable can _escape_ rollback and persist across _all ticks_ within a bar if its declaration includes the [varip](https://www.tradingview.com/pine-script-reference/v6/#kw_varip) keyword. This behavior is helpful for calculations that require data from before a bar’s closing tick. However, it can also cause [repainting](https://www.tradingview.com/pine-script-docs/concepts/repainting/), because the ticks that occur before a realtime bar’s close become **unavailable** after the script reloads. Refer to the [Declaration modes](https://www.tradingview.com/pine-script-docs/language/variable-declarations/#declaration-modes) section of the [Variable declarations](https://www.tradingview.com/pine-script-docs/language/variable-declarations/) page to learn more about this keyword.
+> [!IMPORTANT]
+> A variable can _escape_ rollback and persist across _all ticks_ within a bar if its declaration includes the [varip](https://www.tradingview.com/pine-script-reference/v6/#kw_varip) keyword. This behavior is helpful for calculations that require data from before a bar’s closing tick. However, it can also cause [repainting](https://www.tradingview.com/pine-script-docs/concepts/repainting/), because the ticks that occur before a realtime bar’s close become **unavailable** after the script reloads. Refer to the [Declaration modes](https://www.tradingview.com/pine-script-docs/language/variable-declarations/#declaration-modes) section of the [Variable declarations](https://www.tradingview.com/pine-script-docs/language/variable-declarations/) page to learn more about this keyword.
 
 Let’s look at rollback and recalculation in action. The following script uses [ta.stoch()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.stoch) to calculate the [Stochastic oscillator](https://www.tradingview.com/support/solutions/43000502332-stochastic-stoch/) based on the [close](https://www.tradingview.com/pine-script-reference/v6/#var_close), [high](https://www.tradingview.com/pine-script-reference/v6/#var_high), and [low](https://www.tradingview.com/pine-script-reference/v6/#var_low) values over a specified number of bars, then plots the result in a separate pane. It also calls [bgcolor()](https://www.tradingview.com/pine-script-reference/v6/#fun_bgcolor) to highlight the background on each realtime bar — where [barstate.isrealtime](https://www.tradingview.com/pine-script-reference/v6/#var_barstate.isrealtime) is `true` — for visual reference:
 
@@ -176,15 +168,9 @@ When we add the script to our chart, it executes once per bar in the chart’s h
 
 For instance, in the initial image below, the oscillator’s value 10 seconds into the open realtime bar (the one with the purple background) is 32.08:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Execution-model-The-basics-Realtime-bars-1.AOvj4-Z1_xYxwo.webp)
-
 Every time the bar updates, rollback _resets_ the script’s data for that bar, and the script _recalculates_ its result using the latest [high](https://www.tradingview.com/pine-script-reference/v6/#var_high), [low](https://www.tradingview.com/pine-script-reference/v6/#var_low), and [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) values. Here, halfway through the realtime bar’s period, the oscillator’s plot now shows a value of 16.71:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Execution-model-The-basics-Realtime-bars-2.C780uf5g_2fw87S.webp)
-
 Recalculation continues for each successive update to the bar. Then, the script reaches the bar’s closing tick, where the prices become _confirmed_. On that tick, the script calculates the oscillator’s final value of 19.35. Afterward, another realtime bar opens, and the pattern of rollback and recalculation continues on that bar:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Execution-model-The-basics-Realtime-bars-3.rq8kAEPJ_ZnN0rj.webp)
 
 Note that:
 
@@ -192,19 +178,22 @@ Note that:
 -   The [input.int()](https://www.tradingview.com/pine-script-reference/v6/#fun_input.int) function returns a value of the “input int” _qualified type_. Values qualified as “input” are established _before_ the first script execution, and they remain consistent throughout the script’s runtime. If the user changes the “Length” input to a new value, the script _restarts_ to perform new calculations across the dataset using that value. See the [Inputs](https://www.tradingview.com/pine-script-docs/concepts/inputs/) page and the [Qualifiers](https://www.tradingview.com/pine-script-docs/language/type-system/#qualifiers) section of the [Type system](https://www.tradingview.com/pine-script-docs/language/type-system/) page to learn more about script inputs and the “input” qualifier.
 -   If the script restarts, all the realtime bars from the previous script run become _historical bars_ in the new run. Therefore, after restarting, the script executes only **once** on each of those bars and does _not_ highlight their background.
 
-Note_Strategy_ scripts do not execute in the same way as indicators by default; they execute only _once_ on _every bar_, including all _realtime bars_. Calculations occur on each realtime bar only after the bar **closes**. Users can change this behavior with the `calc_on_every_tick` and `calc_on_order_fills` parameters of the [strategy()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy) function. See the [Strategies](https://www.tradingview.com/pine-script-docs/concepts/strategies/) page to learn more about strategy scripts and how they differ from indicators.
+> [!NOTE]
+> _Strategy_ scripts do not execute in the same way as indicators by default; they execute only _once_ on _every bar_, including all _realtime bars_. Calculations occur on each realtime bar only after the bar **closes**. Users can change this behavior with the `calc_on_every_tick` and `calc_on_order_fills` parameters of the [strategy()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy) function. See the [Strategies](https://www.tradingview.com/pine-script-docs/concepts/strategies/) page to learn more about strategy scripts and how they differ from indicators.
 
 ## The details {#the-details}
 
 The following sections provide in-depth details about Pine’s execution model, including the mechanics of executions on [historical bars](https://www.tradingview.com/pine-script-docs/language/execution-model/#executions-on-historical-bars) and [realtime bars](https://www.tradingview.com/pine-script-docs/language/execution-model/#executions-on-realtime-bars), which [events](https://www.tradingview.com/pine-script-docs/language/execution-model/#events-that-trigger-script-executions) trigger script executions, and how the runtime system maintains data across executions in a [time series](https://www.tradingview.com/pine-script-docs/language/execution-model/#time-series) format.
 
-TipNew to Pine Script? To make the most of the _advanced_ information below, start by learning [The basics](https://www.tradingview.com/pine-script-docs/language/execution-model/#the-basics) and understanding other core concepts — such as the [type system](https://www.tradingview.com/pine-script-docs/language/type-system/), [variable declarations](https://www.tradingview.com/pine-script-docs/language/variable-declarations/), [operators](https://www.tradingview.com/pine-script-docs/language/operators/), [conditional structures](https://www.tradingview.com/pine-script-docs/language/conditional-structures/), and [user-defined functions](https://www.tradingview.com/pine-script-docs/language/user-defined-functions/) — before venturing further.
+> [!TIP]
+> New to Pine Script? To make the most of the _advanced_ information below, start by learning [The basics](https://www.tradingview.com/pine-script-docs/language/execution-model/#the-basics) and understanding other core concepts — such as the [type system](https://www.tradingview.com/pine-script-docs/language/type-system/), [variable declarations](https://www.tradingview.com/pine-script-docs/language/variable-declarations/), [operators](https://www.tradingview.com/pine-script-docs/language/operators/), [conditional structures](https://www.tradingview.com/pine-script-docs/language/conditional-structures/), and [user-defined functions](https://www.tradingview.com/pine-script-docs/language/user-defined-functions/) — before venturing further.
 
 ### Executions on historical bars {#executions-on-historical-bars}
 
 When a script loads on the chart or in another location after an [execution-triggering event](https://www.tradingview.com/pine-script-docs/language/execution-model/#events-that-trigger-script-executions), its compiled source code executes on _every_ accessible bar in the current dataset in order, starting with the first bar.
 
-NoteThe first bar that a script accesses depends on the `calc_bars_count` parameter of its [declaration statement](https://www.tradingview.com/pine-script-docs/language/script-structure/#declaration-statement) and the limits of the user’s _plan_. If the `calc_bars_count` argument is a nonzero value that is less than or equal to the plan’s [bar limit](https://www.tradingview.com/pine-script-docs/writing/limitations/#chart-bars), script executions begin at the specified number of bars _before_ the latest bar. Otherwise, executions start at the _earliest_ available bar.
+> [!NOTE]
+> The first bar that a script accesses depends on the `calc_bars_count` parameter of its [declaration statement](https://www.tradingview.com/pine-script-docs/language/script-structure/#declaration-statement) and the limits of the user’s _plan_. If the `calc_bars_count` argument is a nonzero value that is less than or equal to the plan’s [bar limit](https://www.tradingview.com/pine-script-docs/writing/limitations/#chart-bars), script executions begin at the specified number of bars _before_ the latest bar. Otherwise, executions start at the _earliest_ available bar.
 
 While the script loads, the runtime system performs the following steps for _each bar_ that it accesses:
 
@@ -216,7 +205,8 @@ These steps repeat for every successive bar up to the most recent bar. After the
 
 All the closed bars on which the script executes while loading are _historical_, because they represent data points that were confirmed before the [event](https://www.tradingview.com/pine-script-docs/language/execution-model/#events-that-trigger-script-executions) that triggered the loading process. By default, all scripts execute **once** for each historical bar.
 
-TipScripts can identify which bars have a historical state with the [barstate.ishistory](https://www.tradingview.com/pine-script-reference/v6/#var_barstate.ishistory) variable. Its value is `true` for every closed bar accessed during the script’s loading time and `false` for all bars that close afterward. See the [Bar states](https://www.tradingview.com/pine-script-docs/concepts/bar-states/) page to learn more about `barstate.*` variables.
+> [!TIP]
+> Scripts can identify which bars have a historical state with the [barstate.ishistory](https://www.tradingview.com/pine-script-reference/v6/#var_barstate.ishistory) variable. Its value is `true` for every closed bar accessed during the script’s loading time and `false` for all bars that close afterward. See the [Bar states](https://www.tradingview.com/pine-script-docs/concepts/bar-states/) page to learn more about `barstate.*` variables.
 
 Let’s examine a simple indicator to understand how script executions work on historical bars.
 
@@ -310,8 +300,6 @@ Note that:
 
 After the system executes the script on all available data points and finishes loading, the script’s outputs then become visible on the chart:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Execution-model-Executions-on-historical-bars-1.CbmTx9jr_Z202GQC.webp)
-
 Note that:
 
 -   When the script first loads, _all_ bars, including the latest one, have an orange background because they initially represent _historical_ data. However, the latest bar on our chart is still open, meaning it is a _realtime bar_. After a new tick arrives from the realtime data feed, the bar’s values update, and the script executes _again_ on that bar. The orange background for the bar then _disappears_ because the system sets the value of [barstate.ishistory](https://www.tradingview.com/pine-script-reference/v6/#var_barstate.ishistory) to `false`.
@@ -323,8 +311,6 @@ It’s important to note that, unlike indicators, [strategies](https://www.tradi
 Let’s look at a simple example. The following strategy changes the direction of its simulated position on each execution. If there is an open short position or no position, the strategy places a [market order](https://www.tradingview.com/pine-script-docs/concepts/strategies/#market-orders) to close all short trades and enter a long trade. If a long position is open, the strategy places a market order to close it and open a short trade.
 
 As with the previous example, this script increments an `executionNum` variable declared with [varip](https://www.tradingview.com/pine-script-reference/v6/#kw_varip) to count new executions, plots the result alongside [bar\_index](https://www.tradingview.com/pine-script-reference/v6/#var_bar_index) for comparison, and highlights the background of historical bars in orange with [bgcolor()](https://www.tradingview.com/pine-script-reference/v6/#fun_bgcolor):
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Execution-model-Executions-on-historical-bars-2.DpP1JZmD_Z1F3fX1.webp)
 
 ```pine
 //@version=6
@@ -357,8 +343,6 @@ Note that:
 The script above uses the default calculation behavior: it places a new order only at the close of each bar. The broker emulator fills the order at the next bar’s opening price, as the trade markers on the chart above indicate. The `executionNum` and [bar\_index](https://www.tradingview.com/pine-script-reference/v6/#var_bar_index) plots show the same values because the script executes only once per bar.
 
 If we include `calc_on_order_fills = true` in the [strategy()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy) declaration statement, the runtime system _re-executes_ the script on a bar after each new order fill to update the calculations. Our script’s logic generates a new order on _every_ execution, and the broker emulator considers historical bars to have _four ticks_ for filling orders by default (the open, high, low, and close). Therefore, with this change, the script executes **four times** per historical bar instead of only once. As shown below, the strategy now shows four trade markers on each historical bar, and the `executionNum` value is four times that of the [bar\_index](https://www.tradingview.com/pine-script-reference/v6/#var_bar_index) variable:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Execution-model-Executions-on-historical-bars-3.C3-PPUqF_2mKdvK.webp)
 
 ```pine
 //@version=6
@@ -396,7 +380,8 @@ After a script running on the chart or in an alert executes across all historica
 
 As explained in the previous section, historical bars represent confirmed data points. By contrast, a realtime bar represents an initially _unconfirmed_ data point that evolves as new updates (ticks) arrive from the realtime data feed. With each new tick, the bar’s [high](https://www.tradingview.com/pine-script-reference/v6/#var_high), [low](https://www.tradingview.com/pine-script-reference/v6/#var_low), [close](https://www.tradingview.com/pine-script-reference/v6/#var_close), [volume](https://www.tradingview.com/pine-script-reference/v6/#var_volume), and other values update to represent the latest data while the bar remains open. After the bar closes, it becomes an _elapsed realtime bar_, whose values no longer change. Then, a new realtime bar opens after another tick arrives, and that bar updates as new data becomes available.
 
-TipScripts can identify which bars have a realtime state with the [barstate.isrealtime](https://www.tradingview.com/pine-script-reference/v6/#var_barstate.isrealtime) variable. Its value is `true` for every bar that closes _after_ the script’s loading time and `false` for all previous bars. Additionally, scripts can detect _closed bars_ with the [barstate.isconfirmed](https://www.tradingview.com/pine-script-reference/v6/#var_barstate.isconfirmed) variable. To learn more about these and other `barstate.*` variables, refer to the [Bar states](https://www.tradingview.com/pine-script-docs/concepts/bar-states/) page.
+> [!TIP]
+> Scripts can identify which bars have a realtime state with the [barstate.isrealtime](https://www.tradingview.com/pine-script-reference/v6/#var_barstate.isrealtime) variable. Its value is `true` for every bar that closes _after_ the script’s loading time and `false` for all previous bars. Additionally, scripts can detect _closed bars_ with the [barstate.isconfirmed](https://www.tradingview.com/pine-script-reference/v6/#var_barstate.isconfirmed) variable. To learn more about these and other `barstate.*` variables, refer to the [Bar states](https://www.tradingview.com/pine-script-docs/concepts/bar-states/) page.
 
 As an [indicator](https://www.tradingview.com/pine-script-reference/v6/#fun_indicator) or [library](https://www.tradingview.com/pine-script-reference/v6/#fun_library) script runs on an open realtime bar, its compiled code executes once after **every new update** from the data feed. With each new execution, the script recalculates its results for that bar using the latest data. Consequently, the states of the script’s variables, expressions, and objects can _change_ with each new execution while the bar remains open. The system _commits_ the script’s data for the realtime bar only after the bar closes.
 
@@ -477,25 +462,17 @@ bgcolor(barstate.isrealtime ? color.new(color.orange, 70) : na, title = "Realtim
 
 When we first add the script to the chart, it does _not_ add an orange background to any bar because it calculates only on data that exists at the script’s loading time. This data is _historical_. Each bar’s label shows a value of 1 because indicators always execute _once_ per historical bar:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Execution-model-Executions-on-realtime-bars-1.C6ZIpkKC_GsYwv.webp)
-
 Notice the countdown timer and the _purple_ label for the latest bar in the chart above. These both indicate that the bar is _open_ and subject to changes. A new update from the data feed affects the bar’s values, triggering rollback and a new script execution to recalculate the results.
 
 When rollback occurs, the runtime system reverts the internal data of the [ta.rsi()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.rsi) call to its last committed state, erases the state of the `rsi` variable, and deletes the latest [label](https://www.tradingview.com/pine-script-reference/v6/#type_label) object. However, the system does not revert the `executions` variable because it uses the [varip](https://www.tradingview.com/pine-script-reference/v6/#kw_varip) keyword.
 
 After rollback, the system updates the built-in [close](https://www.tradingview.com/pine-script-reference/v6/#var_close), [high](https://www.tradingview.com/pine-script-reference/v6/#var_high), and `barstate.*` variables using the current bar’s latest data, and the new execution begins. The script evaluates the [ta.rsi()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.rsi) call using the new [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) price and reinitializes the `rsi` variable with the returned value. Then, it increases the `executions` value by one, evaluates [ta.change()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.change) again, and creates a new label at the bar’s current high price to show the updated result. Lastly, it evaluates the [plot()](https://www.tradingview.com/pine-script-reference/v6/#fun_plot) and [bgcolor()](https://www.tradingview.com/pine-script-reference/v6/#fun_bgcolor) calls to replace the bar’s plotted visuals. The last bar’s label remains purple because the bar is still open, but the background color is now _orange_ because [barstate.isrealtime](https://www.tradingview.com/pine-script-reference/v6/#var_barstate.isrealtime) is `true`:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Execution-model-Executions-on-realtime-bars-2.DkBtTFWJ_Z27muce.webp)
-
 As subsequent updates become available from the data feed, the pattern of rollback and re-execution continues, and the script’s outputs for the bar update with each new execution:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Execution-model-Executions-on-realtime-bars-3.5O5RsfWP_ZLQqNx.webp)
 
 The last time that rollback and another execution occur on this bar is after the _closing tick_, when the bar becomes an _elapsed_ realtime bar. After the final execution, the bar’s label is _gray_ because [barstate.isconfirmed](https://www.tradingview.com/pine-script-reference/v6/#var_barstate.isconfirmed) is `true`. The runtime system then _commits_ necessary data from this execution to the [time series](https://www.tradingview.com/pine-script-docs/language/execution-model/#time-series) for calculations on future bars.
 
 Then, a new realtime bar opens after another update from the data feed, and the execution pattern continues:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Execution-model-Executions-on-realtime-bars-4.C8UTIyzZ_1C51r1.webp)
 
 Note that:
 
@@ -507,7 +484,8 @@ If the [strategy()](https://www.tradingview.com/pine-script-reference/v6/#fun_st
 
 Additionally, if the [strategy()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy) statement includes `calc_on_order_fills = true` or the user selects “After order is filled” in the “Settings/Properties” tab, the script executes on _each tick_ where the [broker emulator](https://www.tradingview.com/pine-script-docs/concepts/strategies/#broker-emulator) fills an order. With this behavior, the system can execute the script multiple times on the open bar, but only on the ticks where an _order fill_ occurs.
 
-NoteRollback typically occurs only after script executions on realtime bars. However, it can also happen on _historical bars_ for strategies that recalculate after an order fills, because such scripts can execute _more than once_ on _any_ bar.
+> [!NOTE]
+> Rollback typically occurs only after script executions on realtime bars. However, it can also happen on _historical bars_ for strategies that recalculate after an order fills, because such scripts can execute _more than once_ on _any_ bar.
 
 To summarize the general process for script executions on realtime bars:
 
@@ -589,23 +567,16 @@ bgcolor(barstate.isrealtime ? color.new(color.orange, 70) : na, title = "Realtim
 
 After the script loads on the chart and executes on several realtime bars, all the elapsed realtime bars, as well as the open realtime bar, include plotted return candles and an orange background color:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Execution-model-Events-that-trigger-script-executions-1.Bu_ElpOQ_ZQNKI6.webp)
-
 After an applicable event, such as a chart refresh, the script _reloads_ and executes across the dataset again. All the closed bars with a realtime state in the previous run become _historical_ bars in the new run. The results thus change because our script relies on realtime data. As shown below, the script does not display candles or background colors for previous bars after we refresh the chart. Those outputs appear only for the latest bar, after new ticks become available, because that bar is now the **only** one with a realtime state:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Execution-model-Events-that-trigger-script-executions-2.CbIdk5sI_10biFO.webp)
 
 Note that:
 
 -   The [barstate.isnew](https://www.tradingview.com/pine-script-reference/v6/#var_barstate.isnew) variable has a value of `true` when a realtime bar opens, and `false` on all subsequent updates to the bar. If the script reloads midway through a realtime bar’s progression, only the background color appears on that bar. The script does not show a candle on the first realtime bar in that case, because its `o`, `h`, and `l` variables hold [na](https://www.tradingview.com/pine-script-reference/v6/#var_na) until the first time that [barstate.isnew](https://www.tradingview.com/pine-script-reference/v6/#var_barstate.isnew) is `true`.
 
-Note
-
-A script might also behave differently after reloading due to differences between bars constructed from realtime data and those retrieved from historical data feeds. Occasionally, a data provider must adjust the values of a closed bar originally built from realtime updates. In such cases, the script accesses the adjusted values only after _restarting_ and retrieving the bar from the _historical_ feed. Although such adjustments are typically minor and infrequent, they can cause slight variations in a script’s calculations on former realtime bars.
-
-  
-
-Refer to the [Repainting](https://www.tradingview.com/pine-script-docs/concepts/repainting/) page to learn more about potential differences between historical and realtime script behaviors and their causes.
+> [!NOTE]
+> A script might also behave differently after reloading due to differences between bars constructed from realtime data and those retrieved from historical data feeds. Occasionally, a data provider must adjust the values of a closed bar originally built from realtime updates. In such cases, the script accesses the adjusted values only after _restarting_ and retrieving the bar from the _historical_ feed. Although such adjustments are typically minor and infrequent, they can cause slight variations in a script’s calculations on former realtime bars.
+>
+> Refer to the [Repainting](https://www.tradingview.com/pine-script-docs/concepts/repainting/) page to learn more about potential differences between historical and realtime script behaviors and their causes.
 
 #### Caching {#caching}
 
@@ -665,23 +636,16 @@ bgcolor(barstate.isrealtime ? color.new(color.orange, 70) : na, title = "Realtim
 
 After we add the script to our 1m chart and let it run for a few minutes with a “Length” input value of 5, the script plots candles and highlights the background for the latest few bars, because [barstate.isrealtime](https://www.tradingview.com/pine-script-reference/v6/#var_barstate.isrealtime) is `true` on those bars:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Execution-model-Events-that-trigger-script-executions-Caching-1.BY9-bg_Z_Z195PEh.webp)
-
 Let’s change the “Length” input to a new value, causing the script to reload and execute across the dataset again. Here, we changed the value from 5 to 10 and let the script execute on some new ticks. The script no longer displays candles and background colors for the same bars after restarting, because it now accesses the data for those formerly realtime bars from the _historical_ data feed:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Execution-model-Events-that-trigger-script-executions-Caching-2.DyVd2t5m_Z120RYY.webp)
 
 As shown above, the realtime bar information from the first run is _not available_ when we change the script’s input to a new value. However, the data from that previous run still exists in memory. If we revert the “Length” input’s value to 5, the candle plot and background colors start on the same bar as the first run:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Execution-model-Events-that-trigger-script-executions-Caching-3.ByASZdF6_1VDxju.webp)
-
 If we add a second instance of the script to the chart, using the same settings, the runtime system loads the new instance using the cached data instead of executing it entirely from scratch. As such, its outputs are _identical_ to those from the first script instance, even though we added it to the chart a few bars later:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Execution-model-Events-that-trigger-script-executions-Caching-4.CGwk5hPj_ZNpD5c.webp)
 
 Similarly, cached data usually remains available even if we remove the script from our chart and add it again.
 
-TipYou can clear cached data for a script on the chart at any time by simply reloading the chart.
+> [!TIP]
+> You can clear cached data for a script on the chart at any time by simply reloading the chart.
 
 ### Time series {#time-series}
 
@@ -694,8 +658,6 @@ Scripts can access the data committed to the time series on past bars by using t
 For example, consider the [open](https://www.tradingview.com/pine-script-reference/v6/#var_open) variable, which holds the opening price of the current bar on which the script executes. Before each script execution on a new bar, the runtime system commits the [open](https://www.tradingview.com/pine-script-reference/v6/#var_open) value from the last execution on the previous bar. Then, it updates the variable to hold the current bar’s opening price. To access the committed [open](https://www.tradingview.com/pine-script-reference/v6/#var_open) value for the previous bar, we can use the expression `open[1]`. To access the committed value from 10 bars back, we use `open[10]`.
 
 The script below performs three history-referencing operations to retrieve the current bar’s [open](https://www.tradingview.com/pine-script-reference/v6/#var_open) value, the value from one bar back, and the value from a user-specified number of bars back. Then, it plots the retrieved values on the chart for comparison:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Execution-model-Time-series-1.CzCPjlKh_1BHcVW.webp)
 
 ```pine
 //@version=6
@@ -726,8 +688,6 @@ Note that:
 
 Another way that scripts use committed values from a time series is by calling the built-in functions that reference history internally, such as those in the `ta.*` namespace. For example, the expression `ta.highest(high, 20)` calculates the highest value from the [high](https://www.tradingview.com/pine-script-reference/v6/#var_high) series over a 20-bar window. It compares the series’ current value to the committed values from the previous 19 bars to determine the result. The script below executes this call on each bar and plots the resulting series on the chart. Additionally, the script colors the background of the last 20 bars on the chart to highlight the bars used in the latest execution’s [ta.highest()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.highest) call:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Execution-model-Time-series-2.tycqzMI6_1x0PYg.webp)
-
 ```pine
 //@version=6
 indicator("History referencing in functions demo", overlay = true, behind_chart = false)
@@ -749,17 +709,12 @@ Note that:
 -   All function calls and expressions that do not return “void” leave historical trails in the time series, just like variables. Therefore, scripts can use an expression such as `ta.highest(high, 20)[10]` to retrieve the 20-bar high from 10 bars back.
 -   The [ta.highest()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.highest) function and other functions that access past values from a time series must execute in the **global scope** for consistent calculations. Time series storage for variables and expressions in local scopes works _differently_ than that for global values. See the [Time series in scopes](https://www.tradingview.com/pine-script-docs/language/execution-model/#time-series-in-scopes) section for more information.
 
-Note
-
-Programmers should not confuse time series with the “series” qualifier. The time series concept describes how Pine’s runtime system stores and retrieves data across successive script executions. In contrast, the “series” qualifier describes variables and expressions whose values can change from bar to bar, such as [open](https://www.tradingview.com/pine-script-reference/v6/#var_open).
-
-  
-
-To understand this distinction, consider the [timeframe.period](https://www.tradingview.com/pine-script-reference/v6/#var_timeframe.period) variable, which is of the “simple string” _qualified type_. The variable’s value cannot change because its _qualifier_ is “simple”, but it still leaves a trail of successive values in the time series. It is possible, though not very useful, to retrieve the value from 10 bars back using an expression such as `timeframe.period[10]`. The returned value equals the [timeframe.period](https://www.tradingview.com/pine-script-reference/v6/#var_timeframe.period) value for all bars with a [bar\_index](https://www.tradingview.com/pine-script-reference/v6/#var_bar_index) of 10 and above. However, the expression’s result is “series string”, because the expression returns a _different_ value ([na](https://www.tradingview.com/pine-script-reference/v6/#var_na)) on the first 10 bars.
-
-  
-
-See the [Qualifiers](https://www.tradingview.com/pine-script-docs/language/type-system/#qualifiers) section of the [Type system](https://www.tradingview.com/pine-script-docs/language/type-system/) page to learn more about “series” and other qualifiers.
+> [!NOTE]
+> Programmers should not confuse time series with the “series” qualifier. The time series concept describes how Pine’s runtime system stores and retrieves data across successive script executions. In contrast, the “series” qualifier describes variables and expressions whose values can change from bar to bar, such as [open](https://www.tradingview.com/pine-script-reference/v6/#var_open).
+>
+> To understand this distinction, consider the [timeframe.period](https://www.tradingview.com/pine-script-reference/v6/#var_timeframe.period) variable, which is of the “simple string” _qualified type_. The variable’s value cannot change because its _qualifier_ is “simple”, but it still leaves a trail of successive values in the time series. It is possible, though not very useful, to retrieve the value from 10 bars back using an expression such as `timeframe.period[10]`. The returned value equals the [timeframe.period](https://www.tradingview.com/pine-script-reference/v6/#var_timeframe.period) value for all bars with a [bar\_index](https://www.tradingview.com/pine-script-reference/v6/#var_bar_index) of 10 and above. However, the expression’s result is “series string”, because the expression returns a _different_ value ([na](https://www.tradingview.com/pine-script-reference/v6/#var_na)) on the first 10 bars.
+>
+> See the [Qualifiers](https://www.tradingview.com/pine-script-docs/language/type-system/#qualifiers) section of the [Type system](https://www.tradingview.com/pine-script-docs/language/type-system/) page to learn more about “series” and other qualifiers.
 
 #### Historical buffers {#historical-buffers}
 
@@ -808,11 +763,10 @@ For cases like these, programmers can _manually_ set the size of a historical bu
 -   Call the [max\_bars\_back()](https://www.tradingview.com/pine-script-reference/v6/#fun_max_bars_back) function to explicitly set the historical buffer size for a _specific_ series.
 -   Include a `max_bars_back` argument in the [indicator()](https://www.tradingview.com/pine-script-reference/v6/#fun_indicator) or [strategy()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy) declaration statement to set the initial size of _all_ historical buffers.
 
-NoticeThe larger the size of a historical buffer, the more memory resources it requires. A script with buffers that are too large can cause the [“Memory limits exceeded” error](https://www.tradingview.com/pine-script-docs/error-messages/#memory-limits-exceeded). Therefore, when manually setting the buffer size for a series, use the **smallest** possible size that accommodates _all_ required historical references to that series.
+> [!IMPORTANT]
+> The larger the size of a historical buffer, the more memory resources it requires. A script with buffers that are too large can cause the [“Memory limits exceeded” error](https://www.tradingview.com/pine-script-docs/error-messages/#memory-limits-exceeded). Therefore, when manually setting the buffer size for a series, use the **smallest** possible size that accommodates _all_ required historical references to that series.
 
 Below, we modified the script by including the expression `max_bars_back(close, 150)`, which sets the size of the [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) buffer to include 150 past values. With the appropriate buffer size manually defined, the script’s history-referencing operation no longer causes an error on realtime bars:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Execution-model-Time-series-Historical-buffers-1.BRNlhWd3_Z9knPp.webp)
 
 ```pine
 //@version=6
@@ -838,7 +792,8 @@ plot(pastClose, "Past `close`", chart.fg_color, 3)
 bgcolor(barstate.isrealtime ? color.new(color.orange, 70) : na, title = "Realtime highlight")
 ```
 
-TipManually setting historical buffer sizes can also improve a script’s resource efficiency in some cases. As explained above, the runtime system _restarts_ a script to recalculate its buffers if any historical reference exceeds a buffer’s limit after the first **244 bars**. This process increases the script’s loading time and memory use. Setting the appropriate buffer size in advance with [max\_bars\_back()](https://www.tradingview.com/pine-script-reference/v6/#fun_max_bars_back) prevents the script from restarting for buffer calculations. See the [Minimizing historical buffer calculations](https://www.tradingview.com/pine-script-docs/writing/profiling-and-optimization/#minimizing-historical-buffer-calculations) section of the [Profiling and optimization](https://www.tradingview.com/pine-script-docs/writing/profiling-and-optimization/) page for more information.
+> [!TIP]
+> Manually setting historical buffer sizes can also improve a script’s resource efficiency in some cases. As explained above, the runtime system _restarts_ a script to recalculate its buffers if any historical reference exceeds a buffer’s limit after the first **244 bars**. This process increases the script’s loading time and memory use. Setting the appropriate buffer size in advance with [max\_bars\_back()](https://www.tradingview.com/pine-script-reference/v6/#fun_max_bars_back) prevents the script from restarting for buffer calculations. See the [Minimizing historical buffer calculations](https://www.tradingview.com/pine-script-docs/writing/profiling-and-optimization/#minimizing-historical-buffer-calculations) section of the [Profiling and optimization](https://www.tradingview.com/pine-script-docs/writing/profiling-and-optimization/) page for more information.
 
 #### Time series in scopes {#time-series-in-scopes}
 
@@ -852,7 +807,8 @@ For the runtime system to commit data from a variable or expression and queue th
 
 Therefore, time series behave differently in global and local scopes: the historical buffers for global variables and expressions _always_ contain committed data for _consecutive_ past bars, whereas the buffers for local variables often contain an **inconsistent** history of committed data.
 
-NoteFunction and method _parameters_ have the same historical buffer behaviors as _local variables_. Each parameter in a function call has a _unique buffer_, and the system can add new data to that buffer only on a bar’s closing tick. If the script does not evaluate the function call on every closing tick, the buffers for its parameters contain an inconsistent history. This behavior applies even if the argument supplied to a parameter is a _global variable_.
+> [!NOTE]
+> Function and method _parameters_ have the same historical buffer behaviors as _local variables_. Each parameter in a function call has a _unique buffer_, and the system can add new data to that buffer only on a bar’s closing tick. If the script does not evaluate the function call on every closing tick, the buffers for its parameters contain an inconsistent history. This behavior applies even if the argument supplied to a parameter is a _global variable_.
 
 If a script references the history of a global variable using an expression such as `myVariable[1]`, the historical offset of 1 always refers to the confirmed `myVariable` value from the _previous bar_. Likewise, an expression such as `myVariable[9]` retrieves the variable’s value from _nine bars back_. Either expression consistently accesses the value corresponding to a _specific_ number of bars back, because the runtime system commits a new value for that global variable on _every bar_.
 
@@ -861,8 +817,6 @@ In contrast, the result of using the [\[\]](https://www.tradingview.com/pine-scr
 The following example demonstrates how a simple history-referencing operation behaves inside a user-defined function’s scope when a script does _not_ call the function on every bar. The script below defines a custom `upDownColor()` function, which compares the current value of its `source` parameter to the last committed value (`source[1]`) on each call. The function returns [color.blue](https://www.tradingview.com/pine-script-reference/v6/#const_color.blue) if the current `source` value is higher than the previous value. Otherwise, it returns [color.orange](https://www.tradingview.com/pine-script-reference/v6/#const_color.orange).
 
 The script uses this function _conditionally_, inside a [ternary operation](https://www.tradingview.com/pine-script-docs/language/operators/#-ternary-operator), to determine the color of a plot that shows the remainder from dividing [bar\_index](https://www.tradingview.com/pine-script-reference/v6/#var_bar_index) by a specified value. If the `remainder` variable’s value is nonzero, the operation calls `upDownColor(remainder)` to calculate the color (blue or orange). If the value is 0, the operation does _not_ use the call and instead returns [color.gray](https://www.tradingview.com/pine-script-reference/v6/#const_color.gray). The `remainder` value _increases_ on each bar, except for when it returns to 0 — causing the gray color. Therefore, a user might expect the plot’s color to be only blue or gray on every bar. However, the color changes to _orange_ on each bar after the one where the color is gray, even though the `remainder` value on that bar is _higher_ than the value on the previous bar:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Execution-model-Time-series-Time-series-in-scopes-1.D_JOArZO_1nnBkt.webp)
 
 ```pine
 //@version=6
@@ -909,8 +863,6 @@ The runtime system maintains a separate [historical buffer](https://www.tradingv
 
 We can fix this script’s behavior by following the instructions in the compiler warning. Below, we modified the script by moving the `upDownColor()` call _outside_ the ternary expression, enabling the script to execute it on _every bar_. The historical buffer for the function’s `source` series now contains `remainder` values from _consecutive_ bars. With this change, an orange color does not appear because the function consistently compares values from _one_ bar back:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Execution-model-Time-series-Time-series-in-scopes-2.DnGQwjrs_SJfqA.webp)
-
 ```pine
 //@version=6
 indicator("Consistent historical references demo")
@@ -944,8 +896,6 @@ A similar behavior applies to all built-in functions that reference past values 
 The script below demonstrates how the results of the [ta.sma()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.sma) function can vary with the scope in which the function call occurs. The script declares three global variables to hold calculated SMA values: `controlSMA`, `localSMA`, and `globalSMA`. The script initializes `controlSMA` using the result of a [ta.sma()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.sma) function call, and it initializes the other two variables with [na](https://www.tradingview.com/pine-script-reference/v6/#var_na). Within the [if](https://www.tradingview.com/pine-script-reference/v6/#kw_if) structure, the script updates the value of `globalSMA` using `controlSMA`, and it updates `localSMA` using the result of another [ta.sma()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.sma) call with the same arguments as the first call.
 
 As shown below, the `controlSMA` and `globalSMA` variables have the same value. Both hold the result of the _global_ [ta.sma()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.sma) call, which executes on _every bar_. The internal historical buffer for `source` in that call thus includes committed values for consecutive past bars. In contrast, the `localSMA` value differs, because the [ta.sma()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.sma) call for that variable does _not_ execute on every bar. The buffer for that call’s local `source` series contains only the values from bars with an _even_ [bar\_index](https://www.tradingview.com/pine-script-reference/v6/#var_bar_index) value:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Execution-model-Time-series-Time-series-in-scopes-3.H3TNziJy_20udot.webp)
 
 ```pine
 //@version=6
@@ -983,10 +933,7 @@ To summarize the behavior of time series in a script’s scopes:
 -   A script evaluates its global scope once on _every execution_. After each script execution on a bar’s closing tick, the system commits the data for variables and expressions in the global scope and updates their [historical buffers](https://www.tradingview.com/pine-script-docs/language/execution-model/#historical-buffers). The resulting buffers thus include data for consecutive past bars, ensuring consistent results for operations and functions that rely on past data.
 -   A script evaluates local scopes _zero_, _one_, or _several_ times per execution. The runtime system **cannot** maintain consistent bar-by-bar historical buffers for scopes that a script does _not_ evaluate on every bar, or for scopes that the script evaluates _more than once_ on a bar’s closing tick. Therefore, using the [\[\]](https://www.tradingview.com/pine-script-reference/v6/#op_[]) operator on local variables and expressions, or not calling functions that access past data once on each closing tick, can cause **unintended results**.
 
-Note
-
-Not all built-in functions use past data from historical buffers in their calculations. For example, most functions in the `math` namespace, excluding [math.sum()](https://www.tradingview.com/pine-script-reference/v6/#fun_math.sum), operate only on the _current_ arguments of the function call. Functions that do not interact with their history in any way do not require special treatment to ensure intended results.
-
-  
-
-If the use of a function call within a local block does _not_ cause a compiler warning, it is typically safe to use in that block without affecting the result. However, if the warning occurs, it is usually best to move the call to the _global scope_ — outside the operands of the [or](https://www.tradingview.com/pine-script-reference/v6/#kw_or), [and](https://www.tradingview.com/pine-script-reference/v6/#kw_and), or [?:](https://www.tradingview.com/pine-script-reference/v6/#op_?:) operators — to ensure consistent calculations.
+> [!NOTE]
+> Not all built-in functions use past data from historical buffers in their calculations. For example, most functions in the `math` namespace, excluding [math.sum()](https://www.tradingview.com/pine-script-reference/v6/#fun_math.sum), operate only on the _current_ arguments of the function call. Functions that do not interact with their history in any way do not require special treatment to ensure intended results.
+>
+> If the use of a function call within a local block does _not_ cause a compiler warning, it is typically safe to use in that block without affecting the result. However, if the warning occurs, it is usually best to move the call to the _global scope_ — outside the operands of the [or](https://www.tradingview.com/pine-script-reference/v6/#kw_or), [and](https://www.tradingview.com/pine-script-reference/v6/#kw_and), or [?:](https://www.tradingview.com/pine-script-reference/v6/#op_?:) operators — to ensure consistent calculations.

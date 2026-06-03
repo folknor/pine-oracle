@@ -68,7 +68,8 @@ Where:
 -   `defaultValue` is the parameter’s default argument. If not specified, each call to the function requires an argument for the parameter. Otherwise, supplying an argument is optional.
 -   `paramQualifier` and `paramType` are qualifier and type _keywords_, which together specify the parameter’s [qualified type](https://www.tradingview.com/pine-script-docs/language/type-system/). Using these keywords is optional in most cases. If the declaration does not include them, the compiler determines the parameter’s type information automatically. See the [Declaring parameter types](https://www.tradingview.com/pine-script-docs/language/user-defined-functions/#declaring-parameter-types) section to learn more.
 
-TipProgrammers can also place the [method](https://www.tradingview.com/pine-script-reference/v6/#kw_method) keyword immediately before a function’s name to declare the function as a _method_ for a _specific type_. All methods must include at least _one_ parameter, and the first parameter _requires_ a declared type. Refer to the [Methods](https://www.tradingview.com/pine-script-docs/language/methods/) page for more information.
+> [!TIP]
+> Programmers can also place the [method](https://www.tradingview.com/pine-script-reference/v6/#kw_method) keyword immediately before a function’s name to declare the function as a _method_ for a _specific type_. All methods must include at least _one_ parameter, and the first parameter _requires_ a declared type. Refer to the [Methods](https://www.tradingview.com/pine-script-docs/language/methods/) page for more information.
 
 Below is an example of a simple function header. The header declares that the function’s name is `myFunction`, and that the function has two parameters named `param1` and `param2`:
 
@@ -105,8 +106,6 @@ add(val1, val2) => val1 + val2
 
 A script that includes this function definition can call `add()` with different arguments for `val1` and `val2`. The type of value returned by each call depends on these arguments. For example, the script below executes a few calls to `add()`, then passes their results to the `series`, `title`, and `linewidth` parameters in a call to [plot()](https://www.tradingview.com/pine-script-reference/v6/#fun_plot):
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/User-defined-functions-Structure-and-syntax-Single-line-functions-1.ZUSKhP6e_1lYyw4.webp)
-
 ```pine
 //@version=6
 indicator("Simple single-line function demo")
@@ -132,8 +131,6 @@ The body of a single-line function can contain a _comma-separated list_ of state
 
 For example, the following script contains a `zScore()` function defined in single-line format. The function computes the [z-score](https://en.wikipedia.org/wiki/Standard_score) of a `source` series over `length` bars. Its body declares two variables, `mean` and `sd`, to hold the average and standard deviation of the series. The final expression in the body uses these variables to calculate the function’s returned value. On each bar, the script calls the `zScore()` function using [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) as the `source` argument and 20 as the `length` argument, then plots the result:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/User-defined-functions-Structure-and-syntax-Single-line-functions-2.BetlAr8S_Z1NQuye.webp)
-
 ```pine
 //@version=6
 indicator("Single-line function with more than one statement demo")
@@ -153,7 +150,8 @@ Note that:
 -   The `source` parameter requires an “int” or “float” value because its declaration includes the [float](https://www.tradingview.com/pine-script-reference/v6/#type_float) keyword. The `length` parameter requires an “int” value because its declaration uses the [int](https://www.tradingview.com/pine-script-reference/v6/#fun_int) keyword. See the [Declaring parameter types](https://www.tradingview.com/pine-script-docs/language/user-defined-functions/#declaring-parameter-types) section to learn more.
 -   The `//@variable` and `//@function` comments are [annotations](https://www.tradingview.com/pine-script-docs/language/script-structure/#compiler-annotations) that document identifiers in the code. The `//@function` annotation provides documentation for the `zScore()` function. Users can hover over the function’s name in the Pine Editor, or write a function call, to view the annotation’s formatted text in a pop-up window. See the [Documenting functions](https://www.tradingview.com/pine-script-docs/language/user-defined-functions/#documenting-functions) section for more information.
 
-TipAlthough it is possible to write single-line functions containing multiple statements, as shown above, using the [multiline](https://www.tradingview.com/pine-script-docs/language/user-defined-functions/#multiline-functions) format is often preferred for readability. Programmers can list the statements on separate lines and add comments for each one.
+> [!TIP]
+> Although it is possible to write single-line functions containing multiple statements, as shown above, using the [multiline](https://www.tradingview.com/pine-script-docs/language/user-defined-functions/#multiline-functions) format is often preferred for readability. Programmers can list the statements on separate lines and add comments for each one.
 
 ### Multiline functions {#multiline-functions}
 
@@ -203,8 +201,6 @@ Note that:
 Programmers often define multiline functions to encapsulate complex or logical tasks involving [loops](https://www.tradingview.com/pine-script-docs/language/loops/) or [conditional structures](https://www.tradingview.com/pine-script-docs/language/conditional-structures/). If the final part of a function’s body contains one of these structures, a call to the function returns the result of evaluating that structure.
 
 For example, the `smoothMedian()` function in the script below calculates the median of a `source` series over `length` bars, then smooths the result using a moving average specified by the `avgType` parameter. The function compares the `avgType` value in a [switch](https://www.tradingview.com/pine-script-reference/v6/#kw_switch) statement to select the type of average that it returns. The script calls the function to calculate the median of [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) values over 10 bars, smoothed by an [EMA](https://www.tradingview.com/support/solutions/43000592270-exponential-moving-average/) with the same length, and then plots the result on the chart:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/User-defined-functions-Structure-and-syntax-Multiline-functions-1.BxkB4CE1_HT9WV.webp)
 
 ```pine
 //@version=6
@@ -259,8 +255,6 @@ Because the end of the function’s body is a two-item tuple, each call to the f
 
 The following example calls `sumDiff()` to calculate the sum and difference between two pseudorandom values. The script uses a tuple declaration containing two variables, `sum` and `diff`, to store the values returned by the call. Then, it plots the values of those variables on the chart:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/User-defined-functions-Functions-that-return-multiple-results-1.CVZCb-PO_1728g7.webp)
-
 ```pine
 //@version=6
 indicator("Functions that return multiple results demo")
@@ -298,7 +292,8 @@ plot(_,    "Sum",        color.teal,   3)
 plot(diff, "Difference", color.maroon, 3)
 ```
 
-NoteThe items in a function’s returned tuple can have _different_ [types](https://www.tradingview.com/pine-script-docs/language/type-system/#types). However, functions _cannot_ return multiple results with different [type qualifiers](https://www.tradingview.com/pine-script-docs/language/type-system/#qualifiers). Therefore, _all_ items in a returned tuple automatically inherit the _same qualifier_. If the tuple does not rely on a “series” value, all the items in the tuple typically inherit the _“simple”_ qualifier. Otherwise, all items inherit the _“series”_ qualifier. See the [Tuples](https://www.tradingview.com/pine-script-docs/language/type-system/#tuples) section of the [Type system](https://www.tradingview.com/pine-script-docs/language/type-system/) page for an example.
+> [!NOTE]
+> The items in a function’s returned tuple can have _different_ [types](https://www.tradingview.com/pine-script-docs/language/type-system/#types). However, functions _cannot_ return multiple results with different [type qualifiers](https://www.tradingview.com/pine-script-docs/language/type-system/#qualifiers). Therefore, _all_ items in a returned tuple automatically inherit the _same qualifier_. If the tuple does not rely on a “series” value, all the items in the tuple typically inherit the _“simple”_ qualifier. Otherwise, all items inherit the _“series”_ qualifier. See the [Tuples](https://www.tradingview.com/pine-script-docs/language/type-system/#tuples) section of the [Type system](https://www.tradingview.com/pine-script-docs/language/type-system/) page for an example.
 
 ## Declaring parameter types {#declaring-parameter-types}
 
@@ -313,8 +308,6 @@ Parameter declarations prefixed by _type keywords_ — such as [int](https://www
 If a function parameter does _not_ have a type keyword in its declaration, its type is initially _undefined_. In each separate call to the function, the parameter automatically inherits the _same_ type as its specified argument. In other words, the parameter can take on _any type_, except for [void](https://www.tradingview.com/pine-script-docs/language/type-system/#void), depending on the function call.
 
 The following example demonstrates this behavior. The user-defined `pass()` function in the script below returns the value of the `source` parameter without performing additional calculations. The parameter’s declaration does not include a type keyword. The script executes five calls to the function with different argument types and then uses their results in code that accepts those types. This script compiles successfully, because each call’s version of the `source` parameter inherits its argument’s type:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/User-defined-functions-Declaring-parameter-types-Type-keywords-1.zDkkXyfc_ZDD8OY.webp)
 
 ```pine
 //@version=6
@@ -370,7 +363,8 @@ In most cases, type keywords are _optional_ in parameter declarations. However, 
 -   The function definition includes the [export](https://www.tradingview.com/pine-script-reference/v6/#kw_export) keyword. Exported functions require declared types for _every_ parameter. See the [Libraries](https://www.tradingview.com/pine-script-docs/concepts/libraries/) page to learn more.
 -   The function definition includes the [method](https://www.tradingview.com/pine-script-reference/v6/#kw_method) keyword, and the parameter is the _first_ one listed in the header. See the [User-defined methods](https://www.tradingview.com/pine-script-docs/language/methods/#user-defined-methods) section of the [Methods](https://www.tradingview.com/pine-script-docs/language/methods/) page for more information.
 
-TipEven when not required, we recommend declaring parameter types where possible. Type keywords help promote readability, and they enable the Pine Editor to provide relevant code suggestions. Additionally, parameters with declared types help prevent _unintended_ arguments in function calls.
+> [!TIP]
+> Even when not required, we recommend declaring parameter types where possible. Type keywords help promote readability, and they enable the Pine Editor to provide relevant code suggestions. Additionally, parameters with declared types help prevent _unintended_ arguments in function calls.
 
 ### Qualifier keywords {#qualifier-keywords}
 
@@ -388,7 +382,8 @@ The parameter has the “simple” qualifier. Its argument must be a “simple�
 
 The parameter has the “series” qualifier. It can accept an argument with _any_ type qualifier, because “series” is the _highest_ one in Pine’s [qualifier hierarchy](https://www.tradingview.com/pine-script-docs/language/type-system/#qualifiers). The argument for the parameter in each function call _can change_ on any execution.
 
-NoteQualifier keywords affect only the parameters that accept [value types](https://www.tradingview.com/pine-script-docs/language/type-system/#value-types). They **do not** affect those that accept [reference types](https://www.tradingview.com/pine-script-docs/language/type-system/#reference-types). Instances of reference types _always_ have the “series” qualifier, regardless of how the script uses them. Therefore, all parameters of these types automatically inherit the “series” qualifier. See the [Type system](https://www.tradingview.com/pine-script-docs/language/type-system/) page to learn more.
+> [!NOTE]
+> Qualifier keywords affect only the parameters that accept [value types](https://www.tradingview.com/pine-script-docs/language/type-system/#value-types). They **do not** affect those that accept [reference types](https://www.tradingview.com/pine-script-docs/language/type-system/#reference-types). Instances of reference types _always_ have the “series” qualifier, regardless of how the script uses them. Therefore, all parameters of these types automatically inherit the “series” qualifier. See the [Type system](https://www.tradingview.com/pine-script-docs/language/type-system/) page to learn more.
 
 Qualifier keywords are always _optional_ in parameter declarations. If a declaration does not include a qualifier keyword, the compiler uses the following logic to assign a qualifier to the parameter:
 
@@ -405,8 +400,6 @@ pass(source) =>
 ```
 
 The script below calls `pass()` using an “int” value with the “const” qualifier, then uses the returned value as the `length` argument in a call to [ta.ema()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.ema) and plots the result. This script compiles successfully because our `pass()` call returns the same qualified type as its argument (“const int”), and the `length` parameter of [ta.ema()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.ema) can accept a value of that type:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/User-defined-functions-Declaring-parameter-types-Qualifier-keywords-1.UmWjQFYB_2kXXpm.webp)
 
 ```pine
 //@version=6
@@ -457,8 +450,6 @@ plot(emaDiff, "Smoothed difference", color.purple, 3)
 
 We can restrict the type qualifier of our function’s `source` parameter by adding a _qualifier keyword_ to its declaration. In the script version below, we prefixed the declaration with the [simple](https://www.tradingview.com/pine-script-reference/v6/#type_simple) keyword. Now, the `source` parameter’s type is _“simple int”_ instead of “series int”. With this change, the script _does not_ cause an error, because the `pass()` function’s returned type is now compatible with the `length` parameter of [ta.ema()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.ema):
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/User-defined-functions-Declaring-parameter-types-Qualifier-keywords-2.3l-V8A-N_Z1fiiVi.webp)
-
 ```pine
 //@version=6
 indicator("Declared parameter qualifier demo")
@@ -498,8 +489,6 @@ calcAvg(float source, int length, string avgType) =>
 The compiler raises a _warning_ about this function’s structure inside the Pine Editor, because using `calcAvg()` with a _dynamic_ `avgType` argument can cause _unintended results_. If the `ta.*()` call executed by the function changes on any bar, it affects the _history_ of values used in the average calculations. See the [Time series in scopes](https://www.tradingview.com/pine-script-docs/language/execution-model/#time-series-in-scopes) section of the [Execution model](https://www.tradingview.com/pine-script-docs/language/execution-model/) page for advanced details about this behavior.
 
 The script below executes two `calcAvg()` calls and plots their returned values. The first call consistently uses `"ema"` as its `avgType` argument, and the other alternates between using `"ema"` and `"sma"` as the argument. The second call’s result _does not_ often align with the first call’s result, even on the bars where its `avgType` argument is `"ema"`, because both `ta.*()` calls require _consistent_ evaluation to calculate the averages for _consecutive_ bars:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/User-defined-functions-Declaring-parameter-types-Qualifier-keywords-3.CmT8Y_eI_2110wI.webp)
 
 ```pine
 //@version=6
@@ -571,7 +560,8 @@ In this syntax, `parameterName` is the name of one of the function’s _paramete
 
 The [//@returns](https://www.tradingview.com/pine-script-reference/v6/#an_@returns) annotation defines the description of the function’s _returned data_. The Pine Editor displays the `description` text at the bottom of the pop-up window that appears while the user hovers over the function’s name.
 
-NoteRedundant annotations are automatically _ignored_. If two or more `//@function` or `//@returns` annotations are above a function header, only the **last** one adds a description to the function or its return expression. If two or more `//@param` annotations above the header share the same parameter name, only the **first** one defines the corresponding parameter’s description.
+> [!NOTE]
+> Redundant annotations are automatically _ignored_. If two or more `//@function` or `//@returns` annotations are above a function header, only the **last** one adds a description to the function or its return expression. If two or more `//@param` annotations above the header share the same parameter name, only the **first** one defines the corresponding parameter’s description.
 
 The following code block defines a `mixEMA()` function, which calculates an EMA of a `source` series and then mixes the EMA with that series by a specified amount (`mix`). Above the function definition, we included `//@function`, `//@param`, and `//@returns` annotations to document its purpose, parameters, and result, respectively. Users can view the formatted text from these annotations by hovering over the `mixEMA` identifier in the Pine Editor or writing a `mixEMA()` function call:
 
@@ -693,7 +683,8 @@ Annotations support a limited range of [Markdown](https://en.wikipedia.org/wiki/
 f() => int(na)
 ```
 
-NoteThe annotation syntax in the above example affects only the appearance of text displayed by the Pine Editor’s autosuggest feature; it **does not** affect text formatting in _script publications_. See the [Title and description](https://www.tradingview.com/pine-script-docs/writing/publishing/#title-and-description) section of the [Publishing scripts](https://www.tradingview.com/pine-script-docs/writing/publishing/) page to learn the formatting syntax for publication descriptions.
+> [!NOTE]
+> The annotation syntax in the above example affects only the appearance of text displayed by the Pine Editor’s autosuggest feature; it **does not** affect text formatting in _script publications_. See the [Title and description](https://www.tradingview.com/pine-script-docs/writing/publishing/#title-and-description) section of the [Publishing scripts](https://www.tradingview.com/pine-script-docs/writing/publishing/) page to learn the formatting syntax for publication descriptions.
 
 ## Function scopes {#function-scopes}
 
@@ -718,8 +709,6 @@ plot(result)
 
 The only way for the script to use the function’s code is to execute a _function call_. Additionally, because the code in the function definition is _inaccessible_ to other scopes, the script can declare separate variables in other parts of the code with the _same_ identifiers as the function’s local variables and parameters. For example, the following script executes a call to the `myFun()` function and assigns its returned value to a new, _global_ variable _also_ named `result`. The [plot()](https://www.tradingview.com/pine-script-reference/v6/#fun_plot) call in this script does not cause an error, because only the global `result` variable is available to that call:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/User-defined-functions-Function-scopes-1.WDscmOKC_Z1HYWMK.webp)
-
 ```pine
 //@version=6
 indicator("Function variable vs. global variable demo")
@@ -741,8 +730,6 @@ plot(result, "Global `result` series", linewidth = 3)
 All local scopes in a script, including the scope of a function definition, are embedded into the script’s global scope. Therefore, while the global scope cannot access any variables within a function’s scope, the function _can_ access any global variables declared _above_ its definition.
 
 For instance, the following script declares a `globalVar` variable before defining the `myFun()` function, then uses that variable in the function’s body. This script compiles successfully, because the function definition has access to any global variables declared before its location in the code:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/User-defined-functions-Function-scopes-2.CcNLbFZI_Y6NNV.webp)
 
 ```pine
 //@version=6
@@ -783,7 +770,8 @@ increment(int amountToAdd = 1) =>
 plot(increment())
 ```
 
-TipIt is possible to modify the data accessed by a global variable from inside a function’s scope if that variable is of a [reference type](https://www.tradingview.com/pine-script-docs/language/type-system/#reference-types), such as a [collection type](https://www.tradingview.com/pine-script-docs/language/type-system/#collections) or [user-defined type](https://www.tradingview.com/pine-script-docs/language/type-system/#user-defined-types). Instead of reassigning the variable, the script can use _setter functions_ or _field reassignments_, depending on the type, to modify the _object_ that the variable _refers_ to. For examples of this advanced technique, see the [Extracting data from local scopes](https://www.tradingview.com/pine-script-docs/writing/debugging/#extracting-data-from-local-scopes) section of the [Debugging](https://www.tradingview.com/pine-script-docs/writing/debugging/) page and the scope-related sections of the [Arrays](https://www.tradingview.com/pine-script-docs/language/arrays/), [Matrices](https://www.tradingview.com/pine-script-docs/language/matrices/), and [Maps](https://www.tradingview.com/pine-script-docs/language/maps/) pages.
+> [!TIP]
+> It is possible to modify the data accessed by a global variable from inside a function’s scope if that variable is of a [reference type](https://www.tradingview.com/pine-script-docs/language/type-system/#reference-types), such as a [collection type](https://www.tradingview.com/pine-script-docs/language/type-system/#collections) or [user-defined type](https://www.tradingview.com/pine-script-docs/language/type-system/#user-defined-types). Instead of reassigning the variable, the script can use _setter functions_ or _field reassignments_, depending on the type, to modify the _object_ that the variable _refers_ to. For examples of this advanced technique, see the [Extracting data from local scopes](https://www.tradingview.com/pine-script-docs/writing/debugging/#extracting-data-from-local-scopes) section of the [Debugging](https://www.tradingview.com/pine-script-docs/writing/debugging/) page and the scope-related sections of the [Arrays](https://www.tradingview.com/pine-script-docs/language/arrays/), [Matrices](https://www.tradingview.com/pine-script-docs/language/matrices/), and [Maps](https://www.tradingview.com/pine-script-docs/language/maps/) pages.
 
 ### Scope of a function call {#scope-of-a-function-call}
 
@@ -817,8 +805,6 @@ Note that:
 -   The `total` variable and its assigned value _persist_ across bars because the variable declaration includes the [var](https://www.tradingview.com/pine-script-reference/v6/#kw_var) keyword. See the [Declaration modes](https://www.tradingview.com/pine-script-docs/language/variable-declarations/#declaration-modes) section of the [Variable declarations](https://www.tradingview.com/pine-script-docs/language/variable-declarations/) page to learn more.
 
 Both `accumulate()` calls in this script might seem identical. However, each one has a _separate_ scope with distinct versions of the `source` parameter and the `total` variable. The first call **does not** affect the second, and vice versa. As shown below, the script’s plotted value _decreases_ on every third bar before increasing again on subsequent bars. This behavior occurs because each `accumulate()` call’s version of `total` increases its value only on bars where the script _evaluates_ that call, and the script evaluates the first call on about _half_ as many bars as the second:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/User-defined-functions-Function-scopes-Scope-of-a-function-call-1.BvL7oJKj_Z1uOD5g.webp)
 
 It is crucial to emphasize that each function call _written_ in the source code has **one** unique scope created from the function’s definition. Repeated evaluations of the same written call **do not** create additional scopes with separate local variables and history. For example, a function call written in the body of a [loop](https://www.tradingview.com/pine-script-docs/language/loops/) performs calculations using the _same_ local series on _every_ iteration; it does _not_ calculate on different versions of those series for each separate iteration.
 
@@ -855,8 +841,6 @@ plot(loopedCallRes, "Looped call result", color.red,  3)
 ```
 
 A newcomer to Pine might expect the results of both `accumulate()` calls to be equal. However, the result of the call inside the loop is _10 times_ that of the call evaluated in the global scope. This difference occurs because the call written in the loop does not have separate scopes for each iteration; every evaluation of that call modifies the _same_ version of the persistent `total` variable. Consequently, the value returned by the loop’s `accumulate()` call increases by **10** instead of one on each bar:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/User-defined-functions-Function-scopes-Scope-of-a-function-call-2.BKLDlUMm_Z1uJzyY.webp)
 
 Note that:
 
@@ -900,8 +884,6 @@ Note that:
 -   We included [annotations](https://www.tradingview.com/pine-script-docs/language/script-structure/#compiler-annotations) to [document](https://www.tradingview.com/pine-script-docs/language/user-defined-functions/#documenting-functions) each separate overload. As a user writes a `negate()` call, the Pine Editor shows the documentation for _one_ of the overloads in a pop-up window. While the window is open, the user can view the documentation for the _other_ overloads by using the Up and Down arrow keys.
 
 With our function overloads defined, we can use `negate()` calls for different type-specific tasks. The script below uses a call to each overload. First, it uses the second overload to calculate the opposite of the condition `close > open`. It then uses the negated condition to determine the value of a plotted series. The plotted value is the result of `negate(close)` if the condition is `true`, and the value of [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) otherwise. The script colors the plot using the negative of the chart’s background color (`negate(chart.bg_color)`):
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/User-defined-functions-Function-overloading-1.BTe80Gur_ZyArF7.webp)
 
 ```pine
 //@version=6
@@ -1004,8 +986,6 @@ negate(float comparedValue) =>
 In Pine, function overloads can contain calls to overloads with the _same_ function name in their bodies, but only if those overloads are defined first. However, just like non-overloaded functions, an overload _cannot_ use calls to _itself_ within its body.
 
 For example, the script version below defines a fourth `negate()` overload with two required “float” parameters. The new overload calculates the product of its arguments, then calls the _first_ overload of `negate()` to change the result’s sign. This script compiles successfully, because the fourth overload uses a _separate_ `negate()` implementation in its scope, _not_ a call to itself:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/User-defined-functions-Function-overloading-2.CU45Rhl7_JVeGn.webp)
 
 ```pine
 //@version=6

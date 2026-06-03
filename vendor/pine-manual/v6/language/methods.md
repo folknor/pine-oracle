@@ -6,7 +6,8 @@ section: language
 
 # Methods {#methods}
 
-TipThis page contains _advanced_ material. If you’re new to Pine Script®, start by learning about core language components — such as the [type system](https://www.tradingview.com/pine-script-docs/language/type-system/) and [the basics](https://www.tradingview.com/pine-script-docs/language/execution-model/#the-basics) of the [execution model](https://www.tradingview.com/pine-script-docs/language/execution-model/) — and explore other, more accessible features before venturing further.
+> [!TIP]
+> This page contains _advanced_ material. If you’re new to Pine Script®, start by learning about core language components — such as the [type system](https://www.tradingview.com/pine-script-docs/language/type-system/) and [the basics](https://www.tradingview.com/pine-script-docs/language/execution-model/#the-basics) of the [execution model](https://www.tradingview.com/pine-script-docs/language/execution-model/) — and explore other, more accessible features before venturing further.
 
 ## Introduction {#introduction}
 
@@ -45,8 +46,6 @@ to achieve the same effect. This notation eliminates the need for users to refer
 Written below is a practical example to demonstrate the usage of built-in methods in place of functions.
 
 The following script computes Bollinger Bands over a specified number of prices sampled once every `n` bars. It calls [array.push()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.push) and [array.shift()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.shift) to queue `sourceInput` values through the `sourceArray`, then [array.avg()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.avg) and [array.stdev()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.stdev) to compute the `sampleMean` and `sampleDev`. The script then uses these values to calculate the `highBand` and `lowBand`, which it plots on the chart along with the `sampleMean`:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Methods_custom_bb.DR1SlFGg_dfax3.webp)
 
 ```pine
 //@version=6
@@ -302,8 +301,6 @@ method getType(string this) =>
 
 Now we can use these overloads to inspect some variables. This script uses [str.format()](https://www.tradingview.com/pine-script-reference/v6/#fun_str.format) to format the results from calling the `getType()` method on five different variables into a single `results` string, then displays the string in the `lbl` label using the built-in [set\_text()](https://www.tradingview.com/pine-script-reference/v6/#fun_label.set_text) method:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Methods_overloads_type_inspection.BxAK0zpG_1Y8B6C.webp)
-
 ```pine
 //@version=6
 indicator("Type Inspection")
@@ -434,8 +431,6 @@ Note that:
 -   This method does not include special handling for divide by zero conditions. If `rng` is 0, the value of the array element will be `na`.
 
 The full example below queues a `sourceArray` of size `length` with `sourceInput` values using our previous `maintainQueue()` method, normalizes the array’s elements using the `featureScale()` method, then calls the `eCDF()` method to get an array of estimates for `n` evenly spaced steps on the distribution. The script then calls a user-defined `makeLabel()` function to display the estimates and prices in a label on the right side of the chart:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Methods_empirical_distribution.BdS9hiv6_8zaTc.webp)
 
 ```pine
 //@version=6

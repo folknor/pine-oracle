@@ -19,7 +19,8 @@ float higherTfAtr = request.security(symbol = syminfo.tickerid, timeframe = "1D"
 plot(higherTfAtr)
 ```
 
-NoticeWhile the above script executes on realtime bars, its requested data includes _unconfirmed_ values from developing daily bars. Only the _confirmed_ values for the closed bars and the latest value for the open bar remain available after the script reloads. To learn how to request _non-repainting_ values from another context, see the [Avoiding repainting](https://www.tradingview.com/pine-script-docs/concepts/other-timeframes-and-data/#avoiding-repainting) section of the [Other timeframes and data](https://www.tradingview.com/pine-script-docs/concepts/other-timeframes-and-data/) page.
+> [!IMPORTANT]
+> While the above script executes on realtime bars, its requested data includes _unconfirmed_ values from developing daily bars. Only the _confirmed_ values for the closed bars and the latest value for the open bar remain available after the script reloads. To learn how to request _non-repainting_ values from another context, see the [Avoiding repainting](https://www.tradingview.com/pine-script-docs/concepts/other-timeframes-and-data/#avoiding-repainting) section of the [Other timeframes and data](https://www.tradingview.com/pine-script-docs/concepts/other-timeframes-and-data/) page.
 
 ## Which `request.*()` function should I use for lower timeframes? {#which-request-function-should-i-use-for-lower-timeframes}
 
@@ -56,7 +57,8 @@ int qtyIntrabars = array.size(request.security_lower_tf(syminfo.tickerid, "1D", 
 plot(qtyIntrabars, "qtyIntrabars", style=plot.style_histogram)
 ```
 
-NoteAlthough this approach is simpler to implement than the previous, it is also more computationally expensive, because it retrieves a _new array_ instead of a single value on each execution. If either approach produces the same result — as is the case in our examples above — it is often more optimal to use the first approach, especially if the script is large and performs many intrabar calculations.
+> [!NOTE]
+> Although this approach is simpler to implement than the previous, it is also more computationally expensive, because it retrieves a _new array_ instead of a single value on each execution. If either approach produces the same result — as is the case in our examples above — it is often more optimal to use the first approach, especially if the script is large and performs many intrabar calculations.
 
 See the sections in the User Manual page “Other timeframes and Data” about [`request.security_lower_tf()`](https://www.tradingview.com/pine-script-docs/concepts/other-timeframes-and-data/#lower-timeframes) and using [`request.security()` on lower timeframes](https://www.tradingview.com/pine-script-docs/concepts/other-timeframes-and-data/#requestsecurity_lower_tf) to learn more about the differences between running these functions on a lower timeframe.
 
@@ -72,7 +74,8 @@ Values from a _higher timeframe_ (HTF) often repaint because a [historical bar](
 
 To prevent repainting, use confirmed values that remain consistent across all bars. The most robust method is to offset all expressions by 1. For example, instead of `close`, which is equivalent to `close[0]`, use `close[1]`. The [request.security()](https://www.tradingview.com/pine-script-reference/v6/#fun_request.security) call must also use [barmerge.lookahead\_on](https://www.tradingview.com/pine-script-reference/v6/#const_barmerge.lookahead_on). This method returns data that is up to one HTF bar “late”, and is thus not subject to change.
 
-NoticeNeglecting to offset the `expression` argument in an HTF request causes **lookahead bias** on historical bars. See the [lookahead](https://www.tradingview.com/pine-script-docs/concepts/other-timeframes-and-data/#lookahead) section of the [Other timeframes and data](https://www.tradingview.com/pine-script-docs/concepts/other-timeframes-and-data/) page and the [Repainting](https://www.tradingview.com/pine-script-docs/concepts/repainting/) page’s section about [future leak](https://www.tradingview.com/pine-script-docs/concepts/repainting/#future-leak-with-requestsecurity) to learn more.
+> [!IMPORTANT]
+> Neglecting to offset the `expression` argument in an HTF request causes **lookahead bias** on historical bars. See the [lookahead](https://www.tradingview.com/pine-script-docs/concepts/other-timeframes-and-data/#lookahead) section of the [Other timeframes and data](https://www.tradingview.com/pine-script-docs/concepts/other-timeframes-and-data/) page and the [Repainting](https://www.tradingview.com/pine-script-docs/concepts/repainting/) page’s section about [future leak](https://www.tradingview.com/pine-script-docs/concepts/repainting/#future-leak-with-requestsecurity) to learn more.
 
 The following example script demonstrates the use of a single bar offset to the `expression` argument and [barmerge.lookahead\_on](https://www.tradingview.com/pine-script-reference/v6/#const_barmerge.lookahead_on) in [request.security()](https://www.tradingview.com/pine-script-reference/v6/#fun_request.security) to ensure that the data behaves the same on historical and realtime bars. The script calls [runtime.error()](https://www.tradingview.com/pine-script-reference/v6/#fun_runtime.error) to trigger a custom runtime error if the chart’s timeframe exceeds or matches the daily timeframe, to prevent the return of inaccurate values.
 

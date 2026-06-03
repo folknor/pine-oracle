@@ -152,11 +152,7 @@ Note that:
 
 We begin by adding the indicator to the chart of an open market, but before any realtime update is received. Note how the last confirmed history bar is identified in #1, and how the last bar is identified as the last one, but is still considered a historical bar because no realtime updates have been received.
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/BarStates-Example-01.C2adOFU8_ZCLAwc.webp)
-
 Let’s look at what happens when realtime updates start coming in:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/BarStates-Example-02.B_WDB0Io_n6xOY.webp)
 
 Note that:
 
@@ -164,5 +160,3 @@ Note that:
 -   The label of elapsed realtime bars is orange because those bars were not historical bars when they closed. Accordingly, the `barstate.ishistory => color.silver` branch in the [switch](https://www.tradingview.com/pine-script-reference/v6/#kw_switch) structure was not executed, but the next one, `barstate.isconfirmed => color.orange` was.
 
 This last example shows how the realtime bar’s label will turn yellow after the first execution on the bar. This is the way the label will usually appear on realtime bars:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/BarStates-Example-03.DTQntSqN_t5GBf.webp)

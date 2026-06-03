@@ -55,8 +55,6 @@ There are 17 built-in colors in Pine Script. This table lists their names, hexad
 
 The following script shows three different ways to express [color.olive](https://www.tradingview.com/pine-script-reference/v6/#const_color.olive) with 40% transparency. All three methods are functionally equivalent:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Colors-Constant-colors-1.CnlC-u-k_1tReXV.webp)
-
 ```pine
 //@version=6
 indicator("Constant colors demo", overlay = true)
@@ -83,8 +81,6 @@ The colors in the previous script do not vary as the script executes bar to bar.
 
 Let’s say you want to color a moving average in different colors, depending on some conditions you define. To do so, you can use a conditional statement that will select a different color for each of your states. Let’s start by coloring a moving average in a bull color when it’s rising, and in a bear color when it’s not:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Colors-ConditionalColors-1.D1QaF3Y-_p2AUr.webp)
-
 ```pine
 //@version=6
 indicator("Conditional colors", "", true)
@@ -106,8 +102,6 @@ Note that:
 -   We define an `maColor` variable that is assigned one of our two colors, depending on the value of the `maRising` variable. We use the [ternary operator](https://www.tradingview.com/pine-script-docs/language/operators/#-ternary-operator) to define our conditional expression.
 
 You can also use conditional colors to avoid plotting under certain conditions. Here, we plot high and low pivots using a line, but we do not want to plot anything when a new pivot comes in, to avoid the joints that would otherwise appear in pivot transitions. To do so, we test for pivot changes and use [na](https://www.tradingview.com/pine-script-reference/v6/#var_na) as the color value when a change is detected, so that no line is plotted on that bar:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Colors-ConditionalColors-2.erY98c4P_Z141qBc.webp)
 
 ```pine
 //@version=6
@@ -146,8 +140,6 @@ Using functions like [color.new()](https://www.tradingview.com/pine-script-refer
 
 Let’s put [color.new()](https://www.tradingview.com/pine-script-reference/v6/#fun_color.new) to use to create different transparencies for volume columns using one of two bull/bear base colors:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Colors-CalculatingColors-1.BtEyXAO2_ed3fM.webp)
-
 ```pine
 //@version=6
 indicator("Volume")
@@ -179,8 +171,6 @@ Note that:
 
 In our next example we use [color.rgb()](https://www.tradingview.com/pine-script-reference/v6/#fun_color.rgb) to build colors from RGBA values. We use the result in a holiday season gift for our friends, so they can bring their TradingView charts to parties:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Colors-CalculatingColors-2.B7PJa61g_Z1UHxzu.webp)
-
 ```pine
 //@version=6
 indicator("Holiday candles", "", true)
@@ -200,8 +190,6 @@ Note that:
 ### color.from\_gradient() {#colorfrom_gradient}
 
 Our last examples of color calculations will use [color.from\_gradient()](https://www.tradingview.com/pine-script-reference/v6/#fun_color.from_gradient). Let’s first use it in its simplest form, to color a CCI signal in a version of the indicator that otherwise looks like the built-in:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Colors-CalculatingColors-3.BWe7BFsC_Z23u9GI.webp)
 
 ```pine
 //@version=6
@@ -228,8 +216,6 @@ Note that:
 -   Many common indicator calculations are available in Pine Script as built-in functions. Here we use [ta.cci()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.cci) instead of calculating it the long way.
 
 The argument used for `value` in [color.from\_gradient()](https://www.tradingview.com/pine-script-reference/v6/#fun_color.from_gradient) does not necessarily have to be the value of the line we are calculating. Anything we want can be used, as long as arguments for `bottom_value` and `top_value` can be supplied. Here, we enhance our CCI indicator by coloring the band using the number of bars since the signal has been above/below the centerline:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Colors-CalculatingColors-4.-U0l6lwc_2g9Rrh.webp)
 
 ```pine
 //@version=6
@@ -283,11 +269,7 @@ Our aim is to provide users of our indicator with:
 
 This is what our indicator looks like using the light theme:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Colors-MixingTransparencies-1.DJ-yTBxm_Z2maq1y.webp)
-
 And with the dark theme:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Colors-MixingTransparencies-2.BJOvmETq_6x9mv.webp)
 
 ```pine
 //@version=6
@@ -370,8 +352,6 @@ Under certain conditions, Pine Script can automatically display all of the color
 
 For example, this simple script has a [plot()](https://www.tradingview.com/pine-script-reference/v6/#fun_plot) that is colored either teal or red, depending on the relationship between the bar’s [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) and [open](https://www.tradingview.com/pine-script-reference/v6/#var_open). The script does not specify that these colors should be editable, nor does it create any color-related inputs. Nevertheless, Pine Script automatically displays the colors in the “Settings/Style” menu and allows the user to change them, along with the style of the plot:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Colors-MaintainAutomaticColorSelection-1.BHISUteP_ZDHaIR.webp)
-
 ```pine
 //@version=6
 indicator("Color picker showcase")
@@ -379,17 +359,20 @@ plotColor = close > open ? color.teal : color.red
 plot(close, color = plotColor)
 ```
 
-TipTo prevent the user from changing the color or the type of a plot from a script’s “Settings/Style” tab, include `editable = false` in the [plot()](https://www.tradingview.com/pine-script-reference/v6/#fun_plot) call.
+> [!TIP]
+> To prevent the user from changing the color or the type of a plot from a script’s “Settings/Style” tab, include `editable = false` in the [plot()](https://www.tradingview.com/pine-script-reference/v6/#fun_plot) call.
 
 The colors in the above script can be automatically displayed in this way because they are _not dynamically calculated_ and are known as soon as the script has finished compiling. All colors of the [“const”](https://www.tradingview.com/pine-script-docs/language/type-system/#const) type, and all colors of type [“input”](https://www.tradingview.com/pine-script-docs/language/type-system/#input) that are _not modified_ via the [color.new()](https://www.tradingview.com/pine-script-reference/v6/#fun_color.new) or [color.rgb()](https://www.tradingview.com/pine-script-reference/v6/#fun_color.rgb) functions can be automatically displayed like this.
 
-NoteIf [color.new()](https://www.tradingview.com/pine-script-reference/v6/#fun_color.new) and [color.rgb()](https://www.tradingview.com/pine-script-reference/v6/#fun_color.rgb) functions use a “const color” and other “const” parameters, color modifications are calculated during the script’s compilation, not at its runtime. As a result, they are available when the script finishes compiling and can be displayed in the “Settings/Style” tab.
+> [!NOTE]
+> If [color.new()](https://www.tradingview.com/pine-script-reference/v6/#fun_color.new) and [color.rgb()](https://www.tradingview.com/pine-script-reference/v6/#fun_color.rgb) functions use a “const color” and other “const” parameters, color modifications are calculated during the script’s compilation, not at its runtime. As a result, they are available when the script finishes compiling and can be displayed in the “Settings/Style” tab.
 
 However, if _even a single calculated color_ is of type “simple color” or “series color”, or if an “input color” is passed to [color.new()](https://www.tradingview.com/pine-script-reference/v6/#fun_color.new) or [color.rgb()](https://www.tradingview.com/pine-script-reference/v6/#fun_color.rgb), _all_ colors are calculated in the script’s runtime, and no color pickers are available in the “Style” section.
 
 In practice, the creation of [“simple”](https://www.tradingview.com/pine-script-docs/language/type-system/#simple) or [“series”](https://www.tradingview.com/pine-script-docs/language/type-system/#series) colors is also most often due to using [color.new()](https://www.tradingview.com/pine-script-reference/v6/#fun_color.new) and [color.rgb()](https://www.tradingview.com/pine-script-reference/v6/#fun_color.rgb) functions. The qualifier of the color that these functions return is the strongest qualifier of the values passed to them. If each call to these functions passes only “const” values, the resulting colors are also “const”, and the script _does_ display them in the “Style” menu.
 
-NoticeThe [color.from\_gradient()](https://www.tradingview.com/pine-script-reference/v6/#fun_color.from_gradient) function always returns a “series color” value, regardless of the parameters passed to it. If it’s used in a script, all of the script’s colors are calculated at runtime.
+> [!IMPORTANT]
+> The [color.from\_gradient()](https://www.tradingview.com/pine-script-reference/v6/#fun_color.from_gradient) function always returns a “series color” value, regardless of the parameters passed to it. If it’s used in a script, all of the script’s colors are calculated at runtime.
 
 For example, let’s try to make the plots in the script above semi-transparent by adding a transparency of `50` to its colors via [color.new()](https://www.tradingview.com/pine-script-reference/v6/#fun_color.new). The easiest way to do this is to wrap the `plotColor` variable with [color.new()](https://www.tradingview.com/pine-script-reference/v6/#fun_color.new), like in the example below:
 
@@ -402,10 +385,6 @@ plot(close, color = plotColor)
 
 Unfortunately, with these changes the “Style” tab does not display a color picker any longer. This is because we use the “series bool” condition `close > open` to decide the color, and then pass the result of this expression to a single [color.new()](https://www.tradingview.com/pine-script-reference/v6/#fun_color.new) call. The qualified type of the calculated color that it returns is “series color”.
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Colors-MaintainAutomaticColorSelection-2.BO3w97fq_1y7w8G.webp)
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Colors-MaintainAutomaticColorSelection-3.B0TUMw_p_1sY3g1.webp)
-
 To avoid this, we can ensure that every calculated color created by [color.new()](https://www.tradingview.com/pine-script-reference/v6/#fun_color.new) is a “const color”. Below, we wrap [color.teal](https://www.tradingview.com/pine-script-reference/v6/#const_color.teal) and [color.red](https://www.tradingview.com/pine-script-reference/v6/#const_color.red) separately with [color.new()](https://www.tradingview.com/pine-script-reference/v6/#fun_color.new) — creating two constant calculated colors in the process — and then decide which one to assign to `plotColor` based on the condition. And while the `plotColor` variable is a “series color”, each [color.new()](https://www.tradingview.com/pine-script-reference/v6/#fun_color.new) call returns a constant color, so the script displays a color picker in the “Style” tab:
 
 ```pine
@@ -414,8 +393,6 @@ indicator("Color picker showcase")
 plotColor = close > open ? color.new(color.teal, 50) : color.new(color.red, 50)
 plot(close, color = plotColor)
 ```
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Colors-MaintainAutomaticColorSelection-4.B7QSrDzd_ZRzAFW.webp)
 
 To calculate the colors at runtime, create custom color inputs for all of the colors that are to be editable. This approach requires more effort, but allows significantly more control over what the user can affect. Learn more about creating color inputs on the [Inputs page](https://www.tradingview.com/pine-script-docs/concepts/inputs/#color-input).
 
@@ -434,8 +411,6 @@ Providing a selection of color presets in your inputs — rather than a single c
 It is best to use zero transparency to plot the important lines in your visuals, to keep them crisp. This way, they will show through fills more precisely. Keep in mind that fills have a higher z-index than plots, so they are placed on top of them. A slight increase of a line’s width can also go a long way in making it stand out.
 
 If you want a special plot to stand out, you can also give it more importance by using multiple plots for the same line. These are examples where we modulate the successive width and transparency of plots to achieve this:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Colors-PlotCrispLines-1.CJkrlPd__Z1lm8Mw.webp)
 
 ```pine
 //@version=6

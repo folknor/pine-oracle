@@ -17,7 +17,8 @@ Scripts can configure where and how the visual elements appear by using the [scr
 
 By understanding [when to use](https://www.tradingview.com/pine-script-docs/visuals/overview/#when-to-use) each tool effectively, programmers can pick the best visual for the task to make the most of the power of Pine Script®.
 
-NoteUsers can draw directly on TradingView charts using the [Drawing Tools](https://www.tradingview.com/support/solutions/43000703396-drawing-tools-available-on-tradingview/). While such drawings might sometimes resemble visuals created by Pine scripts, they are **unrelated** entities. Pine scripts cannot interact with drawing tools from the chart interface, and cursor actions do not modify Pine drawing objects.
+> [!NOTE]
+> Users can draw directly on TradingView charts using the [Drawing Tools](https://www.tradingview.com/support/solutions/43000703396-drawing-tools-available-on-tradingview/). While such drawings might sometimes resemble visuals created by Pine scripts, they are **unrelated** entities. Pine scripts cannot interact with drawing tools from the chart interface, and cursor actions do not modify Pine drawing objects.
 
 This page describes plots and drawings, and what their differences are. It includes all the available visual constructs and examples of their use in built-in indicators (for more details about a specific visual element, refer to its User Manual page).
 
@@ -33,27 +34,20 @@ Whereas the `overlay` parameter affects the script as a whole, the `force_overla
 
 For example, the built-in [Seasonality](https://www.tradingview.com/support/solutions/43000723025-seasonality/) indicator uses `overlay = false` to display in a separate pane, where it displays its primary visual of a [table](https://www.tradingview.com/pine-script-docs/visuals/tables/), but draws [boxes](https://www.tradingview.com/pine-script-docs/visuals/lines-and-boxes/#boxes) on the main chart with `force_overlay = true`:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-overview-Script-wide-visual-settings-1.C9OzYRWa_tOtaJ.webp)
-
 ### `scale` {#scale}
 
 A script’s `scale` parameter specifies the y-axis scale that its pane visuals use. By default, scripts overlayed in the main pane use the existing chart scale ([scale.none](https://www.tradingview.com/pine-script-reference/v6/#const_scale.none)). Specifying a [scale.right](https://www.tradingview.com/pine-script-reference/v6/#const_scale.right) or [scale.left](https://www.tradingview.com/pine-script-reference/v6/#const_scale.left) argument in overlayed scripts generates a _new scale_ distinct from the main chart’s price scale. Scripts displaying in a separate pane generate their own scale by default, which they can also set to the left or right position. For instance, this image shows an overlayed indicator using a distinct right-side scale, and a separate pane indicator using a left-side scale:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-overview-Script-wide-visual-settings-2.8V2mdHkD_Z2pw9Rx.webp)
 
 ### `behind_chart` {#behind_chart}
 
 The `behind_chart` parameter specifies whether a script’s visuals appear behind or in front of the main chart series. By default, its value is `true`, so visuals overlayed in the main pane appear behind the chart bars. When `behind_chart` is `false`, visuals appear _in front of_ the bars, which may obscure bars, depending on the type of visual and its color transparency:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-overview-Script-wide-visual-settings-3.CGH8GQWk_ZAvDKL.webp)
-
 ### Changing settings {#changing-settings}
 
 To adjust the visual settings of a script on the chart, click the “More” menu (three dots icon) in the script’s status line. Options are available to adjust the script’s visual order, move it to another pane, and change its y-axis scale:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-overview-Script-wide-visual-settings-4.CgYJxP3X_Z2g79EG.webp)
-
-NoticeScripts evaluate the visual settings in the [indicator()](https://www.tradingview.com/pine-script-reference/v6/#fun_indicator) or [strategy()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy) declaration statement _only once_, when the script first loads on the chart. Updating parameters like `overlay` or `scale` in the code of a script instance that is already active on the chart does **not** update its existing display. Add a new script instance to the chart to apply updated visual settings.
+> [!IMPORTANT]
+> Scripts evaluate the visual settings in the [indicator()](https://www.tradingview.com/pine-script-reference/v6/#fun_indicator) or [strategy()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy) declaration statement _only once_, when the script first loads on the chart. Updating parameters like `overlay` or `scale` in the code of a script instance that is already active on the chart does **not** update its existing display. Add a new script instance to the chart to apply updated visual settings.
 
 ## Plot visuals {#plot-visuals}
 
@@ -81,15 +75,11 @@ Scripts create plots with [offsets](https://www.tradingview.com/pine-script-docs
 
 Plots can display results in locations other than the chart pane, unlike drawings. The last numeric value of a plot can display in the price scale. The script’s status line and the Data Window can display plot values for specific bars, and the values update as the user hovers over different bars:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-overview-Plot-visuals-UI-integration-and-display-1.wierKQQW_Z2gr137.webp)
-
 In one script, plots can display their results in different places by using different arguments for the `display` parameter for each plot function. For example, a script can display one plot’s results in all locations, display another plot everywhere but the status line, and create a third plot with no visible display.
 
 The `plot*()` functions accept multiple `display.*` arguments and support addition and subtraction to combine arguments for further customization. Other, numerically simpler plot visuals like [horizontal levels](https://www.tradingview.com/pine-script-docs/visuals/levels/), [fills](https://www.tradingview.com/pine-script-docs/visuals/overview/#fills), and [coloring functions](https://www.tradingview.com/pine-script-docs/visuals/overview/#background-and-bar-coloring) have only two display states: they either display a pane visual ([display.all](https://www.tradingview.com/pine-script-reference/v6/#const_display.all)) or are hidden ([display.none](https://www.tradingview.com/pine-script-reference/v6/#const_display.none)).
 
 This simple demonstration script uses various plot visuals and `display` locations to plot the [open](https://www.tradingview.com/pine-script-reference/v6/#var_open) and [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) prices, plot the difference between them (`barCO`), and to signal when that difference is greater than 5:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-overview-Plot-visuals-UI-integration-and-display-2.DvJhT7q-_Z10iJYv.webp)
 
 ```pine
 //@version=6
@@ -115,7 +105,8 @@ Note that:
 -   Although there are no arrows visible in the script pane, the [plotarrow()](https://www.tradingview.com/pine-script-reference/v6/#fun_plotarrow) call still calculates and plots the `barCO` values on every bar, as indicated by the “Bar CO” result in the Data Window and the matching green result in the status line.
 -   Since `plotshape(barCO > 5)` uses a “bool” series, the plot’s numeric results can only be 1 or 0 on any bar. We set it to display only in the chart pane because that’s our most useful visual signal for this plot. Being selective with display options can help to keep results in any one location free from clutter.
 
-TipScripts can also use `display.*` arguments to show or hide [input](https://www.tradingview.com/pine-script-docs/concepts/inputs/) values next to the script title in the status line and Data Window.
+> [!TIP]
+> Scripts can also use `display.*` arguments to show or hide [input](https://www.tradingview.com/pine-script-docs/concepts/inputs/) values next to the script title in the status line and Data Window.
 
 The `format` and `precision` parameters of `plot*()` functions can further customize how numeric results appear in the status line, price scale, and Data Window. The `format` parameter specifies whether to format plot values as prices, percentages, or volume. The `precision` parameter specifies the number of decimal digits that plot values include for non-volume formats. See the [\`plot()\` parameters](https://www.tradingview.com/pine-script-docs/visuals/plots/#plot-parameters) section of the [Plots](https://www.tradingview.com/pine-script-docs/visuals/plots/) page to learn more.
 
@@ -123,13 +114,12 @@ Additionally, users can manage whether numeric plot results are visible for a gi
 
 Users can also customize the visibility, color, and style of plot visuals without needing to create new inputs or edit the script. Settings are automatically generated in the indicator’s “Style” tab for every plot visual in the script, regardless of their `display` state:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-overview-Plot-visuals-UI-integration-and-display-3.CZik0MJA_2mUA62.webp)
-
 Note that if the script generates any _dynamic colors_, the color pickers in the “Style” settings do not display. See the [Maintaining automatic color selectors](https://www.tradingview.com/pine-script-docs/visuals/colors/#maintaining-automatic-color-selectors) section of the [Colors](https://www.tradingview.com/pine-script-docs/visuals/colors/) page to learn more.
 
 The `display.*` arguments represent the _default state_ of the script’s plot visuals. Disabling a plot from the indicator’s “Style” settings and then reactivating it causes the plot to revert to [display.all](https://www.tradingview.com/pine-script-reference/v6/#const_display.all), unless the indicator is reset to its default settings.
 
-TipTo prevent users from changing a plot’s properties from the script’s “Settings/Style” tab, set the `plot*()` call’s `editable` argument to `false`.
+> [!TIP]
+> To prevent users from changing a plot’s properties from the script’s “Settings/Style” tab, set the `plot*()` call’s `editable` argument to `false`.
 
 The ability to display outputs in several locations and to visually track a series across the chart bars makes plot visuals useful debugging tools. See the [Plots and chart colors](https://www.tradingview.com/pine-script-docs/writing/debugging/#plots-and-chart-colors) section of the [Debugging](https://www.tradingview.com/pine-script-docs/writing/debugging/) page for more information.
 
@@ -184,11 +174,7 @@ Unlike plots, drawings do not [display in other locations](https://www.tradingvi
 
 Instead, the “Style” settings generate a checkbox for each drawing _type_ used by a script, which toggles the visibility of **all** objects of that type in that indicator:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-overview-Drawing-visuals-1.DHW8vFIY_2mH3BP.webp)
-
 However, since drawings accept “series” arguments, scripts can use [inputs](https://www.tradingview.com/pine-script-docs/concepts/inputs/) to create fully customizable drawing visuals. For example, this script uses [string inputs](https://www.tradingview.com/pine-script-docs/concepts/inputs/#string-input), [color inputs](https://www.tradingview.com/pine-script-docs/concepts/inputs/#color-input), and [integer inputs](https://www.tradingview.com/pine-script-docs/concepts/inputs/#integer-input) to allow users to easily customize the appearance of the [table](https://www.tradingview.com/pine-script-docs/visuals/tables/) and [label](https://www.tradingview.com/pine-script-docs/visuals/text-and-shapes/#labels) visuals from the indicator’s “Inputs” tab:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-overview-Drawing-visuals-2.BGEZYA-4_Z26FHFE.webp)
 
 ```pine
 //@version=6
@@ -280,8 +266,6 @@ The function offers multiple plot styles, including lines, step lines, histogram
 
 Most built-in indicators generate plots in their outputs, e.g., [RSI](https://www.tradingview.com/support/solutions/43000502338/), [EMA](https://www.tradingview.com/support/solutions/43000592270/), and [Bollinger Bands](https://www.tradingview.com/support/solutions/43000501840-bollinger-bands-bb/). Indicators can use several plot styles in the same script to display different kinds of data simultaneously, like the [MACD](https://www.tradingview.com/support/solutions/43000502344-macd-moving-average-convergence-divergence/) indicator does with its line and histogram plots:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-overview-When-to-use-Plot-1.CsWmkbLb_ZYYHpU.webp)
-
 Scripts can also use [plot()](https://www.tradingview.com/pine-script-reference/v6/#fun_plot) to create horizontal [levels](https://www.tradingview.com/pine-script-docs/visuals/plots/#levels) in cases where the dedicated [hline()](https://www.tradingview.com/pine-script-reference/v6/#fun_hline) function is not suitable, for example, to display a dynamically-calculated level, or to create a [fill](https://www.tradingview.com/pine-script-docs/visuals/fills/#plot-and-hline-fills) between a horizontal line and a fluctuating series.
 
 Unlike [\`plotshape()\` and \`plotchar()\`](https://www.tradingview.com/pine-script-docs/visuals/overview/#plotshape-and-plotchar), the [plot()](https://www.tradingview.com/pine-script-reference/v6/#fun_plot) function cannot display text and doesn’t support “bool” series. However, it can create [conditional plots](https://www.tradingview.com/pine-script-docs/visuals/plots/#plotting-conditionally) by setting the plot’s series values or colors to [na](https://www.tradingview.com/pine-script-reference/v6/#var_na) on certain bars.
@@ -295,8 +279,6 @@ The [plotshape()](https://www.tradingview.com/pine-script-reference/v6/#fun_plot
 Like other [plot visuals](https://www.tradingview.com/pine-script-docs/visuals/overview/#plot-visuals), these plots are connected to the main series. They produce one plot value per bar, which can also appear in the status line and Data Window. Both functions accept “int” and “float” series, like [plot()](https://www.tradingview.com/pine-script-reference/v6/#fun_plot), and additionally support “bool” series to display conditional plots.
 
 For instance, the built-in [Moon phases](https://www.tradingview.com/support/solutions/43000599884-moon-phases/) indicator uses [plotshape()](https://www.tradingview.com/pine-script-reference/v6/#fun_plotshape) to conditionally draw circles above or below the chart bars, which represent when a new or full moon occurs:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-overview-When-to-use-Plotshape-and-plotchar-1.DR9HL3-c_1gHOW8.webp)
 
 Both [plotshape()](https://www.tradingview.com/pine-script-reference/v6/#fun_plotshape) and [plotchar()](https://www.tradingview.com/pine-script-reference/v6/#fun_plotchar) have several `location` options, which can use either _relative_ or _absolute_ chart positions:
 
@@ -332,8 +314,6 @@ Unlike [plotchar()](https://www.tradingview.com/pine-script-reference/v6/#fun_pl
 
 This simple example indicator uses [plotarrow()](https://www.tradingview.com/pine-script-reference/v6/#fun_plotarrow) to visualize a `barGap` series, where each arrow represents the price difference between the current bar’s [open](https://www.tradingview.com/pine-script-reference/v6/#var_open) and the previous bar’s [close](https://www.tradingview.com/pine-script-reference/v6/#var_close). The function call automatically sets the locations of all the arrows, plotting positive-value arrows below bars and negative-value arrows above bars, and adjusts their lengths relative to the other values in the `barGap` series:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-overview-When-to-use-Plotarrow-1.Cwp6FkbG_HyaqR.webp)
-
 ```pine
 //@version=6
 indicator("`plotarrow()` demo", overlay = true)
@@ -349,8 +329,6 @@ The [plotbar()](https://www.tradingview.com/pine-script-reference/v6/#fun_plotba
 
 Indicators can use these functions to plot a new series separate from the main series, or to build new visuals for the main series itself, like the built-in [Bollinger Bars](https://www.tradingview.com/support/solutions/43000742575-bollinger-bars/) indicator does to create candles with thicker wicks:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-overview-When-to-use-Plotbar-and-plotcandle-1.C-euBaEJ_Z178dzn.webp)
-
 As with other [plot visuals](https://www.tradingview.com/pine-script-docs/visuals/overview/#plot-visuals), the [plotbar()](https://www.tradingview.com/pine-script-reference/v6/#fun_plotbar) and [plotcandle()](https://www.tradingview.com/pine-script-reference/v6/#fun_plotcandle) outputs can display in other locations: their numeric results in the script’s status line and Data Window (four values per plot) and their latest `close` value on the price scale.
 
 See the [Bar plotting](https://www.tradingview.com/pine-script-docs/visuals/bar-plotting/) page for more information about these functions.
@@ -362,8 +340,6 @@ The [hline()](https://www.tradingview.com/pine-script-reference/v6/#fun_hline) f
 Unlike other [plot visuals](https://www.tradingview.com/pine-script-docs/visuals/overview/#plot-visuals), a horizontal level’s only output is the line drawn in the script pane; it does not display values in the status line, price scale, or Data Window.
 
 This visual element is useful for displaying minimum or maximum prices, thresholds, or support and resistance levels. Many built-in indicators like [RSI](https://www.tradingview.com/support/solutions/43000502338-relative-strength-index-rsi/), [CCI](https://www.tradingview.com/support/solutions/43000502001-commodity-channel-index-cci/), and [Stochastic](https://www.tradingview.com/support/solutions/43000502332-stochastic-stoch/) use horizontal levels to represent fixed boundaries for oscillator plots. For example, in the RSI indicator, the horizontal levels are upper and lower bands that represent the oversold and overbought boundaries:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-overview-When-to-use-Horizontal-levels-1.aUvsy9vC_2lD2gU.webp)
 
 Some built-in indicators also use horizontal levels with [fills](https://www.tradingview.com/pine-script-docs/visuals/fills/#plot-and-hline-fills) to create colored bands, which can help to visually distinguish the typical value ranges from outlier ranges, as seen above.
 
@@ -377,8 +353,6 @@ The [bgcolor()](https://www.tradingview.com/pine-script-reference/v6/#fun_bgcolo
 
 The functions accept both [constant colors](https://www.tradingview.com/pine-script-docs/visuals/colors/#constant-colors) and dynamically-calculated colors, so they can use [conditional coloring](https://www.tradingview.com/pine-script-docs/visuals/colors/#conditional-coloring) for bars or backgrounds. For instance, the built-in [Moon Phases](https://www.tradingview.com/support/solutions/43000599884-moon-phases/) indicator uses [bgcolor()](https://www.tradingview.com/pine-script-reference/v6/#fun_bgcolor) to conditionally set the background color of the bars to highlight waxing and waning moon phases:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-overview-When-to-use-Plotshape-and-plotchar-1.DR9HL3-c_1gHOW8.webp)
-
 A [bgcolor()](https://www.tradingview.com/pine-script-reference/v6/#fun_bgcolor) call, like most visuals, affects the _script pane_ by default. It sets the background color behind the main bar series only when it’s overlayed in the main pane — when `overlay = true` for the script or `force_overlay = true` for [bgcolor()](https://www.tradingview.com/pine-script-reference/v6/#fun_bgcolor) — otherwise it sets the background for the equivalent space in a separate pane.
 
 By contrast, the [barcolor()](https://www.tradingview.com/pine-script-reference/v6/#fun_barcolor) function **always** colors the main bar series in the _main_ pane, even when called by a script executing in a separate pane.
@@ -386,8 +360,6 @@ By contrast, the [barcolor()](https://www.tradingview.com/pine-script-reference/
 As [barcolor()](https://www.tradingview.com/pine-script-reference/v6/#fun_barcolor) only affects the main chart series, scripts cannot use it to alter the colors of new bars or candles created using [plotbar()](https://www.tradingview.com/pine-script-reference/v6/#fun_plotbar) or [plotcandle()](https://www.tradingview.com/pine-script-reference/v6/#fun_plotcandle).
 
 This simple example uses arbitrary [bar\_index](https://www.tradingview.com/pine-script-reference/v6/#var_bar_index) and price conditions to set conditional background and bar colors:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-overview-When-to-use-Background-and-bar-coloring-2.DoJ1F0LQ_1aWetg.webp)
 
 ```pine
 //@version=6
@@ -415,17 +387,14 @@ Scripts can use [fills](https://www.tradingview.com/pine-script-docs/visuals/fil
 
 Fills between plots are commonly used in built-in indicators to visualize calculated channels or bands, like those used in the [Bollinger Bands](https://www.tradingview.com/support/solutions/43000501840-bollinger-bands-bb/) indicator, which signify the upper and lower standard deviations from its [SMA](https://www.tradingview.com/support/solutions/43000696841/) line:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-overview-When-to-use-Fills-1.I46aGwse_Z14jft6.webp)
-
 Fills between horizontal levels are often used in built-in oscillators to highlight chart regions of interest or to differentiate between typical and outlier ranges. For example, the [Stochastic Momentum Index (SMI)](https://www.tradingview.com/support/solutions/43000707882-stochastic-momentum-index-smi/) indicator fills the background between horizontal levels that signify overbought and oversold boundaries, which can help easily identify signs of bullish or bearish trends beyond the filled regions:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-overview-When-to-use-Fills-2.Cz5iMt-W_Z1jIw4V.webp)
 
 The SMI indicator also uses the [fill()](https://www.tradingview.com/pine-script-reference/v6/#fun_fill-2) function’s color gradient overload to gradually color the space within the plot lines green or red as they enter the overbought or oversold zones respectively.
 
 Other Pine visuals have their own dedicated fills, like [linefills](https://www.tradingview.com/pine-script-docs/visuals/fills/#line-fills) for setting the fill color between two [lines](https://www.tradingview.com/pine-script-docs/visuals/lines-and-boxes/#lines), and built-in fill color arguments for drawing objects like [boxes](https://www.tradingview.com/pine-script-docs/visuals/lines-and-boxes/#boxes) and [polylines](https://www.tradingview.com/pine-script-docs/visuals/lines-and-boxes/#polylines). See the [Fills](https://www.tradingview.com/pine-script-docs/visuals/fills/) page for more information about the different fill mechanisms available.
 
-NoteA single [fill()](https://www.tradingview.com/pine-script-reference/v6/#fun_fill) function call cannot color the space between a plot and a horizontal level. It can only color the region between either a pair of [plots](https://www.tradingview.com/pine-script-docs/visuals/plots/) or a pair of [horizontal levels](https://www.tradingview.com/pine-script-docs/visuals/levels/).
+> [!NOTE]
+> A single [fill()](https://www.tradingview.com/pine-script-reference/v6/#fun_fill) function call cannot color the space between a plot and a horizontal level. It can only color the region between either a pair of [plots](https://www.tradingview.com/pine-script-docs/visuals/plots/) or a pair of [horizontal levels](https://www.tradingview.com/pine-script-docs/visuals/levels/).
 
 ### Lines and polylines {#lines-and-polylines}
 
@@ -441,23 +410,15 @@ Programmers can specify a line’s start and end coordinates using any of the fo
 
 Lines can also extend to the left or right of the chart, like those used in the built-in [Auto Fib Extension](https://www.tradingview.com/support/solutions/43000612397-auto-fib-extension/) indicator to visualize projected price levels:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-overview-When-to-use-Lines-and-polylines-1.DZGk_5wC_Z1h8Rjh.webp)
-
 Scripts can specify line coordinates at dynamic offsets from the bars on which they’re calculated, to draw lines at varying lengths and distances. For instance, the built-in [Zig Zag](https://www.tradingview.com/support/solutions/43000591664-zig-zag/) indicator draws straight, angled lines to connect calculated high and low pivots alternatingly across the chart, connecting the last leg to the last available bar. The indicator confirms a point as a high/low pivot only when the price reverses by a specified percentage over time. Therefore, it always draws its lines _into the past_ from a different bar than that of the pivot point, and the number of bars between two sequential pivots is not predictable or consistent:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-overview-When-to-use-Lines-and-polylines-2.MNTPcVWF_ZiC3DH.webp)
 
 While a [line](https://www.tradingview.com/pine-script-reference/v6/#type_line) object can connect only two points with a straight line, a [polyline](https://www.tradingview.com/pine-script-docs/visuals/lines-and-boxes/#polylines) can connect _multiple_ points on the chart consecutively to create a straight or _curved_ line drawing. A polyline uses an [array](https://www.tradingview.com/pine-script-docs/language/arrays/) of [chart points](https://www.tradingview.com/pine-script-docs/language/type-system/#chart-points) to set the coordinates of its sequential line segments, which can contain up to 10,000 chart points.
 
 Polylines can create more complex graphic formations than lines or [boxes](https://www.tradingview.com/pine-script-docs/visuals/lines-and-boxes/#boxes). A script can connect chart points together with [closed polylines](https://www.tradingview.com/pine-script-docs/visuals/lines-and-boxes/#closed-shapes) to draw polygons, or leave them open-ended to draw geometric series across the chart. Scripts can also use open-ended, curved polylines to draw chart patterns like the [Cup and Handle](https://www.tradingview.com/support/solutions/43000732556-chart-pattern-cup-and-handle/) pattern, which identifies a U-shape price trend that is difficult to produce with other drawing visuals:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-overview-When-to-use-Lines-and-polylines-3.DGxUi3hc_Zmhowz.webp)
-
 A script can replicate the visuals made by drawing several sequential [line](https://www.tradingview.com/pine-script-reference/v6/#type_line) objects with just one [polyline](https://www.tradingview.com/pine-script-reference/v6/#type_polyline) object instead. Using polylines can thus help a script to stay under the [limits](https://www.tradingview.com/pine-script-docs/writing/limitations/#line-box-polyline-and-label-limits) for the total number of lines.
 
 For example, we can use a simplified version of the [Zig Zag](https://www.tradingview.com/support/solutions/43000591664-zig-zag/) indicator’s logic to illustrate this. Here, we use one polyline drawing to connect pivot points across the chart. The script stores the high and low pivots together in one [chart.point](https://www.tradingview.com/pine-script-reference/v6/#type_chart.point) array, and creates the [polyline](https://www.tradingview.com/pine-script-reference/v6/#type_polyline) object only on the last confirmed historical bar, using [barstate.islastconfirmedhistory](https://www.tradingview.com/pine-script-reference/v6/#var_barstate.islastconfirmedhistory), drawing it retrospectively across the chart:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-overview-When-to-use-Lines-and-polylines-4.CwILzGqz_iEBT5.webp)
 
 ```pine
 //@version=6
@@ -512,11 +473,7 @@ A [linefill](https://www.tradingview.com/pine-script-docs/visuals/fills/#line-fi
 
 Similar to plot fills, linefills are useful for highlighting regions of interest, like calculated channels or trend zones, between two lines on the chart. For example, the built-in [Linear Regression](https://www.tradingview.com/support/solutions/43000644936-linear-regression/) indicator uses two linefills between its baseline and its support and resistance lines, which signify the expected price movement ranges. Highlighting the upper and lower channels can make it easier to visually register the price reversal signals:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-overview-When-to-use-Linefills-1.C7iSPLcw_ZzK6ud.webp)
-
 The exact dimensions occupied by a linefill object are defined by the pair of lines it’s attached to. Moving one line farther away, for example, automatically widens the attached linefill. Only one linefill instance can exist between a pair of lines, and it covers only the common space between them. If a pair of lines both extend in the same direction, the linefill can also extend infinitely, as seen in the [Auto Pitchfork](https://www.tradingview.com/support/solutions/43000657911-auto-pitchfork/) indicator:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-overview-When-to-use-Linefills-2.nLJWt_Bh_289aq8.webp)
 
 Linefills can fill the space only between two “line” objects. For [polylines](https://www.tradingview.com/pine-script-docs/visuals/lines-and-boxes/#polylines), the [polyline.new()](https://www.tradingview.com/pine-script-reference/v6/#fun_polyline.new) function has a `fill_color` parameter to fill the polyline drawing’s closed space.
 
@@ -528,11 +485,7 @@ Programmers can specify box coordinates using either two diagonal corner points 
 
 Boxes can be useful for highlighting chart areas of interest, showing price ranges, or visually grouping bars. For example, the built-in [Multi-time period charts](https://www.tradingview.com/support/solutions/43000502591-multi-time-period-charts/) indicator overlays boxes on the current chart to visualize the corresponding higher timeframe candles:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-overview-When-to-use-Boxes-1.Bbk02t8y_ZxcVET.webp)
-
 Boxes can also display text as part of their drawings, as shown in the [Seasonality](https://www.tradingview.com/support/solutions/43000723025-seasonality/) indicator below. Scripts can customize a box’s [text formatting](https://www.tradingview.com/pine-script-docs/visuals/text-and-shapes/#text-formatting), alignment, and wrapping, with auto-scaling and auto-wrapping options available to design boxes that are responsive to a user’s chart adjustments:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-overview-When-to-use-Boxes-2.BmeKcoBW_ZdIzH3.webp)
 
 ### Labels {#labels}
 
@@ -541,8 +494,6 @@ Boxes can also display text as part of their drawings, as shown in the [Seasonal
 Scripts can manage labels in local scopes and draw them at historical or future positions, like other [drawing visuals](https://www.tradingview.com/pine-script-docs/visuals/overview/#drawing-visuals). Each label’s position is anchored to the chart’s x and y scales at a specific price and bar/time value. However, this position is flexible, as a script can modify a label’s coordinates any number of times.
 
 In the built-in [Zig Zag](https://www.tradingview.com/support/solutions/43000591664-zig-zag/) indicator, text labels display the calculated pivot prices and, depending on the selected inputs, can also display the reversal price and cumulative volume data within these same labels. The indicator takes advantage of several dynamic label features when building the concatenated label text and setting each label’s high/low position, color, and variable offset:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-overview-When-to-use-Labels-1.BeK-v0k1_Z190Bhu.webp)
 
 Many `label.style_*` options are available to customize a label’s visual appearance, including standard pointing labels and shape-based labels like crosses, triangles, arrows, or flags. The indicator above uses the [label.style\_none](https://www.tradingview.com/pine-script-reference/v6/#const_label.style_none) style to display the text on the chart without a visible label shape or outline. See the table in the [positioning labels](https://www.tradingview.com/pine-script-docs/visuals/text-and-shapes/#positioning-labels) section of the [Text and shapes](https://www.tradingview.com/pine-script-docs/visuals/text-and-shapes/) page for all available label styles.
 
@@ -556,8 +507,6 @@ Tables are anchored to the _pane space_ itself, not to any x or y chart coordina
 
 Scripts can draw tables in one of _nine_ fixed pane positions, specified by the `top`, `middle`, or `bottom` vertical region of the pane and the corresponding `left`, `center`, or `right` horizontal region:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-overview-When-to-use-Tables-1.DB-j0ufk_Z1sUXM4.webp)
-
 If a script displays more than one table in the same location, the table that is drawn latest in the code replaces any previous tables.
 
 Similar to other drawings, tables have various features that scripts can modify during execution using setter functions. These include _table-specific_ features like the frame, border, and height/width in the pane, as well as _cell-specific_ features like background color, alignment, and [text formatting](https://www.tradingview.com/pine-script-docs/visuals/text-and-shapes/#text-formatting).
@@ -566,15 +515,11 @@ A customization feature unique to tables is that, within the same table object, 
 
 For example, the built-in [Performance](https://www.tradingview.com/support/solutions/43000736064-performance/) indicator shows the price percentage change at multiple timeframes for a group of symbols. It uses a variable color intensity for the cell background colors to represent each value’s absolute strength. The tabular format and dynamic cell colors make it easy to compare values across symbols and timeframes at a glance:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-overview-When-to-use-Tables-2.BJSAv3Vi_Z1fxEpW.webp)
-
 Unlike for [lines](https://www.tradingview.com/pine-script-docs/visuals/lines-and-boxes/#lines), [boxes](https://www.tradingview.com/pine-script-docs/visuals/lines-and-boxes/#boxes), and [labels](https://www.tradingview.com/pine-script-docs/visuals/text-and-shapes/#labels), scripts **cannot** use getter functions to retrieve properties for tables drawn on the chart. To refer to an attribute of a table later in a script, first store the value in a separate variable.
 
 The Performance indicator above draws its table only _once_ during initial execution, on the last bar. This improves script performance and is recommended because a table only displays its _last state_. Tables are thus useful for displaying annotations or general information that won’t change during execution, like selected settings, release notes, misconfigurations, etc.
 
 The following example script displays labels for the start and end of each daily trading session. As such, it supports only intraday data and does not display any labels on a “1D” timeframe or higher. The script displays a single-cell table if [timeframe.isdwm](https://www.tradingview.com/pine-script-reference/v6/#var_timeframe.isdwm) is true, to notify users of this information:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Visuals-overview-When-to-use-Tables-3.d9t_lRT9_2bPKck.webp)
 
 ```pine
 //@version=6

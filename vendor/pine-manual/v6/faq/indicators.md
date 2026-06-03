@@ -33,7 +33,8 @@ The following example script demonstrates some techniques for approximating the 
 -   We scale the length of all the [volume](https://www.tradingview.com/pine-script-reference/v6/#var_volume) bars so that the longest bar in the set is approximately 30% of the screen height, similar to the built-in [Volume](https://www.tradingview.com/scripts/volumestudies/?script_type=indicators&solution=43000591617) indicator.
 -   We adjust the width of the lines depending on how many bars are visible.
 
-TipThe bottom margin of the chart must be set to zero in order for the lines to start from the bottom edge of the chart. To set the margin, right-click the chart background and click “Settings…” then “Canvas”, and set the “Bottom” margin in the “Margins” section. To preserve the same space at the bottom of the chart, add a bottom margin in the script settings.
+> [!TIP]
+> The bottom margin of the chart must be set to zero in order for the lines to start from the bottom edge of the chart. To set the margin, right-click the chart background and click “Settings…” then “Canvas”, and set the “Bottom” margin in the “Margins” section. To preserve the same space at the bottom of the chart, add a bottom margin in the script settings.
 
 ```pine
 //@version=6

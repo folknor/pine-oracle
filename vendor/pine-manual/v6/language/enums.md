@@ -6,7 +6,8 @@ section: language
 
 # Enums {#enums}
 
-TipThis page contains _advanced_ material. If you’re new to Pine Script®, start by learning about core language components — such as the [type system](https://www.tradingview.com/pine-script-docs/language/type-system/) and [the basics](https://www.tradingview.com/pine-script-docs/language/execution-model/#the-basics) of the [execution model](https://www.tradingview.com/pine-script-docs/language/execution-model/) — and explore other, more accessible features before venturing further.
+> [!TIP]
+> This page contains _advanced_ material. If you’re new to Pine Script®, start by learning about core language components — such as the [type system](https://www.tradingview.com/pine-script-docs/language/type-system/) and [the basics](https://www.tradingview.com/pine-script-docs/language/execution-model/#the-basics) of the [execution model](https://www.tradingview.com/pine-script-docs/language/execution-model/) — and explore other, more accessible features before venturing further.
 
 ## Introduction {#introduction}
 
@@ -72,8 +73,6 @@ Signal mySignal = na
 Scripts can compare enum members with the [\==](https://www.tradingview.com/pine-script-reference/v6/#op_==) and [!=](https://www.tradingview.com/pine-script-reference/v6/#op_!=) operators and use the results of those comparisons in [conditional structures](https://www.tradingview.com/pine-script-docs/language/conditional-structures/), allowing the convenient creation of logical patterns with a reduced risk of unintended values or operations.
 
 The following example declares an `OscType` enum with three fields representing different oscillator choices: `rsi`, `mfi`, and `cci`. The `calcOscillator()` function compares the `OscType` members within a [switch](https://www.tradingview.com/pine-script-reference/v6/#kw_switch) structure to determine which `ta.*()` function it uses to calculate an oscillator. The script calls `calcOscillator()` using the value from an [enum input](https://www.tradingview.com/pine-script-docs/concepts/inputs/#enum-input) as the `selection` argument, and then plots the returned oscillator value on the chart:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Enums-Using-enums-1.nGh65GZL_Z1y0znh.webp)
 
 ```pine
 //@version=6
@@ -155,8 +154,6 @@ Scripts can also use enum field titles in their calculations and logic. To acces
 
 The following example combines the titles from members of two separate enums to create a ticker identifier for a data request. The script declares two enums, `Exchange` and `Pair`, whose fields represent _exchange_ and _currency pair_ names. It creates two [enum inputs](https://www.tradingview.com/pine-script-docs/concepts/inputs/#enum-input) using these enums, and assigns their values to the `exchangeInput` and `pairInput` variables. The script uses [str.tostring()](https://www.tradingview.com/pine-script-reference/v6/#fun_str.tostring) on those variables to retrieve the selected titles, and then [concatenates](https://www.tradingview.com/pine-script-docs/concepts/strings/#concatenation) the results to form the “Exchange:Symbol” pair for the [request.security()](https://www.tradingview.com/pine-script-reference/v6/#fun_request.security) call:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Enums-Using-enums-Utilizing-field-titles-1.AzP84EB1_Zb4m7z.webp)
-
 ```pine
 //@version=6
 indicator("Utilizing field titles demo")
@@ -215,8 +212,6 @@ Enums are particularly helpful when working with [maps](https://www.tradingview.
 The following example uses a [map](https://www.tradingview.com/pine-script-reference/v6/#type_map) with enum keys and “int” values to track and count signal states across chart bars. The script’s `Signal` enum contains five fields representing specific named states. The `signalCounters` [map](https://www.tradingview.com/pine-script-reference/v6/#type_map) uses the `Signal` name as the _first keyword_ in its type template to specify that it can accept only `Signal` members as keys.
 
 The script uses a [switch](https://www.tradingview.com/pine-script-reference/v6/#kw_switch) structure to calculate a `signalState` variable whose value is a member of the `Signal` enum, which it uses to determine the counter value to update in the `signalCounters` map. It constructs a “string” to represent the key-value pairs of the [map](https://www.tradingview.com/pine-script-reference/v6/#type_map) and displays the result in a single-cell [table](https://www.tradingview.com/pine-script-reference/v6/#type_table) on the last chart bar:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Enums-Collecting-enums-1.ZTw8lVuz_Z22cYPG.webp)
 
 ```pine
 //@version=6

@@ -24,8 +24,6 @@ Add [order placement commands](https://www.tradingview.com/pine-script-docs/conc
 
 The following example includes two scripts: an initial indicator script and a strategy script converted from the indicator. We use a simple RSI oscillator as a momentum indicator to gauge the direction of a market’s momentum, with values above 50 indicating an upward (bullish) trend and values below 50 signaling a downward (bearish) trend:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Strategies-Strategy-basics-How-can-i-turn-my-indicator-into-a-strategy-1.gVd2FK1g_Z28vptr.webp)
-
 The initial indicator colors the plot line and the bars on the chart in a lime color when the RSI is greater than 50 and fuchsia when less than 50. We use [plotshape()](https://www.tradingview.com/pine-script-reference/v6/#fun_plotshape) to plot triangles at the top and bottom of the oscillator on bars where the RSI crosses over or under the 50 level.
 
 ```pine
@@ -67,8 +65,6 @@ To implement a basic stop loss in Pine Script, use the [strategy.exit()](https:/
 If a [strategy.exit()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy.exit) call includes both the `stop` _and_ `loss` parameters, or both the `limit` _and_ `profit` parameters, the function uses the price level that is expected to trigger an exit first.
 
 The following example script uses the tick-based `loss` parameter for long positions and the price-based `stop` parameter for short positions, and plots these stop levels on the chart. The script enters positions on the crossover or crossunder of two simple moving averages.
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Strategies-Strategy-basics-How-do-i-set-a-stop-loss-1.BKHhl7z6_1ISKGq.webp)
 
 ```pine
 //@version=6
@@ -166,8 +162,6 @@ Additionally, if the strategy sends signals for live trading, consider excluding
 
 The following example script restricts trading if a bar falls within a defined `startTime` and `endTime`, or outside of an optional intraday session window. The script colors the background red for bars that fall outside the time windows. On the screenshot, we’ve limited the trading range from June 1st 2024 to June 10th 2024, and additionally forbidden trading from 0000-0300 UTC:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Strategies-Strategy-basics-How-do-i-implement-date-time-range-filtering-in-strategies-1.D00x6Oy9_ZgrI0R.webp)
-
 ```pine
 //@version=6
 strategy("Date/time filtering demo", "", true)
@@ -261,8 +255,6 @@ Each [strategy.exit()](https://www.tradingview.com/pine-script-reference/v6/#fun
 
 The following example script uses two separate [strategy.exit()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy.exit) functions, each with its own stop-loss and take-profit levels. The quantity for the first bracket order is set to 50% of the total position size. This combination of orders creates a scaled exit with distinct stop levels.
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Strategies-Order-execution-and-management-How-can-i-set-up-multiple-take-profit-levels-to-gradually-close-out-a-position-1.B0Hj7Z0J_Z1CmABM.webp)
-
 ```pine
 //@version=6
 strategy("Multiple exit demo", overlay = true)
@@ -311,8 +303,6 @@ When using a group of orders whose OCA type is [strategy.oca.reduce](https://www
 
 The following example script uses two take-profit levels but only one stop level. All three sell orders have the same `oca_name`, which means they form a group. They have `oca_type = strategy.oca.reduce` set, so that filling one of the limit orders reduces the quantity of the remaining orders. The total quantity of the exit orders matches the entry order quantity, preventing the strategy from trading an excessive number of units and causing a reversal.
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Strategies-Order-execution-and-management-How-can-i-set-up-multiple-take-profit-levels-to-gradually-close-out-a-position-2.aS_yB9mZ_ZbBmYy.webp)
-
 ```pine
 //@version=6
 strategy("Multiple TP, one stop demo", overlay = true)
@@ -357,15 +347,14 @@ On [historical bars](https://www.tradingview.com/pine-script-docs/language/execu
 
 Strategies running on [realtime bars](https://www.tradingview.com/pine-script-docs/language/execution-model/#executions-on-realtime-bars) can simulate orders partway through a bar by enabling the [calc\_on\_every\_tick](https://www.tradingview.com/pine-script-docs/concepts/strategies/#calc_on_every_tick) parameter. This setting allows the strategy to process each tick (incoming price update) and execute trades on the tick after a logical condition occurs.
 
-NoticeIn contrast to realtime bars, historical bars do not contain data for each incoming tick. Those bars contain only confirmed price data. Consequently, a strategy that enables calculation on every tick might [repaint](https://www.tradingview.com/pine-script-docs/concepts/repainting/) on elapsed realtime bars after reloading, because those bars become _historical_ and no longer contain data for each tick before their close. Therefore, we recommend setting `calc_on_every_tick` to `false` while backtesting.
+> [!IMPORTANT]
+> In contrast to realtime bars, historical bars do not contain data for each incoming tick. Those bars contain only confirmed price data. Consequently, a strategy that enables calculation on every tick might [repaint](https://www.tradingview.com/pine-script-docs/concepts/repainting/) on elapsed realtime bars after reloading, because those bars become _historical_ and no longer contain data for each tick before their close. Therefore, we recommend setting `calc_on_every_tick` to `false` while backtesting.
 
 #### Using predefined prices {#using-predefined-prices}
 
 Stop or limit orders at predefined prices _can_ execute orders partway through a bar, even when the strategy does not enable the `calc_on_every_tick` parameter. This method is effective on both realtime _and_ historical data. Even though orders are processed on the close of historical bars, the broker emulator simulates an order fill at the predefined price level, if the broker determines that price has hit that level during the bar. For information about the assumptions that the broker emulator makes about price movements, see the [Broker emulator](https://www.tradingview.com/pine-script-docs/concepts/strategies/#broker-emulator) section of the User Manual.
 
 The following example script uses stop and limit orders to exit a trade partway through a bar. The script calls the [strategy.exit()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy.exit) function with the `stop` and `limit` parameters, determining the specific price levels at which the trade will exit.
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Strategies-Order-execution-and-management-How-can-i-execute-a-trade-midway-through-a-bar-before-it-fully-closes-1.D1Kusv4G_Z2vOQdd.webp)
 
 ```pine
 //@version=6
@@ -443,7 +432,8 @@ if buyCondition and strategy.position_size == 0.0
 strategy.close("buy", immediately = true)
 ```
 
-NoticeThe `immediately` parameter operates in a similar way to [process\_orders\_on\_close](https://www.tradingview.com/pine-script-docs/concepts/strategies/#process_orders_on_close), but it is specific to the [strategy.close()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy.close) and [strategy.close\_all()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy.close_all) functions. The emulator calculates the close order using bar closing prices, but the same prices might not always be attainable in realtime trading. Additionally, this behavior can cause [repainting](https://www.tradingview.com/pine-script-docs/concepts/repainting/).
+> [!IMPORTANT]
+> The `immediately` parameter operates in a similar way to [process\_orders\_on\_close](https://www.tradingview.com/pine-script-docs/concepts/strategies/#process_orders_on_close), but it is specific to the [strategy.close()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy.close) and [strategy.close\_all()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy.close_all) functions. The emulator calculates the close order using bar closing prices, but the same prices might not always be attainable in realtime trading. Additionally, this behavior can cause [repainting](https://www.tradingview.com/pine-script-docs/concepts/repainting/).
 
 ## Advanced order types and conditions {#advanced-order-types-and-conditions}
 
@@ -457,7 +447,8 @@ If programmers want strategies to be able to close trades on the same bar that t
 
 Setting the [calc\_on\_order\_fills](https://www.tradingview.com/pine-script-docs/concepts/strategies/#calc_on_order_fills) argument of the [strategy()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy) declaration function to `true` recalculates the strategy immediately after simulating an order fill. This setting provides access to data such as the current average price of a position on an unconfirmed bar.
 
-NoticeEnabling `calc_on_order_fills` for some strategies might lead to unrealistic results on historical bars. During the extra script execution after an order fills, the script has access to the _confirmed_ OHLC values for the historical bar, but those values would not be available in the real world until the bar’s closing time. For an explanation of this form of _lookahead bias_, see [this Help Center article](https://www.tradingview.com/support/solutions/43000614705-strategy-produces-unrealistically-good-results-by-peeking-into-the-future/).
+> [!IMPORTANT]
+> Enabling `calc_on_order_fills` for some strategies might lead to unrealistic results on historical bars. During the extra script execution after an order fills, the script has access to the _confirmed_ OHLC values for the historical bar, but those values would not be available in the real world until the bar’s closing time. For an explanation of this form of _lookahead bias_, see [this Help Center article](https://www.tradingview.com/support/solutions/43000614705-strategy-produces-unrealistically-good-results-by-peeking-into-the-future/).
 
 The following example script sets take-profit and stop-loss orders during the entry bar, based on the entry price [strategy.position\_avg\_price](https://www.tradingview.com/pine-script-reference/v6/#var_strategy.position_avg_price). The script uses the `calc_on_order_fills` setting to enable this behavior.
 
@@ -540,8 +531,6 @@ Moving a stop-loss order to breakeven can be a useful technique to manage risk.
 
 The following example script sets a persistent `stopLoss` variable when the strategy enters a position. The script then updates the stop price to the entry price when the market price gets halfway to the take-profit level. The script calls the [strategy.exit()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy.exit) function on every bar to ensure that the broker emulator receives any updates made to the `stopLoss` value. Lastly, it plots the average price according to the [strategy.position\_avg\_price](https://www.tradingview.com/pine-script-reference/v6/#var_strategy.position_avg_price) variable for reference.
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Strategies-Advanced-order-types-and-conditions-How-do-i-move-my-stop-loss-to-breakeven-1.IzyaMOFu_ZB2m4p.webp)
-
 ```pine
 //@version=6
 strategy("Move stop to breakeven", overlay = true)
@@ -613,8 +602,6 @@ When price crosses this level, the trailing stop activates. The activation level
 After it activates, the stop loss trails behind the bar’s [high](https://www.tradingview.com/pine-script-reference/v6/#var_high) or [low](https://www.tradingview.com/pine-script-reference/v6/#var_low) price by this distance, defined in ticks using the `trail_offset` parameter.
 
 In the following long-only example script, the [strategy.exit()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy.exit) function uses the `trail_points` and `trail_offset` parameters to set a trailing stop. The stop-loss trails the [high](https://www.tradingview.com/pine-script-reference/v6/#var_high), minus the offset points, after it activates. The script creates and plots a separate `trailingStop` variable to visualize the trailing stop price that the function calculates internally, although this is not necessary for the trailing stop to function. We also set a separate stop-loss order to close trades that go too low before they trigger the trailing stop.
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Strategies-Advanced-order-types-and-conditions-How-do-i-implement-a-trailing-stop-loss-1.CmsIKens_Zmjqb1.webp)
 
 ```pine
 //@version=6
@@ -764,8 +751,6 @@ In realtime, the same logic applies unless the strategy uses the [calc\_on\_ever
 
 The following example script calculates the duration of each open trade by comparing the current time against the trade entry time. If a trade’s duration exceeds the specified timeout, the script closes the trade and marks the event with a comment on the chart including the trade’s duration in seconds.
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Strategies-Advanced-order-types-and-conditions-How-can-i-set-a-time-based-condition-to-close-out-a-position-1.n6VCruKe_Z2ePmnM.webp)
-
 ```pine
 //@version=6
 strategy("Close position by timeout", overlay = true)
@@ -809,8 +794,6 @@ Note that:
 To create a bracket order, define a stop-loss and a take-profit order using a single [strategy.exit()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy.exit) call. To apply a specific risk-to-reward ratio, calculate the distance between the entry point and the stop-loss level. This stop distance represents the “risk”. Then place the take-profit order a certain multiple of the stop distance away. The distance to the take-profit order represents the “reward”, and the ratio between them is the risk:reward (R:R ) ratio.
 
 The following example script simulates long and short trades using inputs to define the stop distance in ticks and the R:R ratio. The `loss` parameter of the [strategy.exit()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy.exit) function is simply the stop distance. The `profit` parameter is the stop distance multiplied by the R:R ratio. The script fills the areas between the entry and stop-loss points, and between the entry and take-profit points, to illustrate the risk and reward.
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Strategies-Advanced-order-types-and-conditions-How-can-i-configure-a-bracket-order-with-a-specific-risk-to-reward-rr-ratio-1.Dy3U4-6N_Z1CXCdg.webp)
 
 ```pine
 //@version=6
@@ -863,13 +846,12 @@ Calculate the position size so that as the stop distance increases, the position
 3.  Calculate position size by dividing the _risk amount_ by the _risk per contract_.
     
 
-TipSmaller stop distances require larger position sizes to achieve a specific fixed risk. In some cases, the strategy might require increased _leverage_ to achieve the required sizes. To prevent the strategy from entering trades with increased leverage, set the strategy’s _margin_ requirements to 100% by passing a value of 100 (default) to the `margin_long` and `margin_short` parameters of the [strategy()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy) declaration statement. Alternatively, set the “Margin for long/short positions” inputs to 100 in the script’s “Settings/Properties” tab. To learn more about leverage and margin in strategies, see [this Help Center article](https://www.tradingview.com/support/solutions/43000717375-how-do-i-simulate-trading-with-leverage/).
+> [!TIP]
+> Smaller stop distances require larger position sizes to achieve a specific fixed risk. In some cases, the strategy might require increased _leverage_ to achieve the required sizes. To prevent the strategy from entering trades with increased leverage, set the strategy’s _margin_ requirements to 100% by passing a value of 100 (default) to the `margin_long` and `margin_short` parameters of the [strategy()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy) declaration statement. Alternatively, set the “Margin for long/short positions” inputs to 100 in the script’s “Settings/Properties” tab. To learn more about leverage and margin in strategies, see [this Help Center article](https://www.tradingview.com/support/solutions/43000717375-how-do-i-simulate-trading-with-leverage/).
 
 The following example script uses moving average crosses to generate long and short orders. The stop distance, risk:reward ratio, and percentage of equity to risk are all configurable via inputs. The script plots the current equity, the current value of a new position, and the percentage change in equity to the Data Window. Note that the actual exposure level can be less than intended if the available capital does not divide neatly by the unit value, particularly with small equity amounts, high unit prices, or assets such as stocks where trading partial shares is not possible.
 
 Additionally, we display lines on the chart for the current total equity (in green) and the value of a position needed for the specified risk exposure at the current price (in blue). If the position value exceeds the total equity, the strategy requires leverage to achieve the required exposure, and the script colors the background red and displays the minimum leverage ratio needed in the data window.
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Strategies-Advanced-order-types-and-conditions-How-can-i-adjust-my-position-size-to-ensure-that-i-risk-a-fixed-percentage-of-my-equity-1.yi_EPCoj_Z21f7ro.webp)
 
 ```pine
 //@version=6
@@ -1021,8 +1003,6 @@ The following example script provides two methods for delaying orders: a time-ba
 
 To keep the chart clean, the script calls the [strategy.close()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy.close) function to close active trades after they have been open for 10 bars. The script uses background shading, labels and arrows to illustrate the trade entries and exits.
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Strategies-Advanced-features-and-integration-How-can-i-implement-a-time-delay-between-orders-1.Ln04vrEQ_ZYWJ3j.webp)
-
 ```pine
 //@version=6
 strategy("Time-delayed orders", overlay=true, max_labels_count = 500, max_lines_count = 500)
@@ -1101,8 +1081,6 @@ To track metrics other than the default metrics that the Strategy Tester tracks,
 
 The following example script uses a moving average crossover strategy to generate orders. It calculates custom metrics, including the price risk at entry, average position size, and the average percentage of bars involved in trades across the dataset, and plots the custom metrics and some built-in variables to the Data Window. Users can view the history of values plotted in the Data Window by moving the cursor over any bar. In contrast, the Strategy Tester summarizes data over the entire testing period.
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Strategies-Advanced-features-and-integration-How-can-i-calculate-custom-statistics-in-a-strategy-1.BCecXRri_KBDrw.webp)
-
 ```pine
 //@version=6
 strategy("Custom strategy metrics", "", true, initial_capital  = 10000, commission_type  = strategy.commission.percent,
@@ -1173,9 +1151,10 @@ For example, setting a 20% margin ratio means that the trader’s balance funds 
 
 Pine Script strategies can simulate trading with leverage by specifying margin requirements for long and short positions. Users can adjust the “Margin for long positions” and Margin for short positions” in the strategy’s “Properties” tab. Programmers can set the default margin in the script using the `margin_long` and `margin_short` parameters in the [strategy()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy) declaration function.
 
-NoticeIf a leveraged trade, or even a short trade with 1
-
-leverage, incurs significant losses that cause the strategy’s account balance to drop below the required margin, the broker emulator initiates a _margin call_ event by liquidating _four times_ the amount required to cover the loss. This behavior helps prevent constant margin calls on subsequent bars.
+> [!IMPORTANT]
+> If a leveraged trade, or even a short trade with 1
+>
+> leverage, incurs significant losses that cause the strategy’s account balance to drop below the required margin, the broker emulator initiates a _margin call_ event by liquidating _four times_ the amount required to cover the loss. This behavior helps prevent constant margin calls on subsequent bars.
 
 For more information on using leverage in strategies, see the Help Center article [How do I simulate trading with leverage?](https://www.tradingview.com/support/solutions/43000717375-how-do-i-simulate-trading-with-leverage/)
 
@@ -1197,7 +1176,8 @@ Pine Script does not support placing orders using the brokers integrated via the
 
 Strategies can customize [order fill alerts](https://www.tradingview.com/pine-script-docs/concepts/strategies/#strategy-alerts) to include detailed results and performance metrics in the alert strings, providing a record of the strategy’s theoretical fills and overall performance in realtime.
 
-TipWhen configuring alerts for forward testing, it is often helpful to restrict the strategy’s logic to remove the effects of historical trades by using a [date filter](https://www.tradingview.com/pine-script-docs/faq/strategies/#how-do-i-filter-trades-by-a-date-or-time-range) set to today’s date.
+> [!TIP]
+> When configuring alerts for forward testing, it is often helpful to restrict the strategy’s logic to remove the effects of historical trades by using a [date filter](https://www.tradingview.com/pine-script-docs/faq/strategies/#how-do-i-filter-trades-by-a-date-or-time-range) set to today’s date.
 
 ## Troubleshooting and specific issues {#troubleshooting-and-specific-issues}
 

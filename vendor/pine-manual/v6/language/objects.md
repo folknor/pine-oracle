@@ -6,7 +6,8 @@ section: language
 
 # Objects {#objects}
 
-TipThis page contains _advanced_ material. If you’re new to Pine Script®, start by learning about core language components — such as the [type system](https://www.tradingview.com/pine-script-docs/language/type-system/) and [the basics](https://www.tradingview.com/pine-script-docs/language/execution-model/#the-basics) of the [execution model](https://www.tradingview.com/pine-script-docs/language/execution-model/) — and explore other, more accessible features before venturing further.
+> [!TIP]
+> This page contains _advanced_ material. If you’re new to Pine Script®, start by learning about core language components — such as the [type system](https://www.tradingview.com/pine-script-docs/language/type-system/) and [the basics](https://www.tradingview.com/pine-script-docs/language/execution-model/#the-basics) of the [execution model](https://www.tradingview.com/pine-script-docs/language/execution-model/) — and explore other, more accessible features before venturing further.
 
 ## Introduction {#introduction}
 
@@ -189,8 +190,6 @@ pivotHighArray := array.new<pivotPoint>()
 See the [Collections](https://www.tradingview.com/pine-script-docs/language/type-system/#collections) section of the [Type system](https://www.tradingview.com/pine-script-docs/language/type-system/) page to learn about type templates.
 
 Let’s use what we have learned to create a script that detects high pivot points. The script first collects historical pivot information in an [array](https://www.tradingview.com/pine-script-reference/v6/#type_array). It then loops through the array on the last historical bar, creating a label for each pivot and connecting the pivots with lines:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Objects-CollectingObjects-1.Or5ovJGC_1xSRtf.webp)
 
 ```pine
 //@version=6

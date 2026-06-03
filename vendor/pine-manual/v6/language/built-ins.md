@@ -63,8 +63,6 @@ All built-in functions have one or more parameters defined in their signature. N
 
 Let’s look at the [ta.vwma()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.vwma) function, which returns the volume-weighted moving average of a source value. This is its entry in the Reference Manual:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/BuiltIns-BuiltInFunctions.Csw66lto_Z241Q38.webp)
-
 The entry gives us the information we need to use it:
 
 -   What the function does.

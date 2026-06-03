@@ -68,8 +68,6 @@ Any script using values like [high](https://www.tradingview.com/pine-script-refe
 
 Let’s look at this simple script. It detects crosses of the [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) value (in the realtime bar, this corresponds to the current price of the instrument) over and under an [EMA](https://www.tradingview.com/support/solutions/43000592270):
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Repainting-01.B4bnEQz8_Z2nDDER.webp)
-
 ```pine
 //@version=6
 indicator("Repainting", "", true)
@@ -149,8 +147,6 @@ The script below demonstrates the difference between repainting and non-repainti
 
 As we see on all realtime bars (the ones with an orange background), the `repaintingClose` series contains values that fluctuate without confirmation from the `higherTimeframe` context, meaning the results will _repaint_ after the script restarts its executions. The `nonRepaintingClose`, on the other hand, behaves the same on realtime and historical bars, i.e., it only changes its value when new, confirmed data is available:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Repainting-Repainting-request-security-calls-1.DKoD6okt_yEmjM.webp)
-
 ```pine
 //@version=6
 indicator("Repainting vs non-repainting `request.security()` demo", overlay = true)
@@ -215,8 +211,6 @@ While historical bars will magically display future prices before they should be
 
 This is an example:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Repainting-FutureLeakWithRequestSecurity-01.B8DsNHGV_FXyhR.webp)
-
 ```pine
 // FUTURE LEAK! DO NOT USE!
 //@version=6
@@ -258,8 +252,6 @@ pHi = ta.pivothigh(5, 5)
 if not na(pHi)
     label.new(bar_index[5], na, str.tostring(pHi, format.mintick) + "\n🠇", yloc = yloc.abovebar, style = label.style_none, textcolor = color.black, size = size.normal)
 ```
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Repainting-PlottingInThePast-01.CdfEKXRh_Z1fldev.webp)
 
 Note that:
 

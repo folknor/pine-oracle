@@ -14,8 +14,6 @@ The use of [plot()](https://www.tradingview.com/pine-script-reference/v6/#fun_pl
 
 This script showcases a few different uses of [plot()](https://www.tradingview.com/pine-script-reference/v6/#fun_plot) in an overlay script:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Plots-Introduction-01.Cylrqa-m_Iu01z.webp)
-
 ```pine
 //@version=6
 indicator("`plot()`", "", true)
@@ -41,8 +39,6 @@ Note that:
 -   The last plot requires some preparation. We first define our bull/bear colors, calculate an [Arnaud Legoux Moving Average](https://www.tradingview.com/support/solutions/43000594683), then make our color calculations. We initialize our color variable on bar zero only, using [var](https://www.tradingview.com/pine-script-reference/v6/#kw_var). We initialize it to [color.silver](https://www.tradingview.com/pine-script-reference/v6/#const_color.silver), so on the dataset’s first bars, until the line is higher/lower than its value two bars ago, it is silver. Looking two bars back creates smoother color transitions than one bar back.
 
 The next script shows other uses of [plot()](https://www.tradingview.com/pine-script-reference/v6/#fun_plot) in a separate pane:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Plots-Introduction-02.CEeiodqC_Z25q38U.webp)
 
 ```pine
 //@version=6
@@ -199,8 +195,6 @@ Scripts cannot call the [plot()](https://www.tradingview.com/pine-script-referen
 
 One way to control the display of plots is to plot [na](https://www.tradingview.com/pine-script-reference/v6/#var_na) values when no plot is needed. Sometimes, values returned by functions such as [request.security()](https://www.tradingview.com/pine-script-reference/v6/#fun_request.security) will return [na](https://www.tradingview.com/pine-script-reference/v6/#var_na) values, when `gaps = barmerge.gaps_on` is used, for example. In both these cases it is sometimes useful to plot discontinuous lines. This script shows a few ways to do it:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Plots-PlottingConditionally-01.DCGRnCbX_szhkT.webp)
-
 ```pine
 //@version=6
 indicator("Discontinuous plots", "", true)
@@ -281,8 +275,6 @@ plot(close, color = plotColor)
 
 When plotting pivot levels, one common requirement is to avoid plotting level transitions. Using [lines](https://www.tradingview.com/pine-script-docs/visuals/lines-and-boxes/) is one alternative, but you can also use [plot()](https://www.tradingview.com/pine-script-reference/v6/#fun_plot) like this:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Plots-PlottingConditionally-02.Dgz5RTVC_Z1D4462.webp)
-
 ```pine
 //@version=6
 indicator("Pivot plots", "", true)
@@ -303,8 +295,6 @@ Note that:
 The [hline()](https://www.tradingview.com/pine-script-reference/v6/#fun_hline) function plots horizontal lines at fixed levels (see the page on [Levels](https://www.tradingview.com/pine-script-docs/visuals/levels/)). The [hline()](https://www.tradingview.com/pine-script-reference/v6/#fun_hline) function is useful because it has some unique line styles that are not available with [plot()](https://www.tradingview.com/pine-script-reference/v6/#fun_plot), and is often more performant than similar [plot()](https://www.tradingview.com/pine-script-reference/v6/#fun_plot) lines. However, it also has some limitations, namely that it does not accept “series color” arguments, and that its `price` parameter requires an “input int/float” type, so it cannot vary during the script’s execution. In cases where scripts need to use dynamically calculated prices or colors, the [plot()](https://www.tradingview.com/pine-script-reference/v6/#fun_plot) function can create similar horizontal levels.
 
 You can plot levels with [plot()](https://www.tradingview.com/pine-script-reference/v6/#fun_plot) in a few different ways. This script shows a [CCI](https://www.tradingview.com/support/solutions/43000502001) indicator with levels plotted using [plot()](https://www.tradingview.com/pine-script-reference/v6/#fun_plot):
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Plots-Levels-01.jio4KIpw_ZQ7KPc.webp)
 
 ```pine
 //@version=6
@@ -331,8 +321,6 @@ Note that:
 The `offset` parameter specifies the number of bars into the past or future that a script plots a given series. By default, a plot’s offset is zero, so each plot point aligns with its bar. Negative offsets display plots on bars _before_ the current bar, while positive offsets display them on future bars.
 
 For example, this script plots two [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) series. It displays the values in the _red_ series five bars to the left because its `offset` argument is negative, while displaying the values in the _green_ series five bars to the right because its `offset` is positive:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Plots-Offsets-01.CBzf5b6H_Z1APJvi.webp)
 
 ```pine
 //@version=6
@@ -370,8 +358,6 @@ See the [Plot limits](https://www.tradingview.com/pine-script-docs/writing/limit
 
 Not all values can be plotted everywhere. Your script’s visual space is always bound by upper and lower limits that are dynamically adjusted with the values plotted. An [RSI](https://www.tradingview.com/support/solutions/43000502338) indicator will plot values between 0 and 100, which is why it is usually displayed in a distinct _pane_ — or area — above or below the chart. If RSI values were plotted as an overlay on the chart, the effect would be to distort the symbol’s normal price scale, unless it just hapenned to be close to RSI’s 0 to 100 range. This shows an RSI signal line and a centerline at the 50 level, with the script running in a separate pane:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Plots-Scale-01.CE6dQl_T_1VGogS.webp)
-
 ```pine
 //@version=6
 indicator("RSI")
@@ -393,8 +379,6 @@ plot(close)
 
 This is what happens:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Plots-Scale-02.D8wP6yEJ_1ymoUP.webp)
-
 The chart is on the BTCUSD symbol, whose [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) prices are around 40000 during this period. Plotting values in the 40000 range makes our RSI plots in the 0 to 100 range indiscernible. The same distorted plots would occur if we placed the [RSI](https://www.tradingview.com/support/solutions/43000502338) indicator on the chart as an overlay.
 
 ### Merging two indicators {#merging-two-indicators}
@@ -402,8 +386,6 @@ The chart is on the BTCUSD symbol, whose [close](https://www.tradingview.com/pin
 If you are planning to merge two signals in one script, first consider the scale of each. It is impossible, for example, to correctly plot an [RSI](https://www.tradingview.com/support/solutions/43000502338) and a [MACD](https://www.tradingview.com/support/solutions/43000502344) in the same script’s visual space because RSI has a fixed range (0 to 100) while MACD doesn’t, as it plots moving averages calculated on price.
 
 If both your indicators used fixed ranges, you can shift the values of one of them so they do not overlap. We could, for example, plot both [RSI](https://www.tradingview.com/support/solutions/43000502338) (0 to 100) and the [True Strength Indicator (TSI)](https://www.tradingview.com/support/solutions/43000592290) (-100 to +100) by displacing one of them. Our strategy here will be to compress and shift the [TSI](https://www.tradingview.com/support/solutions/43000592290) values so they plot over [RSI](https://www.tradingview.com/support/solutions/43000502338):
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Plots-Scale-03.D9mEXIxt_Z1D5QSv.webp)
 
 ```pine
 //@version=6

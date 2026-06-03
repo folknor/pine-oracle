@@ -344,8 +344,6 @@ The Pine Editor is moving from the bottom panel to the _side panel_. This change
 
 By default, the new editor view overlays on the right side of the screen. For wider screens, a _split-view_ mode is available, which automatically adjusts the chart’s width to keep it visible alongside the editor. With this new vertical orientation, users can easily edit code and view other tabs such as the Strategy Tester or Replay Trading at the same time.
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/ReleaseNotes-SplitView.Vgle1Hws_Z12mUU7.webp)
-
 The vertical editor view includes a _word wrap_ feature, which enables users to read or modify long lines of code without scrolling horizontally. Note that word wrapping is only a _visual_ feature; it does _not_ change the source code’s structure or line numbering. Users can activate or deactivate word wrapping with the `Alt + Z`/`Option + Z` hotkey.
 
 ### July 2025 {#july-2025}
@@ -1407,8 +1405,6 @@ label.set_x(l, bar_index)
 label.set_color(l, c_labelColor)
 ```
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/input_color.BV9qKm_h_KkuMk.webp)
-
 Added support for arrays and functions for working with them. You can now use the powerful new array feature to build custom datasets. See our [User Manual page on arrays](https://www.tradingview.com/pine-script-docs/language/arrays/) and our [blog](https://www.tradingview.com/blog/en/arrays-are-now-available-in-pine-script-20052/)
 
 ```pine
@@ -1457,8 +1453,6 @@ plot(dynSma)
 
 -   New `resolution` parameter was added to the `study` function. Now you can add MTF functionality to scripts and decide the timeframe you want the indicator to run on.
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Mtf.CuSZJR6J_1XdMWM.webp)
-
 Please note that you need to reapply the indicator in order for the \[resolution\] parameter to appear.
 
 -   The `tooltip` argument was added to the `label.new` function along with the `label.set_tooltip` function:
@@ -1471,17 +1465,11 @@ label.set_x(l,bar_index)
 label.set_tooltip(l, "Label Tooltip")
 ```
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Tooltip.6OxddeKb_Z1sgFLs.webp)
-
 -   Added an ability to create [alerts on strategies](https://www.tradingview.com/support/solutions/43000481368).
 -   A new function [line.get\_price()](https://www.tradingview.com/pine-script-reference/v4/#fun_line.get_price) can be used to determine the price level at which the line is located on a certain bar.
 -   New [label styles](https://www.tradingview.com/pine-script-docs/concepts/text-and-shapes/#positioning-labels) allow you to position the label pointer in any direction.
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/new_label_styles.CnpdeFiL_Z1tyQ7f.webp)
-
 -   Find and Replace was added to Pine Editor. To use this, press CTRL+F (find) or CTRL+H (find and replace).
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/FindReplace.COurJNjE_Z11hHOi.webp)
 
 -   `timezone` argument was added for time functions. Now you can specify timezone for `second`, `minute`, `hour`, `year`, `month`, `dayofmonth`, `dayofweek` functions:
 

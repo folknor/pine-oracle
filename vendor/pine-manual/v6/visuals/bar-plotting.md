@@ -28,8 +28,6 @@ indicator("Single-color candles")
 plotcandle(open, high, low, close)
 ```
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/BarPlotting-Plotcandle-1.DRLnC2kq_2i9uKu.webp)
-
 To color them green or red, we can use the following code:
 
 ```pine
@@ -38,8 +36,6 @@ indicator("Example 2")
 paletteColor = close >= open ? color.lime : color.red
 plotbar(open, high, low, close, color = paletteColor)
 ```
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/BarPlotting-Plotcandle-2.CJRFcfps_eIqGG.webp)
 
 Note that the `color` parameter accepts “series color” arguments, so constant values such as `color.red`, `color.lime`, `"#FF9090"`, as well as expressions that calculate colors at runtime, as is done with the `paletteColor` variable here, will all work.
 
@@ -59,8 +55,6 @@ ourWickColor = close > c ? color.green : color.red
 plotcandle(o, h, l, c, wickcolor = ourWickColor)
 ```
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/BarPlotting-Plotcandle-3.C3UsErKE_2j5k0D.webp)
-
 You may find it useful to plot OHLC values taken from a higher timeframe. You can, for example, plot daily bars on an intraday chart:
 
 ```pine
@@ -79,8 +73,6 @@ color bodyColor = c >= o ? color.new(UP_COLOR, 70) : color.new(DN_COLOR, 70)
 // and when non `na` values are returned by `request.security()` because a HTF bar has completed.
 plotcandle(timeframe.isintraday ? o : na, h, l, c, color = bodyColor, wickcolor = wickColor)
 ```
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/BarPlotting-Plotcandle-4.BBez67E-_14RD8y.webp)
 
 Note that:
 
@@ -109,5 +101,3 @@ indicator("Dual-color bars")
 paletteColor = close >= open ? color.lime : color.red
 plotbar(open, high, low, close, color = paletteColor)
 ```
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/BarPlotting-Plotbar-1.Dolh7dC6_Jglfc.webp)

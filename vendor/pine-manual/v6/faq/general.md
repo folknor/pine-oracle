@@ -60,8 +60,6 @@ plotshape(condition, color = color.lime, style = shape.arrowup, text = "Buy")
 plotshape(not condition, color = color.red, style = shape.arrowdown, text = "Sell")
 ```
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Buy_sell_chart1.CyNH3Z6U_ZnXhc1.webp)
-
 You may use the `plotchar` function with any unicode character:
 
 ```pine
@@ -71,8 +69,6 @@ condition = close >= open
 plotchar(not condition, char='↓', color = color.lime, text = "Buy")
 plotchar(condition, char='↑', location = location.belowbar, color = color.red, text = "Sell")
 ```
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Buy_sell_chart2.bwHf9rIu_Z2nlGwx.webp)
 
 ## Plot a dynamic horizontal line {#plot-a-dynamic-horizontal-line}
 
@@ -116,8 +112,6 @@ if (condition)
 ## Get a 5-days high {#get-a-5-days-high}
 
 Lookback 5 days from the current bar, find the highest bar, plot a star character at that price level above the current bar
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Wiki_howto_range_analysis.BO6M_QVQ_Z243OGQ.webp)
 
 ```pine
 //@version=6

@@ -10,7 +10,8 @@ section: concepts
 
 Pine Script® features several `ticker.*()` functions that generate _ticker identifiers_ for requesting data from _non-standard_ chart feeds. The available functions that create these ticker IDs are [ticker.heikinashi()](https://www.tradingview.com/pine-script-reference/v6/#fun_ticker.heikinashi), [ticker.renko()](https://www.tradingview.com/pine-script-reference/v6/#fun_ticker.renko), [ticker.linebreak()](https://www.tradingview.com/pine-script-reference/v6/#fun_ticker.linebreak), [ticker.kagi()](https://www.tradingview.com/pine-script-reference/v6/#fun_ticker.kagi), and [ticker.pointfigure()](https://www.tradingview.com/pine-script-reference/v6/#fun_ticker.pointfigure). Scripts can use these functions’ returned values as the `symbol` argument in [request.security()](https://www.tradingview.com/pine-script-reference/v6/#fun_request.security) calls to access non-standard chart data while running on _any_ chart type.
 
-NoteThe [Renko](https://www.tradingview.com/support/solutions/43000502284), [Line Break](https://www.tradingview.com/support/solutions/43000502273), [Kagi](https://www.tradingview.com/support/solutions/43000502272), and [Point & Figure](https://www.tradingview.com/support/solutions/43000502276) chart types construct bars using price data from _lower timeframes_. Therefore, the bars on these chart types only _approximate_ the values that correspond to calculations using tick data.
+> [!NOTE]
+> The [Renko](https://www.tradingview.com/support/solutions/43000502284), [Line Break](https://www.tradingview.com/support/solutions/43000502273), [Kagi](https://www.tradingview.com/support/solutions/43000502272), and [Point & Figure](https://www.tradingview.com/support/solutions/43000502276) chart types construct bars using price data from _lower timeframes_. Therefore, the bars on these chart types only _approximate_ the values that correspond to calculations using tick data.
 
 ## `ticker.heikinashi()` {#tickerheikinashi}
 
@@ -19,8 +20,6 @@ _Heikin-Ashi_ means _average bar_ in Japanese. The open/high/low/close values of
 The [ticker.heikinashi()](https://www.tradingview.com/pine-script-reference/v6/#fun_ticker.heikinashi) function creates a special ticker identifier for requesting Heikin-Ashi data with the [request.security()](https://www.tradingview.com/pine-script-reference/v6/#fun_request.security) function.
 
 This script requests the close value of Heikin-Ashi bars and plots them on top of the normal candlesticks:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/NonStandardCharts-TickerHeikinAshi-01.Cf57zbCt_5nxwn.webp)
 
 ```pine
 //@version=6
@@ -36,8 +35,6 @@ Note that:
 -   The black line appears over the chart bars because we have selected “Visual Order/Bring to Front” from the script’s “More” menu.
 
 If you wanted to omit values for extended hours in the last example, an intermediary ticker without extended session information would need to be created first:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/NonStandardCharts-TickerHeikinAshi-02.B9TEp43B_Z1JChjK.webp)
 
 ```pine
 //@version=6
@@ -56,8 +53,6 @@ Note that:
 -   To be able to see this on the chart, we also need to use a special `plot.style_linebr` style, which breaks the plots on [na](https://www.tradingview.com/pine-script-reference/v6/#var_na) values.
 
 This script plots Heikin-Ashi candles under the chart:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/NonStandardCharts-TickerHeikinAshi-03.DDXVmouO_IPPYC.webp)
 
 ```pine
 //@version=6

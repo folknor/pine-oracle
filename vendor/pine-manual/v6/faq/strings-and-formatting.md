@@ -114,8 +114,6 @@ Text contained in the box can automatically wrap if it reaches the border of the
 
 In the example below, we draw a box that spans the last 50 historical bars on the chart, and a label. We add long text to both. With `text_wrap = text.wrap_auto`, the text inside the box automatically wraps to fit the box itself, while the text inside of the label stays unchanged:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Strings-and-formatting-Boxes.DGNthdsU_Z1uBDUD.webp)
-
 ```pine
 //@version=6
 indicator("Box and label text", overlay = true)
@@ -166,8 +164,6 @@ To manage the alignment of the text within the label, use the `textalign` parame
 
 The following example script draws three labels on the chart’s last bar, with different `style` and `textalign` values. User inputs control whether individual labels appear, and the central label is off by default for readability. If the input to hide the background is enabled, the color is set to [na](https://www.tradingview.com/pine-script-reference/v6/#var_na) so that it does not appear. Note that the proper way to do this is to cast it to a color by using `color(na)`.
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Strings-and-formatting-How-can-i-position-text-on-either-side-of-a-single-bar-1.DUFIx4_a_2eGvJY.webp)
-
 ```pine
 //@version=6
 indicator("Text position demo", "", true)
@@ -210,8 +206,6 @@ plotshape(true, "", shape.arrowup,   location.abovebar, color.lime,   textcolor 
 plotshape(true, "", shape.arrowdown, location.belowbar, color.red,    textcolor = color.red,    text = "C")
 plotshape(true, "", shape.arrowdown, location.belowbar, color.maroon, textcolor = color.maroon, text = "\nD")
 ```
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Strings-and-formatting-How-can-i-lift-plotshape-text-up-1.BRcQQ6eU_Z2vQ3Az.webp)
 
 ## How can I print a value at the top right of the chart? {#how-can-i-print-a-value-at-the-top-right-of-the-chart}
 

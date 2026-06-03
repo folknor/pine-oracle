@@ -342,7 +342,7 @@ More complex scenarios might require controlling and tracking _states_, which en
 
 The example script below manages separate bullish and bearish states, and it colors the background to represent each state. When a bullish or bearish state first occurs, an [alert()](https://www.tradingview.com/pine-script-reference/v6/#fun_alert) call executes and the script plots a triangle on the chart. It also plots smaller triangles to show where other signals occur within a state, which do not trigger additional alerts:
 
-// ![image](https://www.tradingview.com/pine-script-docs/_astro/Alerts-How-can-i-trigger-an-alert-only-once-when-the-condition-is-true-the-first-time-1.D3rDfnca_Z2rl2QW.webp)
+// 
 
 ```pine
 //@version=6
@@ -397,8 +397,6 @@ It is possible to program logic to delay alert triggers so that they occur _afte
 There are no price updates in a closed market, meaning an alert with a delay will not fire until the market opens again. Similarly, thinly traded securities may have very infrequent price updates in unpredictable intervals, which can cause a larger delay than intended.
 
 The Pine script below implements a _time-delayed_ alert, which is subject to the limitations above. When the current [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) is higher than a moving average, a delay counter starts. After the delay passes, the alert fires once, and another alert _cannot_ fire until the timer resets. Users can specify whether the timer resets on each bar using the script’s `resetInput`:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Alerts-How-can-i-run-my-alert-on-a-timer-or-delay-1.K7lVQTwy_w62nO.webp)
 
 ```pine
 //@version=6

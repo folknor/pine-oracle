@@ -22,7 +22,7 @@ plot(s)
 
 This indicator is calculated based on historical data and looks somewhat _into the future_. At the first bar of every session an indicator plots the high price of the entire day. This could be useful in some cases for analysis, but doesn’t work for backtesting strategies.
 
-We worked on this and made changes in Pine Script version 3. If this indicator is compiled with `//@version=3` directive, we get a completely different picture: ![](https://www.tradingview.com/pine-script-docs/_astro/V3.Dt4jGTcd_Z20HTig.webp)
+We worked on this and made changes in Pine Script version 3. If this indicator is compiled with `//@version=3` directive, we get a completely different picture: 
 
 The old behaviour is still available though. We added a parameter to the `security` function (the fifth one) called `lookahead`.
 

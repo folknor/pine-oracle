@@ -90,8 +90,6 @@ Using the [ta.barssince()](https://www.tradingview.com/pine-script-reference/v6/
 
 The following example script uses the `cond` condition to plot a blue star when the [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) value is greater than the [open](https://www.tradingview.com/pine-script-reference/v6/#var_open) value for two consecutive bars. Then, the `trigger` variable is true only if the `cond` condition is already true _and_ the number of bars elapsed since `cond` was last true is greater than `lengthInput`. The script plots a red “O” on the chart, overlaying the blue star, each time these conditions are met. The Data Window displays the count since `cond` was last true.
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Techniques-How-can-i-trigger-a-condition-only-when-a-number-of-bars-have-elapsed-since-the-last-condition-occured-1.Dt02f4F1_1WERNm.webp)
-
 ```pine
 //@version=6
 indicator("`barssince` demo", overlay = true)
@@ -137,8 +135,6 @@ The [VisibleChart](https://www.tradingview.com/script/j7vCseM2-VisibleChart/) li
 
 The following example script uses functions from this library to create two horizontal [lines](https://www.tradingview.com/pine-script-docs/visuals/lines-and-boxes/#lines) on the chart, signifying the highest and lowest price points within the range of visible bars. The script draws [labels](https://www.tradingview.com/pine-script-docs/visuals/text-and-shapes/#labels) for these lines, displaying both the price and the corresponding timestamp for each high and low point. As the chart is manipulated through scrolling or zooming, these lines and labels dynamically update to reflect the highest and lowest values of the newly visible bars:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Techniques-How-can-i-plot-the-charts-visible-high-and-low-1.C8tRKhQr_1xO5Xm.webp)
-
 ```pine
 //@version=6
 indicator("Chart's visible high/low", "", true)
@@ -166,7 +162,8 @@ Note that:
 -   Values derived from visible chart variables can change throughout the script’s runtime. To accurately reflect the entire visible range, the script defers drawing the lines until the last bar (using [barstate.islast](https://www.tradingview.com/pine-script-reference/v6/#var_barstate.islast)).
 -   Because the visible chart values are defined in the [global scope](https://www.tradingview.com/pine-script-docs/faq/programming/#what-does-scope-mean), _outside_ the local block defined by [barstate.islast](https://www.tradingview.com/pine-script-reference/v6/#var_barstate.islast), the functions process the entire dataset before determining the final high and low values.
 
-NoteScripts that use [chart.left\_visible\_bar\_time](https://www.tradingview.com/pine-script-reference/v6/#var_chart.left_visible_bar_time) or [chart.right\_visible\_bar\_time](https://www.tradingview.com/pine-script-reference/v6/#var_chart.right_visible_bar_time) recalculate their results on _every bar_ each time the user scrolls or zooms the chart.
+> [!NOTE]
+> Scripts that use [chart.left\_visible\_bar\_time](https://www.tradingview.com/pine-script-reference/v6/#var_chart.left_visible_bar_time) or [chart.right\_visible\_bar\_time](https://www.tradingview.com/pine-script-reference/v6/#var_chart.right_visible_bar_time) recalculate their results on _every bar_ each time the user scrolls or zooms the chart.
 
 For more information, refer to the [VisibleChart](https://www.tradingview.com/script/j7vCseM2-VisibleChart/) library’s documentation.
 
@@ -329,8 +326,6 @@ The simplest and most efficient method is to use the built-in [math.sum()](https
 
 The following example script uses both of these calculation methods. It also uses a series length that adjusts for the first part of the chart, where the number of bars available is less than the length. This way, the functions do not return [na](https://www.tradingview.com/pine-script-reference/v6/#fun_na) values.
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Techniques-How-can-i-count-the-occurences-of-a-condition-in-the-last-x-bars-1.DjfPEBjE_Z2hO669.webp)
-
 ```pine
 //@version=6
 indicator("Number of occurrences demo", overlay = false)
@@ -364,8 +359,6 @@ An on/off switch is a persistent state that can be turned on once, and persists 
 
 The following example script show how to implement this. Each instance of the on and off triggers displays with an arrow and the word “On” or “Off”. A green background highlights the bars where the switch is in the “On” state.
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Techniques-How-can-i-implement-an-on-off-switch-1.B-YIPmBl_ZEO1dj.webp)
-
 ```pine
 //@version=6
 indicator("On/Off condition example", overlay = true)
@@ -392,8 +385,6 @@ plotchar(triggerOff, "triggerOff", "▼", location.abovebar, color.red,  size = 
 Scripts can alternate from one state to another strictly, even when the triggers to change state do not occur in strict order. This can be useful to mark only the first trigger and not any subsequent triggers, or to prevent multiple alerts.
 
 The following example script plots all pivots, defined by Williams fractals. These pivots can occur in any order. The script stores the type of the most recent pivot, and confirms the next pivot _only_ if it is of the opposite type, such that confirmed pivots appear strictly high-low-high or low-high-low, etc. Confirmed pivots are plotted in a larger size and different color. The chart background color is colored according to the type of the most recent confirmed pivot.
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Techniques-How-can-i-allow-transitions-from-condition-ab-or-ba-but-not-aa-nor-bb-1.9yOp6mtx_1ideIU.webp)
 
 ```pine
 //@version=6
@@ -460,7 +451,8 @@ It is possible to combine indicators, paying attention to the following points:
 -   Convert each script to the most recent version of Pine Script®, or at least the same version, before combining them.
 -   Ensure that there is only one version declaration and script declaration in the resulting script.
 
-NoticeIf the individual indicators are large or computationally complex, programmers might encounter issues with one or more of Pine’s [limitations](https://www.tradingview.com/pine-script-docs/writing/limitations/) when combining them into a single script.
+> [!IMPORTANT]
+> If the individual indicators are large or computationally complex, programmers might encounter issues with one or more of Pine’s [limitations](https://www.tradingview.com/pine-script-docs/writing/limitations/) when combining them into a single script.
 
 ## How can I rescale an indicator from one scale to another? {#how-can-i-rescale-an-indicator-from-one-scale-to-another}
 
@@ -530,8 +522,6 @@ plot(volume,            "Original volume",     display = display.data_window)
 plot(ta.rsi(close, 14), "Original RSI",        display = display.data_window)
 ```
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Techniques-How-can-i-rescale-an-indicator-from-one-scale-to-another-1.C3veEcNW_Z56Pg1.webp)
-
 ## How can I calculate my script’s run time? {#how-can-i-calculate-my-scripts-run-time}
 
 Programmers can measure the time that a script takes to run and see detailed information about which parts of the code take longest in the Pine Profiler. See the section of the User Manual on [Profiling and optimization](https://www.tradingview.com/pine-script-docs/writing/profiling-and-optimization/) for more information.
@@ -558,8 +548,6 @@ plot(priceAtCross, "Price At Cross", color.orange, 3, plot.style_circles)
 The most efficient way to count touches of a specific level is by tracking the series on each bar. A robust approach requires maintaining separate tallies for up and down bar touches and taking into account any gaps across the level. Using loops instead would be inefficient and impractical in this case.
 
 The following example script records a value of 1 in a series whenever a touch occurs, and uses the [math.sum()](https://www.tradingview.com/pine-script-reference/v6/#fun_math.sum) function to count these instances within the last `touchesLengthInput` bars. This script displays the median and touches on the chart using the `force_overlay` parameter of the `plot*()` functions, and displays the count in a separate pane.
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Techniques-How-can-i-count-touches-of-a-specific-level-1.zhHd3SG6_Z2rjWCT.webp)
 
 ```pine
 //@version=6
@@ -608,8 +596,6 @@ One way is to use the [ta.barssince()](https://www.tradingview.com/pine-script-r
 Another method is to use a _persistent state_ to decide whether an _event_ can happen. When the timeframe changes to a new day, the state is reset to allow the event. If the condition occurs while the state allows it, an event triggers. When the event triggers, the state is set so so as not to allow the event.
 
 The following example script shows both methods.
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Techniques-How-can-know-if-something-is-happening-for-the-first-time-since-the-beginning-of-the-day-1.CvNLhI4e_Z1InH46.webp)
 
 ```pine
 //@version=6
@@ -688,8 +674,6 @@ plotchar(newPH, "newPH", "▲", location.top)
 
 To display the names and values of plots from an indicator in the chart’s scale, right-click on the chart to open the chart “Settings” menu. In the “Scales and lines” tab, select “Name” and “Value” from the “Indicators and financials” drop-down menu.
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Techniques-How-can-i-display-plot-values-in-the-charts-scale-1.DoK1stsV_1hol50.webp)
-
 ## How can I reset a sum on a condition? {#how-can-i-reset-a-sum-on-a-condition}
 
 To sum a series of values, initialize a persistent variable by using the [var](https://www.tradingview.com/pine-script-docs/language/variable-declarations/#var) keyword to the track the sum. Then use a logical test to reset the values when a condition occurs.
@@ -697,8 +681,6 @@ To sum a series of values, initialize a persistent variable by using the [var](h
 In the following example script, we initialize a persistent variable called `cumulativeVolume` to track the sum of the [volume](https://www.tradingview.com/pine-script-reference/v6/#var_volume). Then we reset it to zero on a Moving Average Convergence/Divergence (MACD) cross up or down.
 
 We plot the cumulative [volume](https://www.tradingview.com/pine-script-reference/v6/#var_volume) on the chart, as well as arrows to show the MACD crosses.
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Techniques-How-can-i-reset-a-sum-on-a-condition-1.-sS8zw0l_2pbPm7.webp)
 
 ```pine
 //@version=6
@@ -730,8 +712,6 @@ There are different ways to code this kind of logic. See the FAQ entry [“How c
 Additionally, this script demonstrates the concept of _events_ and _states_. An event is a condition that occurs on one or more arbitrary bars. A state is a condition that persists over time. Typically, programmers use events to turn states on and off. In turn, states can allow or prevent other processing.
 
 The script plots arrows for events, which are based on rising or falling values of the [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) price. These events determine which of the two exclusive states is active; the script colors the background according to the current state. The script accumulates bullish and bearish volume only in the corresponding bullish or bearish state, displaying it in a Weis Wave fashion.
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Techniques-How-can-i-accumulate-a-value-for-two-exclusive-states-1.6ND5oJEJ_ZEXqaI.webp)
 
 ```pine
 //@version=6

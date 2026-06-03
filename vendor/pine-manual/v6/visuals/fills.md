@@ -27,8 +27,6 @@ The `plot1`, `plot2`, `hline1`, and `hline2` parameters accept [plot](https://ww
 
 This simple example demonstrates how the [fill()](https://www.tradingview.com/pine-script-reference/v6/#fun_fill) function works with [plot and hline](https://www.tradingview.com/pine-script-docs/language/type-system/#plot-and-hline) IDs. It calls [plot()](https://www.tradingview.com/pine-script-reference/v6/#fun_plot) and [hline()](https://www.tradingview.com/pine-script-reference/v6/#fun_hline) three times to display arbitrary values on the chart. Each of these calls returns an ID, which the script assigns to variables for use in the [fill()](https://www.tradingview.com/pine-script-reference/v6/#fun_fill) function. The values of `p1`, `p2`, and `p3` are “plot” IDs, whereas `h1`, `h2`, and `h3` reference “hline” IDs:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Fills-Fill-1.D9hBk6j5_ahYBQ.webp)
-
 ```pine
 //@version=6
 indicator("Example 1")
@@ -57,8 +55,6 @@ It’s important to note that the [fill()](https://www.tradingview.com/pine-scri
 
 For example, this script calculates an `oscillator` based on the percentage distance between the chart’s [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) price and the 10-bar moving average from a [ta.sma()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.sma) call, then plots it on the chart pane. In this case, we wanted to fill the area between the `oscillator` and zero. Although we can display the zero level with [hline()](https://www.tradingview.com/pine-script-reference/v6/#fun_hline) since its value does not change, we cannot pass a “plot” and “hline” ID to the [fill()](https://www.tradingview.com/pine-script-reference/v6/#fun_fill) function. Therefore, we must use a [plot()](https://www.tradingview.com/pine-script-reference/v6/#fun_plot) call for the level to allow the script to fill the space:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Fills-Fill-2.DlLq_93-_1Mqk2m.webp)
-
 ```pine
 //@version=6
 indicator("Example 2")
@@ -79,8 +75,6 @@ fill(oscPlotID, zeroPlotID, color.new(color.blue, 90), "Oscillator fill")
 ```
 
 The `color` parameter of the [fill()](https://www.tradingview.com/pine-script-reference/v6/#fun_fill) function accepts a “series color” argument, meaning the fill’s color can change across chart bars. For example, this code fills the space between two moving average plots with 90% transparent green or red colors based on whether `ma1` is above `ma2`:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Fills-Fill-3.CN7oIx5s_Z10IO51.webp)
 
 ```pine
 //@version=6
@@ -120,8 +114,6 @@ Any pair of [line](https://www.tradingview.com/pine-script-reference/v6/#type_li
 The example below demonstrates a simple use case for linefills. The script calculates a `pivotHigh` and `pivotLow` series using the built-in [ta.pivothigh()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.pivothigh) and [ta.pivotlow()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.pivotlow) functions with constant `leftbars` and `rightbars` arguments. On the last confirmed historical bar, the script draws two extended lines. The first line connects the two most recent non-na `pivotHigh` values, and the second connects the most recent non-na `pivotLow` values.
 
 To emphasize the “channel” formed by these lines, the script fills the space between them using [linefill.new()](https://www.tradingview.com/pine-script-reference/v6/#fun_linefill.new):
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Fills-Linefill-01.CW8L9l90_16hnnH.webp)
 
 ```pine
 //@version=6
@@ -173,8 +165,6 @@ The [box](https://www.tradingview.com/pine-script-reference/v6/#type_box) and [p
 To fill the space inside the borders of a [box](https://www.tradingview.com/pine-script-reference/v6/#type_box) with a specified color, include a `bgcolor` argument in the [box.new()](https://www.tradingview.com/pine-script-reference/v6/#fun_box.new) function. To fill a polyline’s visual space, pass a `fill_color` argument to the [polyline.new()](https://www.tradingview.com/pine-script-reference/v6/#fun_polyline.new) function.
 
 For example, this script draws an octagon with a [polyline](https://www.tradingview.com/pine-script-reference/v6/#type_polyline) and an inscribed rectangle with a [box](https://www.tradingview.com/pine-script-reference/v6/#type_box) on the last confirmed historical bar. It determines the size of the drawings using the value from the `radius` variable, which corresponds to approximately one-fourth of the number of bars visible on the chart. We included `fill_color = color.new(color.blue, 60)` in the [polyline.new()](https://www.tradingview.com/pine-script-reference/v6/#fun_polyline.new) call to fill the octagon with a translucent blue color, and we used `bgcolor = color.purple` in the [box.new()](https://www.tradingview.com/pine-script-reference/v6/#fun_box.new) call to fill the inscribed rectangle with opaque purple:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Fills-Box-and-polyline-fills-1.FVYvEaBt_nQBVz.webp)
 
 ```pine
 //@version=6

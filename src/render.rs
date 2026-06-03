@@ -403,15 +403,22 @@ where
                 self.in_link = true;
                 self.link_stack.push(dest_url.to_string());
             }
-            Tag::Image { dest_url, .. } => {
-                out.push_str(&"[image: ".style(self.theme.code).to_string());
-                self.raw_text(out);
-                out.push_str(&"]".style(self.theme.code).to_string());
-                if !dest_url.is_empty() {
-                    out.push_str(" (");
-                    out.push_str(&dest_url.style(self.theme.link).to_string());
-                    out.push(')');
-                }
+            Tag::Image { .. } => {
+                // A terminal can't show images, and the manual's images are
+                // screenshots whose URLs are useless `_astro` build artifacts
+                // with alt text literally "image". Those embeds are stripped at
+                // the source, so this is a defensive fallback: never dump the
+                // URL, and emit a bare `[image]` unless the alt text is
+                // actually informative. `raw_text` drains the alt-text events.
+                let mut alt = String::new();
+                self.raw_text(&mut alt);
+                let alt = alt.trim();
+                let marker = if alt.is_empty() || alt.eq_ignore_ascii_case("image") {
+                    "[image]".to_string()
+                } else {
+                    format!("[image: {alt}]")
+                };
+                out.push_str(&marker.style(self.theme.code).to_string());
             }
             Tag::FootnoteDefinition(name) => {
                 if !self.end_newline {
@@ -521,13 +528,13 @@ where
             TagEnd::Subscript => out.push('~'),
             TagEnd::Strikethrough => out.push_str(STRIKE_OFF),
             TagEnd::Link => {
-                if let Some(dest) = self.link_stack.pop()
-                    && !dest.is_empty()
-                {
-                    out.push_str(" (");
-                    out.push_str(&dest.style(self.theme.link.underline().dimmed()).to_string());
-                    out.push(')');
-                }
+                // Drop the destination URL. The link text already names the
+                // target (a symbol or a section heading), so appending the full
+                // URL after every inline link just drowns the prose in repeated
+                // TradingView URLs. The styled link text stays (set in
+                // `push_text`); page-level provenance is printed once by the
+                // search command. Pop to keep the nesting stack balanced.
+                let _ = self.link_stack.pop();
                 self.in_link = false;
             }
             TagEnd::MetadataBlock(_) => {
@@ -724,6 +731,58 @@ mod tests {
             "mono theme must emit no ANSI: {out:?}"
         );
         assert!(out.contains("Heading") && out.contains("bold"));
+    }
+
+    #[test]
+    fn inline_link_keeps_text_drops_url() {
+        // The Pine manual links every symbol to its reference URL; dumping the
+        // URL after each link drowns the prose, so we render the text only.
+        let out = render(
+            "See [str.lower()](https://example.com/#fun_str.lower).",
+            true,
+        );
+        assert!(out.contains("str.lower()"), "link text missing: {out:?}");
+        assert!(
+            !out.contains("example.com"),
+            "link URL should be dropped: {out:?}"
+        );
+        assert!(!out.contains("()  ("), "no trailing url parenthetical");
+    }
+
+    #[test]
+    fn image_drops_url_and_uninformative_alt() {
+        // The manual's images are screenshots with alt text literally "image"
+        // and useless `_astro` URLs. The renderer must never dump the URL.
+        let out = render("![image](https://example.com/x.webp)", true);
+        assert!(out.contains("[image]"), "image marker missing: {out:?}");
+        assert!(
+            !out.contains("example.com") && !out.contains(".webp"),
+            "image URL should be dropped: {out:?}"
+        );
+        assert!(!out.contains("image: image"), "no doubled alt: {out:?}");
+    }
+
+    #[test]
+    fn image_keeps_informative_alt() {
+        let out = render("![a price chart](https://example.com/x.webp)", true);
+        assert!(
+            out.contains("[image: a price chart]"),
+            "informative alt should survive: {out:?}"
+        );
+        assert!(!out.contains("example.com"), "url still dropped: {out:?}");
+    }
+
+    #[test]
+    fn gfm_tip_alert_renders_label() {
+        // Once the scraper emits proper GFM alerts, flattened `TipWhen...`
+        // callouts become this. Pin the contract the re-vendor relies on.
+        let out = render("> [!TIP]\n> When using str.replace(), count first.", false);
+        assert!(out.contains("TIP"), "TIP label missing: {out:?}");
+        assert!(out.contains("When using"), "alert body missing: {out:?}");
+        assert!(
+            !out.contains("TIPWhen"),
+            "label must not glue to body: {out:?}"
+        );
     }
 
     #[test]

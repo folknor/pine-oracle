@@ -38,10 +38,6 @@ hline(-50, "-50",  color.red)
 plot(myTSI)
 ```
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Levels-HlineLevels-01.DkWkzgaN_Zr57jb.webp)
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Levels-HlineLevels-02.rezExM6T_Z2pD20Y.webp)
-
 Note that:
 
 -   We display 5 levels, each of a different color.
@@ -77,10 +73,6 @@ fill(minus25Hline, minus50Hline, fillColor(color.red))
 
 plot(myTSI)
 ```
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Levels-FillBetweenLevels-01.xe2ic_uc_1qAMB1.webp)
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Levels-FillBetweenLevels-02.CUTgokP3_Z7gS4j.webp)
 
 Note that:
 

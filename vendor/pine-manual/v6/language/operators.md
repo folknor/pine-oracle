@@ -241,8 +241,6 @@ Note that:
 
 The output of our script looks like this:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Operators-ReassignmentOperator-1.D7pw1mZ8_Z1wurXU.webp)
-
 Note that:
 
 -   The line preserves its previous value until a new pivot is found.
@@ -267,8 +265,6 @@ There are five compound assignment operators in Pine Script:
 | `%=` | Modulo (remainder after division) assignment |
 
 This example executes various compound assignment operations on one “float” variable, `x`, and traces how each operation changes the variable’s stored value. The script draws a [table](https://www.tradingview.com/pine-script-docs/concepts/tables/) to show each operation and its resulting value of `x` after reassignment. A [float input](https://www.tradingview.com/pine-script-docs/concepts/inputs/#float-input) can change the initial value assigned to `x`, which in turn changes the result of each row’s calculation:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Operators-Compound-assignment-operators-1.CrQbM8TD_Zb19oS.webp)
 
 ```pine
 //@version=6

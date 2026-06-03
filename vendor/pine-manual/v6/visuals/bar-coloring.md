@@ -18,8 +18,6 @@ The coloring can be conditional because the `color` parameter accepts “series 
 
 The following script renders _inside_ and _outside_ bars in different colors:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/BarColoring-1.BVBRLjUu_24IaDi.webp)
-
 ```pine
 //@version=6
 indicator("barcolor example", overlay = true)

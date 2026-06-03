@@ -39,8 +39,6 @@ The “Settings” dialog always contains the “Style” and “Visibility” t
 
 When a script contains calls to `input.*()` functions, an “Inputs” tab also appears in the “Settings” dialog box.
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Inputs-Introduction-1.CNd-sZxz_Z2gIF1i.webp)
-
 Scripts process inputs when users add them to the chart or change the values in the script’s “Settings/Inputs” tab. Any changes to a script’s inputs prompt it to re-execute across all available data using the new specified values.
 
 ## Input functions {#input-functions}
@@ -177,8 +175,6 @@ f = input(close, "series float")
 plot(na)
 ```
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Inputs-InputTypes-01.Cq1mAVhd_Z8DL1a.webp)
-
 ### Integer input {#integer-input}
 
 Two signatures exist for the [input.int()](https://www.tradingview.com/pine-script-reference/v6/#fun_input.int) function; one when `options` is not used, the other when it is:
@@ -210,8 +206,6 @@ plot(ma)
 
 The version with the `options` list uses a dropdown menu for its widget. When the `options` parameter is not used, a simple input widget is used to enter the value:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Inputs-InputTypes-02.CZ6pYgBC_23gbbs.webp)
-
 ### Float input {#float-input}
 
 Two signatures exist for the [input.float()](https://www.tradingview.com/pine-script-reference/v6/#fun_input.float) function; one when `options` is not used, the other when it is:
@@ -239,13 +233,9 @@ plot(bbLo, "BB Lo", color.gray)
 
 The input widgets for floats are similar to the ones used for integer inputs:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Inputs-InputTypes-03.3O4JqasJ_Z1w7eXC.webp)
-
 ### Boolean input {#boolean-input}
 
 Let’s continue to develop our script further, this time by adding a boolean input to allow users to toggle the display of the BBs:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Inputs-InputTypes-04.BsSpKR3Q_ZECgxh.webp)
 
 ```pine
 //@version=6
@@ -283,8 +273,6 @@ bbLoColor = color.new(color.gray, low  < bbLo ? 60 : 0)
 
 When using dynamic (“series”) color components like the `transp` arguments in the above code, the color widgets in the “Settings/Style” tab will no longer appear. Let’s create our own input for color selection, which will appear in the “Settings/Inputs” tab:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Inputs-InputTypes-05.D_uuADST_1PO0cD.webp)
-
 ```pine
 //@version=6
 indicator("MA", "", true)
@@ -319,8 +307,6 @@ If a call to the [input.string()](https://www.tradingview.com/pine-script-refere
 Like the [input.text\_area()](https://www.tradingview.com/pine-script-reference/v6/#fun_input.text_area) function, the [input.string()](https://www.tradingview.com/pine-script-reference/v6/#fun_input.string) text can contain up to 40,960 characters, including horizontal whitespaces. However, because the input’s field in the “Settings/Inputs” tab is _narrow_, [input.string()](https://www.tradingview.com/pine-script-reference/v6/#fun_input.string) is best suited for defining small strings or for providing a quick set of input options for customizing calculations.
 
 The simple script below contains two [input.string()](https://www.tradingview.com/pine-script-reference/v6/#fun_input.string) calls. The first call creates a text field for defining the `timezone` argument of two [str.format\_time()](https://www.tradingview.com/pine-script-reference/v6/#fun_str.format_time) calls. It allows users to supply any text representing a [time zone](https://www.tradingview.com/pine-script-docs/concepts/time/#time-zones) in _UTC-offset_ or _IANA_ formats. The second call creates a _dropdown_ input with three preset options that determine the text shown in the drawn [labels](https://www.tradingview.com/pine-script-docs/visuals/text-and-shapes/#labels) (`"Open time"`, `"Close time"`, or `"Both"`):
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Inputs-Input-types-String-input-1.Y-zx-dc8_1uNf10.webp)
 
 ```pine
 //@version=6
@@ -358,8 +344,6 @@ Programmers often use text area inputs for purposes such as alert customization 
 
 This example uses the value of a text area input to represent a comma-separated list of symbols. The script [splits](https://www.tradingview.com/pine-script-docs/concepts/strings/#splitting-strings) the parsed “string” value by its comma characters to construct an [array](https://www.tradingview.com/pine-script-reference/v6/#type_array) of symbol substrings, then calls [request.security()](https://www.tradingview.com/pine-script-reference/v6/#fun_request.security) within a [for…in](https://www.tradingview.com/pine-script-reference/v6/#kw_for...in) loop on that array to dynamically retrieve the latest [volume](https://www.tradingview.com/pine-script-reference/v6/#var_volume) data for each specified symbol. On each loop iteration, the script converts the data to a “string” value with [str.tostring()](https://www.tradingview.com/pine-script-reference/v6/#fun_str.tostring) and displays the result in a [table](https://www.tradingview.com/pine-script-reference/v6/#type_table):
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Inputs-Input-types-Text-area-input-1.jUxfVOfV_IRVGS.webp)
-
 ```pine
 //@version=6
 indicator("Text area input demo", overlay = true)
@@ -390,8 +374,6 @@ Note that:
 The [input.timeframe()](https://www.tradingview.com/pine-script-reference/v6/#fun_input.timeframe) function creates a dropdown input containing _timeframe choices_. It returns a “string” value representing the selected timeframe in our [specification format](https://www.tradingview.com/pine-script-docs/concepts/timeframes/#timeframe-string-specifications), which scripts can use in `request.*()` calls to retrieve data from user-selected timeframes.
 
 The following script uses [request.security()](https://www.tradingview.com/pine-script-reference/v6/#fun_request.security) on each bar to fetch the value of a [ta.sma()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.sma) call from a user-specified higher timeframe, then plots the result on the chart:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Inputs-InputTypes-06.BvUY6GL6_ZORoBi.webp)
 
 ```pine
 //@version=6
@@ -472,8 +454,6 @@ Note that:
 -   We explicitly declare the type of our two inputs with the [string](https://www.tradingview.com/pine-script-reference/v6/#type_string) keyword to make it clear those variables will contain a string.
 -   We detect if the chart bar is in the user-defined session by calling [time()](https://www.tradingview.com/pine-script-reference/v6/#fun_time) with the session string. If the current bar’s [time](https://www.tradingview.com/pine-script-reference/v6/#var_time) value (the time at the bar’s [open](https://www.tradingview.com/pine-script-reference/v6/#var_open)) is not in the session, [time()](https://www.tradingview.com/pine-script-reference/v6/#fun_time) returns [na](https://www.tradingview.com/pine-script-reference/v6/#var_na), so `inSession` will be `true` whenever [time()](https://www.tradingview.com/pine-script-reference/v6/#fun_time) returns a value that is not [na](https://www.tradingview.com/pine-script-reference/v6/#var_na).
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Inputs-InputTypes-07.DBQQqMr6_ZIzKGF.webp)
-
 ### Source input {#source-input}
 
 Source inputs are useful to provide a selection of two types of sources:
@@ -492,8 +472,6 @@ plot(srcInput, "Src", color.new(color.purple, 70), 6)
 
 This shows a chart where, in addition to our script, we have loaded an “Arnaud Legoux Moving Average” indicator. See here how we use our script’s source input widget to select the output of the ALMA script as an input into our script. Because our script plots that source in a light-purple thick line, you see the plots from the two scripts overlap because they plot the same value:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Inputs-InputTypes-08.SH4c1RFT_Z1gBDcl.webp)
-
 ### Time input {#time-input}
 
 The [input.time()](https://www.tradingview.com/pine-script-reference/v6/#fun_input.time) function creates a time input, which converts a user-specified date and time, in the chart’s [time zone](https://www.tradingview.com/pine-script-docs/concepts/time/#time-zones), into a time zone-agnostic [UNIX timestamp](https://www.tradingview.com/pine-script-docs/concepts/time/#unix-timestamps). The timestamp represents the absolute number of _milliseconds_ elapsed since 00:00:00 UTC on January 1, 1970. The input’s `defval` argument can be any “const int” value, including the value returned by the _single-argument_ overload of the [timestamp()](https://www.tradingview.com/pine-script-reference/v6/#fun_timestamp) function.
@@ -501,8 +479,6 @@ The [input.time()](https://www.tradingview.com/pine-script-reference/v6/#fun_inp
 The [input.time()](https://www.tradingview.com/pine-script-reference/v6/#fun_input.time) function generates two fields: one for the _date_ and the other for the _time of day_. Additionally, it adds a _vertical marker_ to the chart. Users can change the input time either by moving this marker or by updating the value in the “Settings/Inputs” tab.
 
 This simple script highlights the chart background for each bar whose opening time is past the date and time specified in a time input’s fields. This script defines the [input.time()](https://www.tradingview.com/pine-script-reference/v6/#fun_input.time) call’s default argument as the result of a [timestamp()](https://www.tradingview.com/pine-script-reference/v6/#fun_timestamp) call that calculates the UNIX timestamp corresponding to December 27, 2024, at 09:30 in UTC-5:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Inputs-Input-types-Time-input-1.DPm8Tfwq_Z2ezDbg.webp)
 
 ```pine
 //@version=6
@@ -532,8 +508,6 @@ The [input.price()](https://www.tradingview.com/pine-script-reference/v6/#fun_in
 
 For example, this script calculates an RSI and plots the result with different colors based on the `thresholdInput` value. The plot is green if the RSI is above the value. Otherwise, it is red. Unlike a standard [float input](https://www.tradingview.com/pine-script-docs/concepts/inputs/#float-input), users can set this script’s input value by dragging the input’s horizontal marker up or down on the chart:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Inputs-Input-types-Price-input-1.DoTE5WYa_2hl6fp.webp)
-
 ```pine
 //@version=6
 indicator("Price input demo")
@@ -555,8 +529,6 @@ plot(rsi, "RSI", rsiColor, 3)
 Programmers can also _pair_ price inputs and [time inputs](https://www.tradingview.com/pine-script-docs/concepts/inputs/#time-input) to add _interactive points_ for custom calculations or drawings. When a script creates pairs of time and price inputs that belong to the same group, and each pair has a unique, matching `inline` argument, it adds _point markers_ on the chart instead of separate horizontal and vertical markers. Users can move these point markers to adjust input price and time values simultaneously.
 
 This example creates four pairs of price and time inputs with distinct `inline` values. Each input includes `confirm = true`, meaning that users set the values when they add the script to a chart. The script prompts users to set four time-price points, then draws a closed [polyline](https://www.tradingview.com/pine-script-reference/v6/#type_polyline) that passes through all the valid chart locations closest to the specified coordinates:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Inputs-Input-types-Price-input-2.B2H6DH_u_1VU06V.webp)
 
 ```pine
 //@version=6
@@ -600,8 +572,6 @@ Note that:
 The [input.enum()](https://www.tradingview.com/pine-script-reference/v6/#fun_input.enum) function creates a dropdown input that displays _field titles_ corresponding to distinct _members_ (possible values) of an [enum type](https://www.tradingview.com/pine-script-docs/language/type-system/#enum-types). The function returns one of the unique, named values from a declared [enum](https://www.tradingview.com/pine-script-docs/language/enums/), which scripts can use in calculations and logic requiring more strict control over allowed values and operations. Supply a list of enum members to the `options` parameter to specify the members users can select from the dropdown. If one does not specify an enum field’s title, its title is the “string” representation of its _name_.
 
 This example declares a `SignalType` enum with four fields representing named signal display modes: `long`, `short`, `both`, and `none`. The script uses a member of this [enum type](https://www.tradingview.com/pine-script-docs/language/type-system/#enum-types) as the `defval` argument in the [input.enum()](https://www.tradingview.com/pine-script-reference/v6/#fun_input.enum) call to generate a dropdown in the “Inputs” tab, allowing users to select one of the enum’s titles to control which signals it displays on the chart:
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Inputs-Input-types-Enum-input-1.D56ry8Yz_Z1rpy6.webp)
 
 ```pine
 //@version=6
@@ -652,8 +622,6 @@ SignalType sigInput = input.enum(SignalType.long, "Signal type", options = [Sign
 
 The above `options` argument specifies that users can only view and select the titles of the `long` and `short` fields from the `SignalType` enum. No other options are allowed:
 
-![image](https://www.tradingview.com/pine-script-docs/_astro/Inputs-Input-types-Enum-input-2.DoT-LWc3_Z24zm4N.webp)
-
 ## Other features affecting inputs {#other-features-affecting-inputs}
 
 Some parameters of the [indicator()](https://www.tradingview.com/pine-script-reference/v6/#fun_indicator) and [strategy()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy) functions populate a script’s “Settings/Inputs” tab with additional inputs. These parameters are `timeframe`, `timeframe_gaps`, and `calc_bars_count`. For example:
@@ -663,8 +631,6 @@ Some parameters of the [indicator()](https://www.tradingview.com/pine-script-ref
 indicator("MA", "", true, timeframe = "D", timeframe_gaps = false)
 plot(ta.vwma(close, 10))
 ```
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Inputs-OtherFeaturesAffectingInputs-03.BtNE-F7g_ZLn7aj.webp)
 
 ## Tips {#tips}
 
@@ -701,8 +667,6 @@ long2LengthInput = input(close, "Length",        inline = "22", group = GRP2)
 
 plot(ta.vwma(close, 10))
 ```
-
-![image](https://www.tradingview.com/pine-script-docs/_astro/Inputs-Tips-1.DU-DannF_ibNYS.webp)
 
 Note that:
 
