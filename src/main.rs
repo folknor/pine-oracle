@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 mod commands;
 mod output;
 
-use output::{ResolvedFormat, Style, print_json};
+use output::{ResolvedFormat, Style};
 
 /// pine: Pine v6 oracle CLI. Answers semantic questions about Pine script
 /// across every Pine-adjacent project. Vendors the pine-data behavior surface
@@ -18,17 +18,9 @@ struct Cli {
     #[command(subcommand)]
     command: Command,
 
-    /// Output format. Defaults to `text` when stdout is a TTY, `json` when
-    /// stdout is redirected or piped. Pass `--format json` to force machine-
-    /// readable output, or `--format text` to force human-readable output.
-    #[arg(long, global = true, value_enum, default_value_t = OutputFormat::Auto)]
-    format: OutputFormat,
-
     /// Suppress ANSI styling in text mode. Honoured automatically when
-    /// `NO_COLOR` is set or stdout is not a TTY. Has no effect in `--format
-    /// json` mode (JSON output is never styled). The flag reaches every
-    /// command; only those that emit colored text today (`pine validate`)
-    /// act on it visibly.
+    /// `NO_COLOR` is set or stdout is not a TTY. The flag reaches every
+    /// command; only those that emit colored text act on it visibly.
     #[arg(long, global = true)]
     no_color: bool,
 
@@ -178,13 +170,25 @@ enum Command {
         grep: Option<String>,
     },
 
-    /// Search the Pine User Manual prose (how does X work)
+    /// Find Pine User Manual sections (how does X work). Prints a menu of
+    /// matching sections as `<hash>  page / H2 / H3`; feed a hash to `po show`.
     Search {
-        /// A query, a `page#anchor` section ref, or a page path.
+        /// Free-text query.
         query: String,
-        /// Max sections to return for a query.
+        /// Max sections to list.
         #[arg(long, default_value_t = 8)]
         limit: usize,
+        /// Skip the menu and render the top hit's section directly.
+        #[arg(long, short = '1')]
+        top: bool,
+    },
+
+    /// Print Pine User Manual section(s) by their `po search` hash id. Each id
+    /// renders the section plus all its subsections; pass several to print many.
+    Show {
+        /// One or more 8-hex section ids from `po search`.
+        #[arg(required = true)]
+        refs: Vec<String>,
     },
 
     /// Type errors, syntax errors, behavior warnings
@@ -193,6 +197,12 @@ enum Command {
         source: PineSourceArgs,
         #[arg(long)]
         strict: bool,
+        /// Output format. Defaults to `text` when stdout is a TTY, `json` when
+        /// stdout is redirected or piped. Pass `--format json` to force the
+        /// machine-readable yes/no + diagnostics, or `--format text` to force
+        /// the human-readable report.
+        #[arg(long, value_enum, default_value_t = OutputFormat::Auto)]
+        format: OutputFormat,
     },
 
     /// pine-data snapshot date + behavior bake counts
@@ -201,15 +211,13 @@ enum Command {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    // Resolve stdout TTY state once so OutputFormat::Auto and Style::resolve
-    // both see the same answer. stdin().is_terminal() is kept separate in
+    // Resolve stdout TTY state once. stdin().is_terminal() is kept separate in
     // PineSourceArgs::read -- it is a different stream.
     let stdout_is_tty = std::io::stdout().is_terminal();
-    let format = cli.format.resolve(stdout_is_tty);
-    // `Style` is `Copy` and threaded into every command's `run` so future
-    // colorization can be added without touching the dispatcher. Commands
+    // Every command except `validate` is text-only, so its styling is resolved
+    // against Text. `Style` is `Copy` and threaded into each `run`; commands
     // that don't emit colored text today take it as `_style`.
-    let style = Style::resolve(cli.no_color, format, stdout_is_tty);
+    let text_style = Style::resolve(cli.no_color, ResolvedFormat::Text, stdout_is_tty);
 
     match cli.command {
         Command::Lookup {
@@ -222,73 +230,55 @@ fn main() -> Result<()> {
             list,
             kind.as_deref(),
             grep.as_deref(),
-            format,
-            style,
+            text_style,
             cli.quiet,
         ),
-        Command::Search { query, limit } => {
-            commands::search::run(&query, limit, format, style, cli.quiet)
+        Command::Search { query, limit, top } => {
+            commands::search::run(&query, limit, top, text_style, cli.quiet)
         }
-        Command::Validate { source, strict } => {
+        Command::Show { refs } => commands::show::run(&refs, text_style, cli.quiet),
+        Command::Validate {
+            source,
+            strict,
+            format,
+        } => {
+            // `validate` is the only command with JSON output, so it owns the
+            // `--format` flag and resolves its own Auto-vs-TTY format + style.
+            let format = format.resolve(stdout_is_tty);
+            let style = Style::resolve(cli.no_color, format, stdout_is_tty);
             let code = source.read()?;
             commands::validate::run(&code, strict, format, style, cli.quiet)
         }
-        Command::Version => cmd_version(format, cli.quiet),
+        Command::Version => cmd_version(cli.quiet),
     }
 }
 
-fn cmd_version(format: ResolvedFormat, quiet: bool) -> Result<()> {
+fn cmd_version(quiet: bool) -> Result<()> {
     let binary = env!("CARGO_PKG_VERSION");
     let indexed_names = suggest::indexed_name_count();
     let pine_data = behavior::snapshot();
     let manual_pages = manual::page_count();
     let manual_sections = manual::section_count();
-    match format {
-        ResolvedFormat::Json => {
-            print_json(&serde_json::json!({
-                    "binary": binary,
-                    "behavior": {
-                        "pine_data_version": pine_data.version,
-                        "generated_at": pine_data.generated_at,
-                        "function_count": pine_data.function_count,
-                        "variable_count": pine_data.variable_count,
-                        "constant_count": pine_data.constant_count,
-                        "keyword_count": pine_data.keyword_count,
-                        "type_count": pine_data.type_count,
-                        "annotation_count": pine_data.annotation_count,
-                        "operator_count": pine_data.operator_count,
-                        "polymorphic_function_count": pine_data.polymorphic_function_count,
-                        "indexed_name_count": indexed_names,
-                },
-                "manual": {
-                    "page_count": manual_pages,
-                    "section_count": manual_sections,
-                },
-            }))?;
-        }
-        ResolvedFormat::Text => {
-            println!("po {binary}");
-            if quiet {
-                return Ok(());
-            }
-            println!(
-                "pine-data:      v{} generated {}",
-                pine_data.version, pine_data.generated_at
-            );
-            println!(
-                "behavior:       {} functions ({} polymorphic), {} variables, {} constants, {} keywords, {} types, {} annotations, {} operators, {indexed_names} indexed names",
-                pine_data.function_count,
-                pine_data.polymorphic_function_count,
-                pine_data.variable_count,
-                pine_data.constant_count,
-                pine_data.keyword_count,
-                pine_data.type_count,
-                pine_data.annotation_count,
-                pine_data.operator_count
-            );
-            println!("manual:         {manual_pages} pages, {manual_sections} sections");
-        }
+    println!("po {binary}");
+    if quiet {
+        return Ok(());
     }
+    println!(
+        "pine-data:      v{} generated {}",
+        pine_data.version, pine_data.generated_at
+    );
+    println!(
+        "behavior:       {} functions ({} polymorphic), {} variables, {} constants, {} keywords, {} types, {} annotations, {} operators, {indexed_names} indexed names",
+        pine_data.function_count,
+        pine_data.polymorphic_function_count,
+        pine_data.variable_count,
+        pine_data.constant_count,
+        pine_data.keyword_count,
+        pine_data.type_count,
+        pine_data.annotation_count,
+        pine_data.operator_count
+    );
+    println!("manual:         {manual_pages} pages, {manual_sections} sections");
     Ok(())
 }
 
@@ -378,67 +368,6 @@ mod tests {
     }
 
     #[test]
-    fn cmd_version_json_shape() {
-        use crate::output::versioned_json;
-        use pine_oracle::{behavior, manual, suggest};
-
-        let binary = env!("CARGO_PKG_VERSION");
-        let indexed_names = suggest::indexed_name_count();
-        let pine_data = behavior::snapshot();
-
-        let payload = serde_json::json!({
-            "binary": binary,
-            "behavior": {
-                "pine_data_version": pine_data.version,
-                "generated_at": pine_data.generated_at,
-                "function_count": pine_data.function_count,
-                "variable_count": pine_data.variable_count,
-                "constant_count": pine_data.constant_count,
-                "keyword_count": pine_data.keyword_count,
-                "type_count": pine_data.type_count,
-                "annotation_count": pine_data.annotation_count,
-                "operator_count": pine_data.operator_count,
-                "polymorphic_function_count": pine_data.polymorphic_function_count,
-                "indexed_name_count": indexed_names,
-            },
-            "manual": {
-                "page_count": manual::page_count(),
-                "section_count": manual::section_count(),
-            },
-        });
-
-        let v = versioned_json(&payload).expect("must wrap");
-
-        // Pin all top-level fields; any rename must update this test.
-        assert!(
-            v["schema_version"].is_number(),
-            "schema_version must be present"
-        );
-        assert!(v["binary"].is_string(), "binary field must be a string");
-        assert!(
-            v["behavior"].is_object(),
-            "behavior field must be an object"
-        );
-
-        // Spot-check nested fields so renames inside objects are caught too.
-        assert!(v["behavior"]["pine_data_version"].is_string());
-        assert!(v["behavior"]["generated_at"].is_string());
-        assert!(v["behavior"]["function_count"].is_number());
-        assert!(v["behavior"]["variable_count"].is_number());
-        assert!(v["behavior"]["constant_count"].is_number());
-        assert!(v["behavior"]["keyword_count"].is_number());
-        assert!(v["behavior"]["type_count"].is_number());
-        assert!(v["behavior"]["annotation_count"].is_number());
-        assert!(v["behavior"]["operator_count"].is_number());
-        assert!(v["behavior"]["polymorphic_function_count"].is_number());
-        assert!(v["behavior"]["indexed_name_count"].is_number());
-
-        // Counts must be > 0 to flag a regression in the bake.
-        assert!(v["behavior"]["function_count"].as_u64().unwrap_or(0) > 0);
-        assert!(v["behavior"]["operator_count"].as_u64().unwrap_or(0) > 0);
-    }
-
-    #[test]
     fn lookup_list_parses_without_name() {
         let cli = Cli::try_parse_from([
             "pine",
@@ -494,7 +423,7 @@ mod tests {
             .expect("validate inline source should parse");
 
         match cli.command {
-            Command::Validate { source, strict } => {
+            Command::Validate { source, strict, .. } => {
                 assert!(!strict);
                 assert_eq!(source.read().expect("source"), "indicator(\"x\")");
             }
@@ -508,7 +437,7 @@ mod tests {
             .expect("validate --code source should parse");
 
         match cli.command {
-            Command::Validate { source, strict } => {
+            Command::Validate { source, strict, .. } => {
                 assert!(!strict);
                 assert_eq!(source.read().expect("source"), "indicator(\"x\")");
             }
@@ -528,7 +457,7 @@ mod tests {
         .expect("source conflict is resolved after parsing");
 
         match cli.command {
-            Command::Validate { source, strict: _ } => {
+            Command::Validate { source, .. } => {
                 let err = source.read().expect_err("must reject conflicting sources");
                 assert!(err.to_string().contains("cannot combine"));
             }
@@ -542,7 +471,7 @@ mod tests {
             .expect("missing path should parse");
 
         match cli.command {
-            Command::Validate { source, strict: _ } => {
+            Command::Validate { source, .. } => {
                 let err = source.read().expect_err("must reject missing .pine file");
                 assert!(err.to_string().contains("reading Pine source"));
                 assert!(err.to_string().contains("does-not-exist.pine"));
@@ -557,37 +486,58 @@ mod tests {
             .expect("inline source should parse");
 
         match cli.command {
-            Command::Validate { source, strict: _ } => {
+            Command::Validate { source, .. } => {
                 assert_eq!(source.read().expect("source"), "plot(close / 2)");
             }
             _ => panic!("expected validate command"),
         }
     }
 
-    // --- OutputFormat + global flag parsing pins ---
+    // --- OutputFormat (validate-only `--format`) + flag parsing pins ---
 
-    /// Pin that `--format json` parses to the Json variant.
+    /// `--format` belongs to `validate` only; pin that each variant parses.
     #[test]
-    fn format_flag_json_parses() {
-        let cli = Cli::try_parse_from(["pine", "--format", "json", "lookup", "plot"])
-            .expect("--format json should parse");
-        assert_eq!(cli.format, OutputFormat::Json);
+    fn validate_format_flag_json_parses() {
+        let cli = Cli::try_parse_from(["pine", "validate", "--format", "json", "x = 1"])
+            .expect("validate --format json should parse");
+        match cli.command {
+            Command::Validate { format, .. } => assert_eq!(format, OutputFormat::Json),
+            _ => panic!("expected validate command"),
+        }
     }
 
-    /// Pin that `--format text` parses to the Text variant.
     #[test]
-    fn format_flag_text_parses() {
-        let cli = Cli::try_parse_from(["pine", "--format", "text", "lookup", "plot"])
-            .expect("--format text should parse");
-        assert_eq!(cli.format, OutputFormat::Text);
+    fn validate_format_flag_text_parses() {
+        let cli = Cli::try_parse_from(["pine", "validate", "--format", "text", "x = 1"])
+            .expect("validate --format text should parse");
+        match cli.command {
+            Command::Validate { format, .. } => assert_eq!(format, OutputFormat::Text),
+            _ => panic!("expected validate command"),
+        }
     }
 
-    /// Pin that the default variant is Auto (no --format flag given).
+    /// Default is Auto when no `--format` is given.
     #[test]
-    fn format_flag_defaults_to_auto() {
-        let cli =
-            Cli::try_parse_from(["pine", "lookup", "plot"]).expect("no --format should parse");
-        assert_eq!(cli.format, OutputFormat::Auto);
+    fn validate_format_flag_defaults_to_auto() {
+        let cli = Cli::try_parse_from(["pine", "validate", "x = 1"])
+            .expect("validate with no --format should parse");
+        match cli.command {
+            Command::Validate { format, .. } => assert_eq!(format, OutputFormat::Auto),
+            _ => panic!("expected validate command"),
+        }
+    }
+
+    /// `--format` must NOT exist on the text-only commands.
+    #[test]
+    fn format_flag_rejected_on_search_and_lookup() {
+        assert!(
+            Cli::try_parse_from(["pine", "search", "--format", "json", "foo"]).is_err(),
+            "search must not accept --format"
+        );
+        assert!(
+            Cli::try_parse_from(["pine", "lookup", "--format", "json", "plot"]).is_err(),
+            "lookup must not accept --format"
+        );
     }
 
     /// Pin that `--no-color` sets the flag.
@@ -616,7 +566,7 @@ mod tests {
         let cli = Cli::try_parse_from(["pine", "validate", "-"]).expect("-  should parse");
 
         match cli.command {
-            Command::Validate { source, strict: _ } => {
+            Command::Validate { source, .. } => {
                 assert_eq!(
                     source.input.as_deref(),
                     Some("-"),
@@ -638,7 +588,7 @@ mod tests {
                 .expect("parse should succeed; conflict detected at read time");
 
         match cli.command {
-            Command::Validate { source, strict: _ } => {
+            Command::Validate { source, .. } => {
                 let err = source.read().expect_err("--code + --file must be rejected");
                 assert!(
                     err.to_string().contains("cannot combine"),

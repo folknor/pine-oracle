@@ -5,4 +5,5 @@
 
 pub(crate) mod lookup;
 pub(crate) mod search;
+pub(crate) mod show;
 pub(crate) mod validate;

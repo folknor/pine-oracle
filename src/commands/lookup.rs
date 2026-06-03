@@ -1,7 +1,7 @@
 use anyhow::{Result, bail};
 use pine_oracle::{behavior, suggest};
 
-use crate::output::{ResolvedFormat, Style, is_catalog_request, print_catalog, print_json};
+use crate::output::{Style, is_catalog_request, print_catalog};
 
 /// How many "did you mean ...?" suggestions to offer on a lookup miss.
 const SUGGEST_LIMIT: usize = 8;
@@ -18,16 +18,15 @@ pub(crate) fn run(
     list: bool,
     kind: Option<&str>,
     grep: Option<&str>,
-    format: ResolvedFormat,
     _style: Style,
     quiet: bool,
 ) -> Result<()> {
     if is_catalog_request(kind) {
-        return print_kind_catalog(format, quiet);
+        return print_kind_catalog(quiet);
     }
     if list {
         let grep = resolve_list_grep(name, grep)?;
-        return print_behavior_list(kind, grep, format);
+        return print_behavior_list(kind, grep);
     }
     if kind.is_some() || grep.is_some() {
         bail!("`po lookup --kind/--grep` requires `--list`");
@@ -41,23 +40,14 @@ pub(crate) fn run(
     // every meaning rather than silently picking one.
     let matches = behavior::lookup_all(name);
     if matches.is_empty() {
-        return did_you_mean(name, format, quiet);
+        return did_you_mean(name, quiet);
     }
 
-    match format {
-        ResolvedFormat::Json => print_json(&serde_json::json!({
-            "query": name,
-            "exact": true,
-            "matches": matches,
-        }))?,
-        ResolvedFormat::Text => {
-            for (i, b) in matches.iter().enumerate() {
-                if i > 0 {
-                    println!();
-                }
-                print_behavior_text(b);
-            }
+    for (i, b) in matches.iter().enumerate() {
+        if i > 0 {
+            println!();
         }
+        print_behavior_text(b);
     }
     Ok(())
 }
@@ -70,43 +60,30 @@ fn resolve_list_grep<'a>(name: Option<&'a str>, grep: Option<&'a str>) -> Result
     }
 }
 
-fn print_kind_catalog(format: ResolvedFormat, quiet: bool) -> Result<()> {
+fn print_kind_catalog(quiet: bool) -> Result<()> {
     let kinds = behavior::kind_catalog();
     print_catalog(
-        "kinds",
         &kinds,
         |k| format!("{:<9} {:>5}  {}", k.kind, k.count, k.description),
         |k| k.kind.to_string(),
-        format,
         quiet,
     )
 }
 
-fn print_behavior_list(
-    kind: Option<&str>,
-    grep: Option<&str>,
-    format: ResolvedFormat,
-) -> Result<()> {
+fn print_behavior_list(kind: Option<&str>, grep: Option<&str>) -> Result<()> {
     let entries = behavior::list(kind, grep)?;
-    match format {
-        ResolvedFormat::Json => {
-            print_json(&entries)?;
-        }
-        ResolvedFormat::Text => {
-            if entries.is_empty() {
-                println!("no behavior entries");
+    if entries.is_empty() {
+        println!("no behavior entries");
+    } else {
+        for entry in &entries {
+            let marker = if entry.polymorphic { " poly" } else { "" };
+            if entry.detail.is_empty() {
+                println!("{:<9} {}{}", entry.kind, entry.name, marker);
             } else {
-                for entry in &entries {
-                    let marker = if entry.polymorphic { " poly" } else { "" };
-                    if entry.detail.is_empty() {
-                        println!("{:<9} {}{}", entry.kind, entry.name, marker);
-                    } else {
-                        println!(
-                            "{:<9} {}{}  {}",
-                            entry.kind, entry.name, marker, entry.detail
-                        );
-                    }
-                }
+                println!(
+                    "{:<9} {}{}  {}",
+                    entry.kind, entry.name, marker, entry.detail
+                );
             }
         }
     }
@@ -116,27 +93,16 @@ fn print_behavior_list(
 /// No exact hit: offer the closest identifier names via the BM25 suggestion
 /// engine ("did you mean ...?"). This is the former standalone name-search,
 /// demoted to lookup's recovery path.
-fn did_you_mean(name: &str, format: ResolvedFormat, quiet: bool) -> Result<()> {
+fn did_you_mean(name: &str, quiet: bool) -> Result<()> {
     let hits = suggest::suggest(name, SUGGEST_LIMIT)?;
     if hits.is_empty() {
         bail!("no match for `{name}`");
     }
-    match format {
-        ResolvedFormat::Json => {
-            print_json(&serde_json::json!({
-                "query": name,
-                "exact": false,
-                "suggestions": hits,
-            }))?;
-        }
-        ResolvedFormat::Text => {
-            if !quiet {
-                eprintln!("no exact match for `{name}`. did you mean:");
-            }
-            for s in &hits {
-                println!("{}", s.name);
-            }
-        }
+    if !quiet {
+        eprintln!("no exact match for `{name}`. did you mean:");
+    }
+    for s in &hits {
+        println!("{}", s.name);
     }
     Ok(())
 }

@@ -6,8 +6,10 @@
 //     gets wrapped in the same `schema_version`-bearing envelope.
 //   - CATALOG_MARKER + is_catalog_request: unified sentinel check for
 //     `--kind ?` catalog-listing requests.
-//   - print_catalog: unified JSON-vs-text + quiet dispatch for the
-//     catalog surfaces (search kinds, behavior kinds).
+//   - print_catalog: text rows for the `--kind` catalog (honours --quiet).
+//
+// JSON output (ResolvedFormat::Json + print_json/versioned_json) is used only
+// by `po validate`; every other command is text-only.
 
 use anyhow::Result;
 use serde::Serialize;
@@ -32,38 +34,28 @@ pub(crate) fn is_catalog_request(s: Option<&str>) -> bool {
     s == Some(CATALOG_MARKER)
 }
 
-/// Unified catalog printer. Handles JSON-vs-text dispatch and `--quiet` short
-/// rows for all four catalog surfaces (`--kind`, `--baseline`, `--feature`).
+/// Catalog printer for the `--kind` listing: one text row per item, honouring
+/// `--quiet` (name-only rows).
 ///
 /// Parameters:
-/// - `json_key`: top-level key wrapping `items` in the JSON object
-///   (`"kinds"`, `"baselines"`, `"features"`).
-/// - `items`: the catalog slice; items must implement `Serialize`.
+/// - `items`: the catalog slice.
 /// - `text_row`: full row formatter (name + count + description columns).
 /// - `text_row_quiet`: quiet row formatter (name column only).
-/// - `format`: resolved output format.
 /// - `quiet`: when true, use `text_row_quiet` instead of `text_row`.
-pub(crate) fn print_catalog<T: Serialize>(
-    json_key: &str,
+pub(crate) fn print_catalog<T>(
     items: &[T],
     text_row: impl Fn(&T) -> String,
     text_row_quiet: impl Fn(&T) -> String,
-    format: ResolvedFormat,
     quiet: bool,
 ) -> Result<()> {
-    match format {
-        ResolvedFormat::Json => print_json(&serde_json::json!({ json_key: items })),
-        ResolvedFormat::Text => {
-            for item in items {
-                if quiet {
-                    println!("{}", text_row_quiet(item));
-                } else {
-                    println!("{}", text_row(item));
-                }
-            }
-            Ok(())
+    for item in items {
+        if quiet {
+            println!("{}", text_row_quiet(item));
+        } else {
+            println!("{}", text_row(item));
         }
     }
+    Ok(())
 }
 
 #[must_use]
@@ -393,25 +385,9 @@ mod tests {
 
     #[test]
     fn print_catalog_does_not_panic_on_empty_slice() {
-        // Smoke: empty catalog renders without panic in both formats.
+        // Smoke: empty catalog renders without panic.
         let items: Vec<&str> = vec![];
-        print_catalog(
-            "kinds",
-            &items,
-            |_| unreachable!(),
-            |_| unreachable!(),
-            ResolvedFormat::Text,
-            false,
-        )
-        .expect("empty text catalog must not error");
-        print_catalog(
-            "kinds",
-            &items,
-            |_| unreachable!(),
-            |_| unreachable!(),
-            ResolvedFormat::Json,
-            false,
-        )
-        .expect("empty json catalog must not error");
+        print_catalog(&items, |_| unreachable!(), |_| unreachable!(), false)
+            .expect("empty catalog must not error");
     }
 }
