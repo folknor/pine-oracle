@@ -258,6 +258,36 @@ use super::*;
     }
 
     #[test]
+    fn history_dependent_flag_is_parsed() {
+        // The 2026-06-07 scrape flags history-dependent functions (the whole
+        // ta.* namespace plus fixnan and math.sum) with historyDependent:true.
+        // The serde rename must fire or this returns false.
+        for name in ["ta.sma", "fixnan", "math.sum"] {
+            let b = lookup(name).expect("flagged function must exist");
+            match b {
+                Behavior::Function(f) => {
+                    assert!(
+                        f.flags.history_dependent,
+                        "{name} should have history_dependent=true (historyDependent in JSON)"
+                    );
+                }
+                other => panic!("expected Function, got {other:?}"),
+            }
+        }
+        // math.max is the docs' named stateless counter-example; it must not
+        // carry the flag.
+        match lookup("math.max").expect("math.max must exist") {
+            Behavior::Function(f) => {
+                assert!(
+                    !f.flags.history_dependent,
+                    "math.max is stateless and must not be history-dependent"
+                );
+            }
+            other => panic!("expected Function, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn lookup_is_case_insensitive() {
         // Variables are stored with their original casing (e.g. "close").
         // Querying with "CLOSE" must return the same entry.

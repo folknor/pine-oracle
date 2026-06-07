@@ -177,6 +177,12 @@ fn print_behavior_text(b: &behavior::Behavior) {
                 };
                 flag_notes.push(format!("variadic{bounds}"));
             }
+            if f.flags.history_dependent {
+                flag_notes.push(
+                    "history-dependent (call on every bar; conditional calls trigger CW10003)"
+                        .to_string(),
+                );
+            }
             if !flag_notes.is_empty() {
                 println!("  flags: {}", flag_notes.join(", "));
             }

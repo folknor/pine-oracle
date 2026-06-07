@@ -1216,6 +1216,13 @@
     ]
   },
   {
+    "name": "syminfo.cftc_code",
+    "namespace": "syminfo",
+    "type": "simple<string>",
+    "qualifier": "simple",
+    "description": "The CFTC code of the symbol's underlying futures market, as a string. Undocumented in the v6 reference; accepted and typed by TV's linter (pine-lint --tv probe, 2026-06-07)."
+  },
+  {
     "name": "syminfo.country",
     "namespace": "syminfo",
     "type": "simple<string>",

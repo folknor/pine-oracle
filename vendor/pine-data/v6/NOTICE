@@ -11,7 +11,7 @@ TradingView.
 
 Files:
   - functions.json    (475 entries) signatures, params, flags, overloads, examples
-  - variables.json    (161 entries) built-in variables (close, high, time)
+  - variables.json    (162 entries) built-in variables (close, high, time)
   - constants.json    (237 entries) constants (color.red, shape.circle)
   - keywords.json      (28 entries)  reserved keywords (objects: description + prose sub-sections)
   - types.json         (20 entries)  built-in types (chart.point, line, array, ...)
@@ -32,11 +32,15 @@ Schema notes:
     reference card straight from pine-data; the markdown reference vendor was
     retired once they landed.
 
-Snapshot: pine-tools scrape 2026-06-02 (functions.json only: upstream narrowed
-five over-broad parameter type strings to match TradingView's docs - fixnan
-`source` and nz `source`/`replacement` int/float/bool/string/color -> int/float/color,
-int `x` int/float/bool -> int/float, plot `title` series string -> const string;
-entry counts unchanged, the other six files are byte-identical to 2026-05-31).
+Snapshot: pine-tools scrape 2026-06-07. Three changes vs. 2026-06-02:
+  - functions.json: mass `required` correction (94 -> 1223 params flagged
+    required; upstream had been under-reporting requiredness).
+  - functions.json: new `flags.historyDependent` (true on the whole ta.*
+    namespace plus fixnan and math.sum - functions whose conditional or
+    iterative calls build an inconsistent series, TV's CW10003 criterion).
+  - variables.json: new entry `syminfo.cftc_code` (161 -> 162; undocumented
+    in the v6 reference, probed against TV's linter 2026-06-07).
+The other five files are byte-identical to 2026-06-02.
 The JSON files are bare arrays with no embedded generation timestamp; the
 snapshot date above is baked into the binary as behavior::PINE_DATA_SNAPSHOT for
 `po version`.
