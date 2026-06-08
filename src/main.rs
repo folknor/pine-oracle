@@ -13,7 +13,7 @@ use output::{ResolvedFormat, Style};
 /// across every Pine-adjacent project. Vendors the pine-data behavior surface
 /// (structured Pine v6 signatures + prose); exposes it as one-shot subcommands.
 #[derive(Parser)]
-#[command(name = "pine", version, about = "Pine v6 oracle CLI", long_about = None)]
+#[command(name = "po", version, about = "Pine v6 oracle CLI", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Command,

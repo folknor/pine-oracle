@@ -20,16 +20,31 @@ strategies.
 | `po version` | Binary version + pine-data bake counts (functions, variables, constants, keywords, types, annotations, operators) and the pinned snapshot date |
 
 Output is text-only except `po validate`, which alone takes `--format
-json|text|auto` for a machine-readable yes/no + diagnostics path; its JSON
-carries `schema_version: 2`. Text output accepts `--quiet` to suppress non-data
-headers, status lines, and validation notes where a command emits them.
+json|text|auto` for a machine-readable yes/no + diagnostics path. Text output
+accepts `--quiet` to suppress non-data headers, status lines, and validation
+notes where a command emits them.
 
-### Schema versioning
+## Where the data comes from
 
-`schema_version` is bumped on any breaking shape change to `po validate`'s JSON
-output. The constant lives in `src/output.rs` (`SCHEMA_VERSION`) and is
-hard-pinned by a test; bumping it requires updating both. Once assigned, a
-version's payload shapes do not change in place.
+Every answer is served from data **compiled into the binary at build time** -
+`po search` queries an embedded snapshot of the Pine User Manual, not the live
+website, and `po lookup` reads embedded JSON, not a remote API. There are no
+network calls (except `validate --strict`, which POSTs to TradingView's
+pine-lint endpoint), no on-disk index, and no cache to warm.
+
+Two vendored sources under `vendor/` are baked in:
+
+- **pine-data** - the seven structured JSON catalogs (functions, variables,
+  constants, keywords, types, annotations, operators) from
+  [pine-tools](https://github.com/folknor/pine-tools), embedded with
+  `include_str!`. Backs `po lookup` and fills gaps in local validation.
+- **Pine User Manual** - the manual as a per-page markdown tree, embedded with
+  `include_dir!` and BM25-indexed in RAM on first query. Backs `po search` /
+  `po show`.
+
+Because the data is a point-in-time snapshot, it tracks Pine v6 as of the
+vendored scrape - `po version` prints the pinned snapshot date. Refreshing the
+data means re-vendoring and rebuilding; there is nothing to update at runtime.
 
 ## Install
 
