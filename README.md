@@ -15,7 +15,7 @@ strategies.
 | `po lookup [TEXT] --list [--kind function\|variable\|constant\|keyword\|type\|annotation\|operator] [--grep TEXT]` | Browse the pine-data behavior catalog; list-mode `TEXT` acts as grep, `--kind` is case-insensitive, and `--kind ?` lists behavior kinds |
 | `po search <query>` | **Find** across **both** the Pine User Manual and the authored TA recipes at once (one BM25 index). Prints a menu, no prose: a manual row is `<8-hex id>  page / H2 / H3` (feed the id to `po show`), a recipe row is `recipe <name>  recipe / category / Title` (run it directly). `--limit` defaults to 8. `-1` / `--top` renders the top hit directly (manual section or recipe body) |
 | `po show <id> [<id>...]` | Print Manual section(s) by the id `po search` prints. Renders the section **plus all its subsections** to the terminal with its canonical TradingView URL; multiple ids render in order. Hash-only addressing |
-| `po recipe <name>` | Describe a technical-analysis instrument that has **no** TradingView builtin and no Manual page (custom moving averages, composite indicators, candlestick patterns, market-structure concepts): prose + a Pine v6 recipe. Match by name or alias; `--list` / `--category` / `--grep` browse (`--category ?` lists the catalog); a miss offers fuzzy "did you mean ...?" suggestions |
+| `po recipe <name>` | A Pine cookbook: how to build something that has **no** TradingView builtin and no Manual page - prose + a self-contained Pine v6 recipe. Covers indicators (custom moving averages, oscillators, candlestick patterns, volatility/volume/trend tools) and general helpers (easing/animation curves, risk metrics). Match by name or alias; `--list` / `--category` / `--grep` browse (`--category ?` lists the catalog); a miss offers fuzzy "did you mean ...?" suggestions |
 | `po validate <code-or-file>` / `--code CODE` / `--file PATH` / `-` | Local lex + parse + type + semantic diagnostics from piners-syntax, backed by piners-runtime builtins plus pine-data gap-fill; text diagnostics include source-line caret frames. Codes documented in `docs/diagnostics.md` |
 | `po validate --strict <code-or-file>` | POST to TradingView's pine-lint endpoint. Yes/no oracle; diagnostic prose is non-actionable |
 | `po version` | Binary version + pine-data bake counts (functions, variables, constants, keywords, types, annotations, operators), manual page/section counts, recipe entry/category counts, and the pinned snapshot date |
@@ -43,14 +43,15 @@ Two vendored sources under `vendor/` are baked in:
   `include_dir!` and BM25-indexed in RAM on first query. Backs `po search` /
   `po show`.
 
-The TA **recipes** behind `po recipe` are different: not vendored but
+The **recipes** behind `po recipe` are different: not vendored but
 **authored in-repo** under `assets/recipes/<category>/<name>.md` (also embedded
-with `include_dir!`), covering instruments TradingView ships no builtin for.
+with `include_dir!`), a Pine cookbook covering anything TradingView ships no
+builtin for - indicators plus general helpers (easing curves, risk metrics).
 They are independent reimplementations - the formulas are derived from reference
-sources (the pandas-ta-classic library and TradingView's open-source `ta`
-library) and reimplemented in Pine v6, not copied, with each recipe's Pine
-checked clean by `pine-lint`. The same recipes are folded into `po search`'s
-unified index.
+sources (the pandas-ta-classic library, TradingView's open-source `ta` library,
+the easings.net catalog, and standard quant-finance definitions) and
+reimplemented in Pine v6, not copied, with each recipe's Pine checked clean by
+`pine-lint`. The same recipes are folded into `po search`'s unified index.
 
 Because the data is a point-in-time snapshot, it tracks Pine v6 as of the
 vendored scrape - `po version` prints the pinned snapshot date. Refreshing the
@@ -89,6 +90,11 @@ per-component attributions.
   https://github.com/xgboosted/pandas-ta-classic - the indicator library whose
   implementations are the primary reference for the `po recipe` formulas. The
   recipes are independently reimplemented in Pine v6, not copied.
+- **easings.net** (Andrey Sitnik & Ivan Solovev, GPL-3.0 for the site code; the
+  easing *formulas* themselves are standard and uncopyrightable) - the reference
+  for the `easing` recipe family. The Pine ports were also cross-checked against
+  RicardoSantos' `MathEasingFunctions` library (MPL-2.0) on TradingView.
+  Independently reimplemented, not copied.
 - **TradingView** - the Pine v6 reference documentation that pine-tools
   crawls to produce the pine-data exports, and the Pine User Manual
   vendored under `vendor/pine-manual/` for `po search` / `po show`. Its
