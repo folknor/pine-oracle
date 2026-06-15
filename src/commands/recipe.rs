@@ -105,14 +105,14 @@ mod tests {
     #[test]
     fn list_name_becomes_implicit_grep() {
         assert_eq!(
-            resolve_list_grep(Some("hma"), None).expect("valid"),
-            Some("hma")
+            resolve_list_grep(Some("dema"), None).expect("valid"),
+            Some("dema")
         );
     }
 
     #[test]
     fn list_rejects_name_and_explicit_grep() {
-        let err = resolve_list_grep(Some("hma"), Some("hull")).expect_err("must reject");
+        let err = resolve_list_grep(Some("dema"), Some("double")).expect_err("must reject");
         assert!(err.to_string().contains("cannot combine"));
     }
 }

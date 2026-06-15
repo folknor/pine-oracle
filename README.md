@@ -13,11 +13,12 @@ strategies.
 |---|---|
 | `po lookup <name>` | Describe an identifier from pine-data: the structured signature (typed params with per-argument prose + default / allowedValues / min / max, per-overload signatures, polymorphism + deprecation flags) plus the prose sub-sections `Remarks`, `See also`, and the `Returns` sentence. Operators (`+`, `?:`, `[]`, ...) are a first-class catalog. Names that live in several catalogs at once (`na` is a function, a variable, and a keyword; `time` is a function and a variable) dump **every** meaning. On a miss, BM25 "did you mean ...?" suggestions of the closest identifier names |
 | `po lookup [TEXT] --list [--kind function\|variable\|constant\|keyword\|type\|annotation\|operator] [--grep TEXT]` | Browse the pine-data behavior catalog; list-mode `TEXT` acts as grep, `--kind` is case-insensitive, and `--kind ?` lists behavior kinds |
-| `po search <query>` | **Find** sections of the **Pine User Manual** (how does X work) - the complement to `lookup`'s "what is X". Prints a menu of matching sections, one per row as `<8-hex id>  page / H2 / H3` (no prose); feed an id to `po show`. `--limit` defaults to 8. `-1` / `--top` renders the top hit directly |
+| `po search <query>` | **Find** across **both** the Pine User Manual and the authored TA recipes at once (one BM25 index). Prints a menu, no prose: a manual row is `<8-hex id>  page / H2 / H3` (feed the id to `po show`), a recipe row is `recipe <name>  recipe / category / Title` (run it directly). `--limit` defaults to 8. `-1` / `--top` renders the top hit directly (manual section or recipe body) |
 | `po show <id> [<id>...]` | Print Manual section(s) by the id `po search` prints. Renders the section **plus all its subsections** to the terminal with its canonical TradingView URL; multiple ids render in order. Hash-only addressing |
+| `po recipe <name>` | Describe a technical-analysis instrument that has **no** TradingView builtin and no Manual page (custom moving averages, composite indicators, candlestick patterns, market-structure concepts): prose + a Pine v6 recipe. Match by name or alias; `--list` / `--category` / `--grep` browse (`--category ?` lists the catalog); a miss offers fuzzy "did you mean ...?" suggestions |
 | `po validate <code-or-file>` / `--code CODE` / `--file PATH` / `-` | Local lex + parse + type + semantic diagnostics from piners-syntax, backed by piners-runtime builtins plus pine-data gap-fill; text diagnostics include source-line caret frames. Codes documented in `docs/diagnostics.md` |
 | `po validate --strict <code-or-file>` | POST to TradingView's pine-lint endpoint. Yes/no oracle; diagnostic prose is non-actionable |
-| `po version` | Binary version + pine-data bake counts (functions, variables, constants, keywords, types, annotations, operators) and the pinned snapshot date |
+| `po version` | Binary version + pine-data bake counts (functions, variables, constants, keywords, types, annotations, operators), manual page/section counts, recipe entry/category counts, and the pinned snapshot date |
 
 Output is text-only except `po validate`, which alone takes `--format
 json|text|auto` for a machine-readable yes/no + diagnostics path. Text output
@@ -41,6 +42,13 @@ Two vendored sources under `vendor/` are baked in:
 - **Pine User Manual** - the manual as a per-page markdown tree, embedded with
   `include_dir!` and BM25-indexed in RAM on first query. Backs `po search` /
   `po show`.
+
+The TA **recipes** behind `po recipe` are different: not vendored but
+**authored in-repo** under `assets/recipes/<category>/<name>.md` (also embedded
+with `include_dir!`), covering instruments TradingView ships no builtin for.
+They are independent reimplementations - the formulas are cross-checked against
+TradingView's open-source `ta` library for correctness, not copied from it. The
+same recipes are folded into `po search`'s unified index.
 
 Because the data is a point-in-time snapshot, it tracks Pine v6 as of the
 vendored scrape - `po version` prints the pinned snapshot date. Refreshing the
@@ -77,6 +85,8 @@ per-component attributions.
   of syntect/emoji) to render `po search -1` / `po show` manual sections.
 - **TradingView** - the Pine v6 reference documentation that pine-tools
   crawls to produce the pine-data exports, and the Pine User Manual
-  vendored under `vendor/pine-manual/` for `po search` / `po show`. TradingView and
-  PineScript are trademarks of their respective owners. This project is
-  not affiliated with or endorsed by TradingView.
+  vendored under `vendor/pine-manual/` for `po search` / `po show`. Its
+  open-source `ta` library (MPL-2.0) was used as a correctness reference when
+  authoring the `po recipe` formulas (independently reimplemented, not copied).
+  TradingView and PineScript are trademarks of their respective owners. This
+  project is not affiliated with or endorsed by TradingView.

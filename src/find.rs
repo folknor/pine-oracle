@@ -187,12 +187,12 @@ mod tests {
     #[test]
     fn finds_recipe_by_title_and_alias() {
         // A query that exists only in the recipe corpus must surface it.
-        let hits = find("hull moving average", 8).expect("search ok");
+        let hits = find("double exponential moving average", 8).expect("search ok");
         let hit = hits
             .iter()
             .find(|h| h.kind == HitKind::Recipe)
             .expect("a recipe hit");
-        assert_eq!(hit.handle, "hma");
+        assert_eq!(hit.handle, "dema");
         assert!(
             hit.breadcrumb.starts_with("recipe / "),
             "recipe breadcrumb shape: {}",

@@ -305,15 +305,15 @@ mod tests {
 
     #[test]
     fn lookup_resolves_by_name_and_alias() {
-        let by_name = lookup("hma").expect("hma by name");
-        assert_eq!(by_name.title, "Hull Moving Average");
+        let by_name = lookup("dema").expect("dema by name");
+        assert_eq!(by_name.title, "Double Exponential Moving Average");
         assert_eq!(by_name.category, "moving-average");
-        assert!(by_name.body.contains("ta.wma"), "body carries the Pine");
+        assert!(by_name.body.contains("ta.ema"), "body carries the Pine");
 
         // Case-insensitive, and an alias resolves to the same recipe.
-        assert_eq!(lookup("HMA").map(|r| &r.name), Some(&"hma".to_string()));
-        let by_alias = lookup("hull moving average").expect("hma by alias");
-        assert_eq!(by_alias.name, "hma");
+        assert_eq!(lookup("DEMA").map(|r| &r.name), Some(&"dema".to_string()));
+        let by_alias = lookup("double exponential moving average").expect("dema by alias");
+        assert_eq!(by_alias.name, "dema");
 
         assert!(lookup("does-not-exist").is_none());
     }
@@ -321,27 +321,27 @@ mod tests {
     #[test]
     fn list_filters_by_category_and_grep() {
         let mas = list(Some("moving-average"), None);
-        assert!(mas.iter().any(|r| r.name == "hma"));
+        assert!(mas.iter().any(|r| r.name == "dema"));
         assert!(
             mas.iter().all(|r| r.category == "moving-average"),
             "category filter must be exact"
         );
         // grep crosses name / title / alias.
-        assert!(list(None, Some("hull")).iter().any(|r| r.name == "hma"));
+        assert!(list(None, Some("double")).iter().any(|r| r.name == "dema"));
         assert!(
             list(None, Some("engulf"))
                 .iter()
                 .any(|r| r.name == "engulfing")
         );
-        assert!(list(Some("candlestick"), Some("hull")).is_empty());
+        assert!(list(Some("candlestick"), Some("double")).is_empty());
     }
 
     #[test]
     fn suggest_ranks_exact_handle_first() {
-        let hits = suggest("hull moving avg", 5);
+        let hits = suggest("double exponential avg", 5);
         assert!(
-            hits.iter().any(|r| r.name == "hma"),
-            "fuzzy query should surface hma, got {:?}",
+            hits.iter().any(|r| r.name == "dema"),
+            "fuzzy query should surface dema, got {:?}",
             hits.iter().map(|r| &r.name).collect::<Vec<_>>()
         );
         assert!(suggest("", 5).is_empty(), "empty query suggests nothing");
