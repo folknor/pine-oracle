@@ -46,9 +46,11 @@ Two vendored sources under `vendor/` are baked in:
 The TA **recipes** behind `po recipe` are different: not vendored but
 **authored in-repo** under `assets/recipes/<category>/<name>.md` (also embedded
 with `include_dir!`), covering instruments TradingView ships no builtin for.
-They are independent reimplementations - the formulas are cross-checked against
-TradingView's open-source `ta` library for correctness, not copied from it. The
-same recipes are folded into `po search`'s unified index.
+They are independent reimplementations - the formulas are derived from reference
+sources (the pandas-ta-classic library and TradingView's open-source `ta`
+library) and reimplemented in Pine v6, not copied, with each recipe's Pine
+checked clean by `pine-lint`. The same recipes are folded into `po search`'s
+unified index.
 
 Because the data is a point-in-time snapshot, it tracks Pine v6 as of the
 vendored scrape - `po version` prints the pinned snapshot date. Refreshing the
@@ -83,6 +85,10 @@ per-component attributions.
   https://github.com/takeshiD/markdown-peek - its `emitter/term.rs`
   markdown-to-terminal renderer was adapted into `src/render.rs` (trimmed
   of syntect/emoji) to render `po search -1` / `po show` manual sections.
+- **pandas-ta-classic** (MIT) -
+  https://github.com/xgboosted/pandas-ta-classic - the indicator library whose
+  implementations are the primary reference for the `po recipe` formulas. The
+  recipes are independently reimplemented in Pine v6, not copied.
 - **TradingView** - the Pine v6 reference documentation that pine-tools
   crawls to produce the pine-data exports, and the Pine User Manual
   vendored under `vendor/pine-manual/` for `po search` / `po show`. Its

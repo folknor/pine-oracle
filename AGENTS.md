@@ -110,7 +110,10 @@ Single-crate workspace, so `-p` is unnecessary.
 
 Current Pine lint source of truth:
 
-- `node /home/folk/Programs/pine-tools/dist/packages/cli/src/cli.js --code '<pine source>'` - local pine-tools validator. This is the real `pine-lint2` target; `pine-lint2` itself may only exist as an interactive shell alias. Long-term goal: replace this with pine-oracle / piners validation once parity is strong enough.
+- `pine-lint` (the pine-tools CLI, installed on PATH) is the source of truth for Pine validation behavior; treat feature parity with it as the target. It reads a file path, an inline `--code/-c '<pine source>'`, or stdin via `-`, and emits JSON by default.
+  - Prefer `pine-lint -H <file-or-`-c`>` for routine validity checks: human-readable one-line-per-finding output plus a summary, exit 1 on errors. This is how recipe Pine snippets are checked clean before shipping.
+  - `pine-lint --tv` forwards the source to TradingView's `translate_light` endpoint instead of running locally - use it when a local result looks wrong or to confirm an error code.
+- NOTE: `po validate` is pine-oracle's own piners-backed validator, **not** the lint source of truth - do not use it to vet Pine; use `pine-lint`. Long-term goal: bring pine-oracle / piners validation to parity with `pine-lint`.
 
 ## Subcommand status
 
