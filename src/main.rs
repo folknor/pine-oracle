@@ -1,6 +1,6 @@
 use anyhow::{Result, bail};
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use pine_oracle::{behavior, manual, suggest};
+use pine_oracle::{behavior, manual, recipe, suggest};
 use std::io::{IsTerminal, Read};
 use std::path::{Path, PathBuf};
 
@@ -191,6 +191,22 @@ enum Command {
         refs: Vec<String>,
     },
 
+    /// Describe a TA instrument with no TradingView builtin (custom moving
+    /// averages, composite indicators, candlestick patterns, structure
+    /// concepts): authored prose + a Pine v6 recipe.
+    Recipe {
+        name: Option<String>,
+        /// List recipe corpus entries instead of describing one name.
+        #[arg(long)]
+        list: bool,
+        /// Restrict `--list` to one category. Pass `?` to list the catalog.
+        #[arg(long)]
+        category: Option<String>,
+        /// Restrict `--list` entries by name, title, alias, or category text.
+        #[arg(long)]
+        grep: Option<String>,
+    },
+
     /// Type errors, syntax errors, behavior warnings
     Validate {
         #[command(flatten)]
@@ -237,6 +253,19 @@ fn main() -> Result<()> {
             commands::search::run(&query, limit, top, text_style, cli.quiet)
         }
         Command::Show { refs } => commands::show::run(&refs, text_style, cli.quiet),
+        Command::Recipe {
+            name,
+            list,
+            category,
+            grep,
+        } => commands::recipe::run(
+            name.as_deref(),
+            list,
+            category.as_deref(),
+            grep.as_deref(),
+            text_style,
+            cli.quiet,
+        ),
         Command::Validate {
             source,
             strict,
@@ -259,6 +288,8 @@ fn cmd_version(quiet: bool) -> Result<()> {
     let pine_data = behavior::snapshot();
     let manual_pages = manual::page_count();
     let manual_sections = manual::section_count();
+    let recipe_count = recipe::count();
+    let recipe_categories = recipe::categories().len();
     println!("po {binary}");
     if quiet {
         return Ok(());
@@ -279,6 +310,7 @@ fn cmd_version(quiet: bool) -> Result<()> {
         pine_data.operator_count
     );
     println!("manual:         {manual_pages} pages, {manual_sections} sections");
+    println!("recipes:        {recipe_count} entries across {recipe_categories} categories");
     Ok(())
 }
 

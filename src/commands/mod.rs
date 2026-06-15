@@ -4,6 +4,7 @@
 // resolved output format (+ Style when the command emits styled text).
 
 pub(crate) mod lookup;
+pub(crate) mod recipe;
 pub(crate) mod search;
 pub(crate) mod show;
 pub(crate) mod validate;
