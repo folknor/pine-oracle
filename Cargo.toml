@@ -53,7 +53,7 @@ name = "pine-oracle"
 version = "0.0.1"
 edition = "2024"
 rust-version = "1.92"
-description = "Pine v6 oracle CLI: lookup, validate, search Pine semantics"
+description = "Pine v6 oracle CLI: lookup, search, recipe Pine semantics"
 license = "MPL-2.0"
 
 [lints]
@@ -66,8 +66,6 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
-piners-runtime = { path = "../piners/crates/piners-runtime" }
-piners-syntax = { path = "../piners/crates/piners-syntax" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4.45", default-features = false, features = ["std", "clock"] }
@@ -75,7 +73,6 @@ include_dir = { version = "0.7", features = ["glob"] }
 owo-colors = "4"
 pulldown-cmark = "0.13"
 tantivy = "0.26"
-ureq = { version = "3", default-features = false, features = ["rustls"] }
 
 [profile.release]
 lto = "thin"

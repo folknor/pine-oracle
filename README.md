@@ -2,10 +2,9 @@
 
 A single-binary CLI that answers Pine Script v6 semantic questions.
 Structured-signature lookups (with BM25 "did you mean ...?" recovery), Pine
-User Manual prose search, and validation - all baked into one Rust binary with
-no on-disk state, no network calls (except `validate --strict`), no runtime
-configuration. It answers questions *about* Pine; it never executes user
-strategies.
+User Manual prose search, and an authored Pine cookbook - all baked into one
+Rust binary with no on-disk state, no network calls, no runtime configuration.
+It answers questions *about* Pine; it never executes user strategies.
 
 ## What it does
 
@@ -16,29 +15,24 @@ strategies.
 | `po search <query>` | **Find** across **both** the Pine User Manual and the authored TA recipes at once (one BM25 index). Prints a menu, no prose: a manual row is `<8-hex id>  page / H2 / H3` (feed the id to `po show`), a recipe row is `recipe <name>  recipe / category / Title` (run it directly). `--limit` defaults to 8. `-1` / `--top` renders the top hit directly (manual section or recipe body) |
 | `po show <id> [<id>...]` | Print Manual section(s) by the id `po search` prints. Renders the section **plus all its subsections** to the terminal with its canonical TradingView URL; multiple ids render in order. Hash-only addressing |
 | `po recipe <name>` | A Pine cookbook: how to build something that has **no** TradingView builtin and no Manual page - prose + a self-contained Pine v6 recipe. Covers indicators (custom moving averages, oscillators, candlestick patterns, volatility/volume/trend tools) and general helpers (easing/animation curves, risk metrics). Match by name or alias; `--list` / `--category` / `--grep` browse (`--category ?` lists the catalog); a miss offers fuzzy "did you mean ...?" suggestions |
-| `po validate <code-or-file>` / `--code CODE` / `--file PATH` / `-` | Local lex + parse + type + semantic diagnostics from piners-syntax, backed by piners-runtime builtins plus pine-data gap-fill; text diagnostics include source-line caret frames. Codes documented in `docs/diagnostics.md` |
-| `po validate --strict <code-or-file>` | POST to TradingView's pine-lint endpoint. Yes/no oracle; diagnostic prose is non-actionable |
 | `po version` | Binary version + pine-data bake counts (functions, variables, constants, keywords, types, annotations, operators), manual page/section counts, recipe entry/category counts, and the pinned snapshot date |
 
-Output is text-only except `po validate`, which alone takes `--format
-json|text|auto` for a machine-readable yes/no + diagnostics path. Text output
-accepts `--quiet` to suppress non-data headers, status lines, and validation
-notes where a command emits them.
+Output is text-only across the board. Text output accepts `--quiet` to suppress
+non-data headers and status lines where a command emits them.
 
 ## Where the data comes from
 
 Every answer is served from data **compiled into the binary at build time** -
 `po search` queries an embedded snapshot of the Pine User Manual, not the live
 website, and `po lookup` reads embedded JSON, not a remote API. There are no
-network calls (except `validate --strict`, which POSTs to TradingView's
-pine-lint endpoint), no on-disk index, and no cache to warm.
+network calls, no on-disk index, and no cache to warm.
 
 Two vendored sources under `vendor/` are baked in:
 
 - **pine-data** - the seven structured JSON catalogs (functions, variables,
   constants, keywords, types, annotations, operators) from
   [pine-tools](https://github.com/folknor/pine-tools), embedded with
-  `include_str!`. Backs `po lookup` and fills gaps in local validation.
+  `include_str!`. Backs `po lookup`.
 - **Pine User Manual** - the manual as a per-page markdown tree, embedded with
   `include_dir!` and BM25-indexed in RAM on first query. Backs `po search` /
   `po show`.
@@ -76,12 +70,8 @@ per-component attributions.
 
 - **folknor / pine-tools** (MIT) - the structured pine-data JSON exports
   (functions, variables, constants, keywords, types, annotations,
-  operators) that back `po lookup` and fill gaps in piners-runtime's
-  validation builtins. Same upstream that builds the VS Code Pine
-  extension + LSP + MCP server.
-- **piners** (MIT OR Apache-2.0) - piners-syntax powers local
-  `po validate`; piners-runtime provides the primary builtins table used
-  by local validation.
+  operators) that back `po lookup`. Same upstream that builds the VS Code
+  Pine extension + LSP + MCP server.
 - **markdown-peek** (MIT, (c) tkcd / takeshiD) -
   https://github.com/takeshiD/markdown-peek - its `emitter/term.rs`
   markdown-to-terminal renderer was adapted into `src/render.rs` (trimmed

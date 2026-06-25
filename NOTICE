@@ -36,14 +36,6 @@ src/render.rs
   relicensed MPL-2.0 as a project source file; the MIT origin is acknowledged
   here and in the README.
 
-Sibling path dependencies
--------------------------
-
-../piners/crates/piners-syntax/
-../piners/crates/piners-runtime/
-  piners crates used for Pine syntax diagnostics and runtime builtins.
-  License: MIT OR Apache-2.0.
-
 Per-file SPDX identifiers
 -------------------------
 
