@@ -8,7 +8,9 @@ aliases: ultimate oscillator, uo
 Larry Williams' Ultimate Oscillator blends buying pressure over three time frames
 (fast, medium, slow) into a single 0-100 oscillator, weighting the fast horizon
 most. Using three periods is meant to reduce the false divergences that plague
-single-period oscillators. There is no `ta.uo()` builtin.
+single-period oscillators. There is no `ta.uo()` builtin. It is also exported as
+`uo()` by TradingView's `ta` library:
+https://pine-facade.tradingview.com/pine-facade/lib_list/?lib_id_prefix=TradingView/ta/12
 
 ## Recipe
 

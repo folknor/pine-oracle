@@ -8,7 +8,9 @@ aliases: double exponential moving average, double ema
 The DEMA reduces the lag of a regular EMA by subtracting the EMA of the EMA: it
 adds back the smoothing error so the result tracks price more closely. There is
 no `ta.dema()` builtin (`ta.ema` is the only EMA primitive), so it is composed
-from two nested EMAs.
+from two nested EMAs. It is also exported as `dema()` by TradingView's `ta`
+library:
+https://pine-facade.tradingview.com/pine-facade/lib_list/?lib_id_prefix=TradingView/ta/12
 
 ## Recipe
 

@@ -8,7 +8,9 @@ aliases: vertical horizontal filter, vhf
 Adam White's VHF distinguishes trending from ranging markets. It divides the total
 price range over the window (highest close minus lowest close) by the sum of
 bar-to-bar changes: a directed move covers more net distance per unit of churn.
-There is no `ta.vhf()` builtin.
+There is no `ta.vhf()` builtin. It is also exported as `vhf()` by TradingView's
+`ta` library:
+https://pine-facade.tradingview.com/pine-facade/lib_list/?lib_id_prefix=TradingView/ta/12
 
 ## Recipe
 

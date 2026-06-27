@@ -8,6 +8,8 @@ aliases: percentage price oscillator, ppo
 The PPO is MACD expressed in percent: the gap between a fast and slow EMA divided
 by the slow EMA, times 100, with an EMA signal line and a histogram. The percent
 scaling makes it comparable across instruments. There is no `ta.ppo()` builtin.
+It is also exported as `ppo()` by TradingView's `ta` library:
+https://pine-facade.tradingview.com/pine-facade/lib_list/?lib_id_prefix=TradingView/ta/12
 
 ## Recipe
 

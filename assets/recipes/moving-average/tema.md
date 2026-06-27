@@ -7,7 +7,9 @@ aliases: triple exponential moving average, triple ema
 
 The TEMA pushes the DEMA idea one step further, combining three nested EMAs to
 strip out even more lag while staying smoother than a raw price series. There is
-no `ta.tema()` builtin, so it is built from three `ta.ema` calls.
+no `ta.tema()` builtin, so it is built from three `ta.ema` calls. It is also
+exported as `tema()` by TradingView's `ta` library:
+https://pine-facade.tradingview.com/pine-facade/lib_list/?lib_id_prefix=TradingView/ta/12
 
 ## Recipe
 

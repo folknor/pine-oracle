@@ -8,7 +8,9 @@ aliases: ichimoku cloud, ichimoku, ichimoku kinko hyo
 Ichimoku Kinko Hyo is a complete trend system in one overlay: a fast Conversion
 Line and slower Base Line (each the midpoint of a Donchian range), a forward-
 projected "cloud" (Span A/B) marking future support/resistance, and a Chikou
-(lagging) line. There is no `ta.ichimoku()` builtin.
+(lagging) line. There is no `ta.ichimoku()` builtin. It is also exported as
+`ichimoku()` by TradingView's `ta` library:
+https://pine-facade.tradingview.com/pine-facade/lib_list/?lib_id_prefix=TradingView/ta/12
 
 ## Recipe
 

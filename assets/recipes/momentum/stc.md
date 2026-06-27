@@ -8,7 +8,8 @@ aliases: schaff trend cycle, stc
 Doug Schaff's Trend Cycle treats MACD as a cyclical signal and runs it through two
 cascaded stochastic passes, each smoothed by a factor, to produce a fast,
 0-100 trend oscillator that turns earlier than MACD. There is no `ta.stc()`
-builtin.
+builtin. It is also exported as `stc()` by TradingView's `ta` library:
+https://pine-facade.tradingview.com/pine-facade/lib_list/?lib_id_prefix=TradingView/ta/12
 
 ## Recipe
 

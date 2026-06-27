@@ -9,7 +9,9 @@ Ehlers' Hilbert Transform decomposes price into a rotating phasor: an in-phase
 component and a quadrature component 90 degrees out of phase with it. Together
 they trace the dominant cycle as a vector spinning once per cycle. The full
 machinery (WMA smoothing, the FIR detrender, and the period-feedback loop) feeds
-the two outputs. There is no `ta.ht_phasor()` builtin.
+the two outputs. There is no `ta.ht_phasor()` builtin. TradingView's `ta` library
+exports the underlying Hilbert FIR primitive as `ht()` (not this full indicator):
+https://pine-facade.tradingview.com/pine-facade/lib_list/?lib_id_prefix=TradingView/ta/12
 
 ## Recipe
 

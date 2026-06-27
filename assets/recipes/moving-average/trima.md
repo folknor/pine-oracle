@@ -8,7 +8,9 @@ aliases: triangular moving average, tma
 The TRIMA is a double-smoothed average whose weights form a triangle: the
 middle bars of the window carry the most weight and the ends carry the least.
 It is computed as an SMA of an SMA, which produces the triangular weighting for
-free. There is no `ta.trima()` builtin.
+free. There is no `ta.trima()` builtin. It is also exported as `trima()` by
+TradingView's `ta` library:
+https://pine-facade.tradingview.com/pine-facade/lib_list/?lib_id_prefix=TradingView/ta/12
 
 ## Recipe
 

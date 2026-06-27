@@ -8,7 +8,9 @@ aliases: vortex indicator, vortex, vi
 The Vortex Indicator captures directional trend movement with two lines: VI+
 measures upward movement (this high vs the prior low) and VI- measures downward
 movement (this low vs the prior high), each normalized by true range. There is no
-`ta.vortex()` builtin.
+`ta.vortex()` builtin. It is also exported as `vi()` by TradingView's `ta`
+library:
+https://pine-facade.tradingview.com/pine-facade/lib_list/?lib_id_prefix=TradingView/ta/12
 
 ## Recipe
 

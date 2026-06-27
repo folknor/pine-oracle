@@ -9,7 +9,9 @@ John Ehlers' Fisher Transform reshapes price into a near-Gaussian distribution s
 that turning points stand out as sharp extremes. Price is normalized to its
 recent range, then passed through the Fisher transform and smoothed recursively;
 a signal line (the prior Fisher value) crosses it for triggers. There is no
-`ta.fisher()` builtin.
+`ta.fisher()` builtin. It is also exported as `ft()` by TradingView's `ta`
+library:
+https://pine-facade.tradingview.com/pine-facade/lib_list/?lib_id_prefix=TradingView/ta/12
 
 ## Recipe
 

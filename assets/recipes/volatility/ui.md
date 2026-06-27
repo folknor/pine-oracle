@@ -8,7 +8,8 @@ aliases: ulcer index, ui
 Peter Martin's Ulcer Index measures downside volatility only: the root-mean-square
 of percentage drawdowns from the running high. Squaring the drawdowns emphasises
 deep, prolonged declines - the "ulcers" a portfolio causes. There is no `ta.ui()`
-builtin.
+builtin. It is also exported as `ulcerIndex()` by TradingView's `ta` library:
+https://pine-facade.tradingview.com/pine-facade/lib_list/?lib_id_prefix=TradingView/ta/12
 
 ## Recipe
 

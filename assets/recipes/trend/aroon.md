@@ -8,7 +8,9 @@ aliases: aroon, aroon indicator, aroon oscillator
 Aroon measures how recently the highest high and lowest low occurred within the
 window. Aroon Up is high when a new high is recent; Aroon Down is high when a new
 low is recent; the oscillator is their difference. There is no `ta.aroon()`
-builtin (it is built from `ta.highestbars`/`ta.lowestbars`).
+builtin (it is built from `ta.highestbars`/`ta.lowestbars`). It is also exported
+as `aroon()` by TradingView's `ta` library:
+https://pine-facade.tradingview.com/pine-facade/lib_list/?lib_id_prefix=TradingView/ta/12
 
 ## Recipe
 

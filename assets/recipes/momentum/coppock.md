@@ -7,7 +7,9 @@ aliases: coppock curve, coppock
 
 The Coppock Curve is a long-term momentum indicator: a weighted moving average of
 the sum of two rates of change. Originally a monthly buy-signal tool, it is also
-used on daily charts. There is no `ta.coppock()` builtin.
+used on daily charts. There is no `ta.coppock()` builtin. It is also exported as
+`coppock()` by TradingView's `ta` library:
+https://pine-facade.tradingview.com/pine-facade/lib_list/?lib_id_prefix=TradingView/ta/12
 
 ## Recipe
 

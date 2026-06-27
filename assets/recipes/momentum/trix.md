@@ -8,7 +8,9 @@ aliases: trix, triple exponential average
 TRIX is the one-bar rate of change of a triple-smoothed EMA. The triple
 smoothing filters out price moves shorter than the length, leaving a clean
 momentum oscillator that is well suited to divergence spotting. There is no
-`ta.trix()` builtin.
+`ta.trix()` builtin. It is also exported as `trix()` by TradingView's `ta`
+library:
+https://pine-facade.tradingview.com/pine-facade/lib_list/?lib_id_prefix=TradingView/ta/12
 
 ## Recipe
 

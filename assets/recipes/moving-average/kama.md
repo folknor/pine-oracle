@@ -8,7 +8,9 @@ aliases: kaufman adaptive moving average, kaufman moving average
 The KAMA speeds up when price trends and slows down when price chops, by scaling
 its smoothing constant with Kaufman's Efficiency Ratio (directional travel over
 total travel). It hugs strong trends yet flattens through noise. There is no
-`ta.kama()` builtin.
+`ta.kama()` builtin. It is also exported as `kama()` by TradingView's `ta`
+library:
+https://pine-facade.tradingview.com/pine-facade/lib_list/?lib_id_prefix=TradingView/ta/12
 
 ## Recipe
 

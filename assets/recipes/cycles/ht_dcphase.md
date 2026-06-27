@@ -9,7 +9,10 @@ This shares Ehlers' Hilbert Transform machinery with HT_DCPERIOD (smoother,
 detrender, in-phase/quadrature, homodyne discriminator) but outputs the phase
 angle of the dominant cycle instead of its length. The phase is recovered by
 summing the smoothed price against sine and cosine of the cycle period, then
-correcting the quadrant. There is no `ta.ht_dcphase()` builtin.
+correcting the quadrant. There is no `ta.ht_dcphase()` builtin. TradingView's
+`ta` library exports the underlying Hilbert FIR primitive as `ht()` (not this
+full indicator):
+https://pine-facade.tradingview.com/pine-facade/lib_list/?lib_id_prefix=TradingView/ta/12
 
 ## Recipe
 

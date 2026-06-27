@@ -10,7 +10,9 @@ in-phase/quadrature, homodyne discriminator, dominant cycle phase, Sine/LeadSine
 and an instantaneous trendline) and collapses it to a single 0/1 flag: 1 means
 the market is trending, 0 means it is cycling. The flag follows TA-Lib's four-step
 rule (crossover reset, bars-in-trend, phase-change range, price-vs-trendline
-divergence). There is no `ta.ht_trendmode()` builtin.
+divergence). There is no `ta.ht_trendmode()` builtin. TradingView's `ta` library
+exports the underlying Hilbert FIR primitive as `ht()` (not this full indicator):
+https://pine-facade.tradingview.com/pine-facade/lib_list/?lib_id_prefix=TradingView/ta/12
 
 ## Recipe
 

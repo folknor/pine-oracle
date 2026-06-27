@@ -8,7 +8,8 @@ aliases: ease of movement, eom, emv
 Richard Arms' Ease of Movement relates price change to volume: how far the
 midpoint moved per unit of volume. It is high when price advances on light volume
 (price moves "easily") and low when heavy volume is needed. There is no
-`ta.eom()` builtin.
+`ta.eom()` builtin. It is also exported as `eom()` by TradingView's `ta` library:
+https://pine-facade.tradingview.com/pine-facade/lib_list/?lib_id_prefix=TradingView/ta/12
 
 ## Recipe
 

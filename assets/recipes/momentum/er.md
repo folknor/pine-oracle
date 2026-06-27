@@ -9,6 +9,8 @@ Perry Kaufman's Efficiency Ratio divides the net price change over N bars by the
 sum of the absolute bar-to-bar changes over the same window. It measures how much
 of the total travel was directional, scaling from 0 (pure noise) to 1 (a clean
 trend). There is no `ta.er()` builtin (it composes `ta.change` and `math.sum`).
+It is also exported as `er()` by TradingView's `ta` library:
+https://pine-facade.tradingview.com/pine-facade/lib_list/?lib_id_prefix=TradingView/ta/12
 
 ## Recipe
 

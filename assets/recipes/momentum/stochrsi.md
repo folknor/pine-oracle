@@ -9,7 +9,8 @@ The Stochastic RSI applies the Stochastic formula to RSI rather than price: it
 measures where the current RSI sits within its own recent high-low range, then
 smooths into %K and %D lines. It is more sensitive than either RSI or Stochastic
 alone. There is no `ta.stochrsi()` builtin (it composes `ta.rsi` and the stoch
-formula).
+formula). It is also exported as `stochRsi()` by TradingView's `ta` library:
+https://pine-facade.tradingview.com/pine-facade/lib_list/?lib_id_prefix=TradingView/ta/12
 
 ## Recipe
 

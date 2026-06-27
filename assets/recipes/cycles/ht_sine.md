@@ -9,7 +9,9 @@ This drives Ehlers' Hilbert Transform machinery (the same smoother, detrender,
 in-phase/quadrature and homodyne discriminator as HT_DCPERIOD) all the way to the
 dominant cycle phase, then plots two waves: Sine (the sine of that phase) and
 LeadSine (the same phase advanced 45 degrees). Their crossovers lead price turns
-in cycle mode. There is no `ta.ht_sine()` builtin.
+in cycle mode. There is no `ta.ht_sine()` builtin. TradingView's `ta` library
+exports the underlying Hilbert FIR primitive as `ht()` (not this full indicator):
+https://pine-facade.tradingview.com/pine-facade/lib_list/?lib_id_prefix=TradingView/ta/12
 
 ## Recipe
 

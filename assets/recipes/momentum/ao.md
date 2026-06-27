@@ -7,7 +7,9 @@ aliases: awesome oscillator, ao
 
 Bill Williams' Awesome Oscillator measures momentum as the gap between a fast and
 a slow simple moving average of the median price (`hl2`). It is plotted as a
-histogram around zero. There is no `ta.ao()` builtin.
+histogram around zero. There is no `ta.ao()` builtin. It is also exported as
+`ao()` by TradingView's `ta` library:
+https://pine-facade.tradingview.com/pine-facade/lib_list/?lib_id_prefix=TradingView/ta/12
 
 ## Recipe
 

@@ -8,7 +8,8 @@ aliases: chandelier exit, ce
 Chuck LeBeau's Chandelier Exit sets a trailing stop an ATR multiple away from the
 highest high (for longs) or lowest low (for shorts) over the window. It "hangs"
 the stop from the extreme like a chandelier from a ceiling. There is no `ta.ce()`
-builtin.
+builtin. It is also exported as `chandelier()` by TradingView's `ta` library:
+https://pine-facade.tradingview.com/pine-facade/lib_list/?lib_id_prefix=TradingView/ta/12
 
 ## Recipe
 

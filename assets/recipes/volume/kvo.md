@@ -8,7 +8,9 @@ aliases: klinger volume oscillator, kvo, klinger oscillator
 Stephen Klinger's oscillator signs each bar's volume by whether the typical price
 (`hlc3`) rose or fell, then takes the difference of a fast and slow EMA of that
 signed volume, with a signal line. It aims to predict reversals from volume
-force. There is no `ta.kvo()` builtin.
+force. There is no `ta.kvo()` builtin. It is also exported as `kvo()` by
+TradingView's `ta` library:
+https://pine-facade.tradingview.com/pine-facade/lib_list/?lib_id_prefix=TradingView/ta/12
 
 ## Recipe
 

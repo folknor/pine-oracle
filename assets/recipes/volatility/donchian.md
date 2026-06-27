@@ -8,7 +8,8 @@ aliases: donchian channels, donchian channel, dc
 Donchian Channels plot the highest high and lowest low over the window, with a
 midline between them. They frame the recent price range and are the basis of
 classic breakout systems (the Turtle traders). There is no `ta.donchian()`
-builtin.
+builtin. It is also exported as `donchian()` by TradingView's `ta` library:
+https://pine-facade.tradingview.com/pine-facade/lib_list/?lib_id_prefix=TradingView/ta/12
 
 ## Recipe
 

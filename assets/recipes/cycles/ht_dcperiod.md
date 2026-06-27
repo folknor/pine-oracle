@@ -9,7 +9,9 @@ Ehlers' Hilbert Transform machinery measures the dominant cycle hiding in price.
 A WMA-smoothed price is detrended into in-phase and quadrature components, and a
 homodyne discriminator turns those into the cycle period in bars, which is then
 clamped (6 to 50, and within +/-50% of the prior bar) and smoothed. There is no
-`ta.ht_dcperiod()` builtin.
+`ta.ht_dcperiod()` builtin. TradingView's `ta` library exports the underlying
+Hilbert FIR primitive as `ht()` (not this full indicator):
+https://pine-facade.tradingview.com/pine-facade/lib_list/?lib_id_prefix=TradingView/ta/12
 
 ## Recipe
 
