@@ -18,8 +18,7 @@ indicator("Harami", "Harami", overlay = true)
 
 prevBody  = math.abs(close[1] - open[1])
 curBody   = math.abs(close - open)
-contained = math.max(open, close) <= math.max(open[1], close[1]) and
-            math.min(open, close) >= math.min(open[1], close[1])
+contained = math.max(open, close) <= math.max(open[1], close[1]) and math.min(open, close) >= math.min(open[1], close[1])
 oppColor  = (close > open) != (close[1] > open[1])
 
 isPat = prevBody > 0 and contained and curBody < prevBody * 0.5 and oppColor

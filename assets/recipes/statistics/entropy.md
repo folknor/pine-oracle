@@ -21,7 +21,8 @@ src    = input.source(close, "Source")
 
 entropy(source, len, b) =>
     p = source / math.sum(source, len)
-    -math.sum(p * math.log(p) / math.log(b), len)
+    entp = -math.sum(p * math.log(p) / math.log(b), len)
+    entp
 
 plot(entropy(src, length, base), "Entropy")
 ```

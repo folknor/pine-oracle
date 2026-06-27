@@ -24,7 +24,8 @@ cg(source, len) =>
     for i = 0 to len - 1
         num += (i + 1) * source[i]
         den += source[i]
-    -num / den
+    cog = -num / den
+    cog
 
 plot(cg(src, length), "CG")
 ```

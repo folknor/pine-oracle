@@ -20,8 +20,7 @@ body2 = math.abs(close[2] - open[2])    // first candle
 body1 = math.abs(close[1] - open[1])    // star
 mid2  = (open[2] + close[2]) / 2
 
-isPat = body2 > 0 and close[2] < open[2] and body1 < body2 * 0.3 and
-        close > open and close > mid2
+isPat = body2 > 0 and close[2] < open[2] and body1 < body2 * 0.3 and close > open and close > mid2
 plotshape(isPat, "Morning Star", shape.triangleup, location.belowbar, color.green)
 ```
 

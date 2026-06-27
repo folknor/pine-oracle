@@ -17,8 +17,7 @@ gain. There is no candlestick builtin in Pine.
 indicator("Dark Cloud Cover", "DarkCloud", overlay = true)
 
 midPrior = (open[1] + close[1]) / 2
-isPat = close[1] > open[1] and close < open and open > close[1] and
-        close < midPrior and close > open[1]
+isPat = close[1] > open[1] and close < open and open > close[1] and close < midPrior and close > open[1]
 plotshape(isPat, "Dark Cloud Cover", shape.triangledown, location.abovebar, color.red)
 ```
 
