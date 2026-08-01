@@ -70,15 +70,6 @@ This is the single source of truth for Bash rules in this project. The project C
 - Never run `git` with `-C <path>`.
 - One Bash() invocation === one command.
 
-### git commit rules
-
-- Always run `brokkr fmt` before a commit.
-- Never commit markdown changes alone. Bundle them with upcoming code commits.
-- When committing other changes: always tag along markdown files if dirty.
-- Write substantive engineering-focused commit messages.
-- Has `Cargo.lock` changed? Commit it.
-- Never `git push` unless the user explicitly asks. Stop after the commit.
-
 ### Vendoring rules
 
 - New vendored sources go under `vendor/<name>/` with a LICENSE copy and a NOTICE file describing source path + snapshot date.
@@ -120,3 +111,37 @@ Current Pine lint source of truth:
 | `po show <id> [<id>...]` | done (renders Pine User Manual section(s) by the 8-hex id `po search` prints. Each id resolves via `manual::by_id` and renders the section **plus all its subsections** (`subtree_markdown`) through the `render` module, with the canonical TradingView URL as a trailing provenance line; multiple ids render in order. Unknown id errors; an ambiguous id (hash collision) errors and lists the matches. Hash-only addressing; text-only) |
 | `po recipe <name>` | done (a Pine cookbook - how to build anything with no TradingView builtin, indicators + general helpers like easing/risk - from the authored `recipe` corpus: renders the recipe markdown body (prose + Pine v6 snippet) via `render`, with a `recipe: <category>/<name>` provenance trailer. Exact match by name or alias (case-insensitive); `--list` + `--category` + `--grep` browse the corpus (`po recipe TEXT --list` treats `TEXT` as an implicit grep; pass `--category ?` for the catalog); on a miss, fuzzy "did you mean ...?" suggestions. Text-only. The corpus is hand-authored under `assets/recipes/<category>/<name>.md`, baked via `include_dir`) |
 | `po version` | done (binary version + pine-data bake counts incl. operators + manual page/section counts + recipe entry/category counts) |
+
+## Document folders
+
+The standing layout, across every project. Three live folders plus one retired,
+split by durability first, subject second.
+
+| Folder | Contents | Rule |
+|---|---|---|
+| `reference/` | Durable in-repo reference for anyone working on or with the code - how the thing is built and why: `architecture.md`, `technical-implementation-spec.md`, `performance.md` (the durable record of measured numbers over time), invariants, protocol contracts | Citable from source as a source of truth. What it says must be true. |
+| `docs/` | Durable in-repo documentation of how the thing is used - guides, CLI reference, the consumer-facing API surface. Sometimes exposed as a hand-edited VitePress gh-pages site | Same must-be-true rule. |
+| `notes/` | Transient - work items (`todo.md`), future plans, hypotheticals, bug reports, research, analysis. Things that will die | No truth guarantee. Nothing durable cites it. |
+| `plans/` | Retired | Plan documents are transient: they go in `notes/`. |
+
+`reference/` and `docs/` are both durable and both binding. The difference is
+subject, not audience: `reference/` covers how the thing is built and why - what
+you need in order to change it safely - while `docs/` covers how it is used. A
+developer or library consumer reads both. Where a project publishes a site,
+`docs/` is what gets published; the folder means the same thing either way.
+`notes/` is neither durable nor binding, which is the whole point of keeping it
+separate: a document that may be wrong must not sit where a document that must
+be right is expected.
+
+The dependency direction is therefore one-way. `notes/` may cite `docs/` and
+`reference/`; nothing durable may cite `notes/` - not a code comment, not
+`docs/`, not `reference/`. A code comment must carry its full context, because
+it outlives the note.
+
+**Root-level convention files are exempt.** `AGENTS.md`, `CLAUDE.md`,
+`README.md`, `LICENSE`, `CHANGELOG.md` and their kin are found by tooling and by
+convention at the repository root, and stay there. These folders govern
+documents we chose where to put, not files whose location is dictated.
+
+In `notes/`, `docs/` and `reference/` alike, avoid citing source line numbers -
+they drift fast.
