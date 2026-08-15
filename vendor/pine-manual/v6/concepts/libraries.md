@@ -55,7 +55,7 @@ export <function_name>([simple/series] <parameter_type> <parameter_name> [= <def
 
 Note that:
 
--   The `//@description`, `//@enum`, `//@type`, `@field`, `// @function`, `// @param`, and `// @returns` [compiler annotations](https://www.tradingview.com/pine-script-docs/language/script-structure/#compiler-annotations) are optional but we highly recommend you use them. These annotations document the library’s code and populate the default library description, which authors can use when publishing the library.
+-   The `//@description`, `//@enum`, `//@type`, `//@field`, `//@function`, `//@param`, and `//@returns` [compiler annotations](https://www.tradingview.com/pine-script-docs/language/script-structure/#compiler-annotations) are optional but we highly recommend you use them. These annotations document the library’s code and populate the default library description, which authors can use when publishing the library.
 -   The [export](https://www.tradingview.com/pine-script-reference/v6/#kw_export) keyword is mandatory.
 -   <parameter\_type> is mandatory, contrary to user-defined function parameter definitions in indicators or strategies, which are typeless.
 -   <script\_code> can be any code one would normally use in an indicator, including [inputs](https://www.tradingview.com/pine-script-docs/concepts/inputs/).

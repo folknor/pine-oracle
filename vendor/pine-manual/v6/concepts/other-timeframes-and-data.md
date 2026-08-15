@@ -275,7 +275,7 @@ Aside from the features listed above, there are insignificant differences in the
 >
 > In Pine Script v6, scripts **cannot** use wrapped `request.*()` calls within the local blocks of these structures without enabling dynamic requests.
 
-#### ”series” arguments {#series-arguments}
+#### “series” arguments {#series-arguments}
 
 Scripts without dynamic requests enabled cannot use “series” arguments for most `request.*()` function parameters, which means the argument values _cannot change_. The only exception is the `expression` parameter in [request.security()](https://www.tradingview.com/pine-script-reference/v6/#fun_request.security), [request.security\_lower\_tf()](https://www.tradingview.com/pine-script-reference/v6/#fun_request.security_lower_tf), and [request.seed()](https://www.tradingview.com/pine-script-reference/v6/#fun_request.seed), which _always_ allows “series” values.
 

@@ -8,7 +8,7 @@ section: faq
 
 ## How can I get the time of the first bar in the dataset? {#how-can-i-get-the-time-of-the-first-bar-in-the-dataset}
 
-The following example script initializes a variable using the [var](https://www.tradingview.com/pine-script-docs/language/variable-declarations/#var) keyword on the first bar and then never updates it again. The variable stores the value of the [time](https://www.tradingview.com/pine-script-reference/v6/#fun_time) built-in, which represents the time of the bar open in UNIX format (milliseconds since 00:00:00 UTC on 1 January 1970).
+The following example script initializes a variable using the [var](https://www.tradingview.com/pine-script-docs/language/variable-declarations/#var) keyword on the first bar and then never updates it again. The variable stores the value of the [time](https://www.tradingview.com/pine-script-reference/v6/#var_time) built-in variable, which represents the time of the bar open in [UNIX format](https://www.tradingview.com/pine-script-docs/concepts/time/#unix-timestamps) (milliseconds since 00:00:00 UTC on 1 January 1970).
 
 ```pine
 //@version=6
@@ -133,9 +133,9 @@ In Pine Script, the opening time of a bar is represented by the variable [time](
 
 The example script below outputs the value of the built-in [dayofmonth](https://www.tradingview.com/pine-script-reference/v6/#var_dayofmonth) variable onto a chart as a label. The following screenshot shows the output of this script on two symbols: one stock and one Forex. We added a vertical line on the chart using the drawing tools to highlight the bar that represents May 22nd.
 
-The stock symbol “NASDAQ:AAPL ” displays on the upper chart. Its trading hours open and close within a single day with no overnight session. Therefore, the label displays the same day as the vertical line.
+The stock symbol “NASDAQ:AAPL” displays on the upper chart. Its trading hours open and close within a single day with no overnight session. Therefore, the label displays the same day as the vertical line.
 
-In contrast, on the lower chart, which displays the “FX:EURUSD ” symbol, the label shows `21` on the bar marked May 22nd. This is because the trading for May 22 actually starts on May 21, at 17:00 in the exchange’s time zone, and the [dayofmonth](https://www.tradingview.com/pine-script-reference/v6/#var_dayofmonth) variable uses this time to determine the day of the month for this bar.
+In contrast, on the lower chart, which displays the “FX:EURUSD” symbol, the label shows `21` on the bar marked May 22nd. This is because the trading for May 22 actually starts on May 21, at 17:00 in the exchange’s time zone, and the [dayofmonth](https://www.tradingview.com/pine-script-reference/v6/#var_dayofmonth) variable uses this time to determine the day of the month for this bar.
 
 ```pine
 //@version=6

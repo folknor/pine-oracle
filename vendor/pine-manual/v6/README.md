@@ -2,7 +2,7 @@
 
 > Auto-generated from the TradingView Pine Script Manual.  
 > Source: <https://www.tradingview.com/pine-script-docs/>  
-> Scraped: 2026-05-30T23:22:37.709Z
+> Scraped: 2026-08-15T18:15:37.398Z
 
 ## General
 

@@ -25,7 +25,7 @@ The script widget is a _preview_ of the publication that appears in all relevant
 
 Clicking on the widget opens the script page. The top of the page shows information about the script’s visibility, its title, and an enlarged view of the published chart:
 
-For published [strategies](https://www.tradingview.com/pine-script-docs/concepts/strategies/), the script page also includes the option for users to view the [Strategy Tester](https://www.tradingview.com/pine-script-docs/concepts/strategies/#strategy-tester) report below the title.
+For published [strategies](https://www.tradingview.com/pine-script-docs/concepts/strategies/), the script page also includes the option for users to view the [strategy report](https://www.tradingview.com/pine-script-docs/concepts/strategies/#strategy-report) results below the publication’s title.
 
 Below the chart or strategy report are the publication’s complete description, release notes from script updates, additional information, and user comments.
 
@@ -137,9 +137,9 @@ When preparing a chart for a script publication:
 
 ### Strategy report {#strategy-report}
 
-[Strategies](https://www.tradingview.com/pine-script-docs/concepts/strategies/) simulate trades based on programmed rules, displaying their hypothetical performance results and properties inside the [Strategy Tester](https://www.tradingview.com/pine-script-docs/concepts/strategies/#strategy-tester). When an author publishes a strategy script, the script page uses the Strategy Tester’s information to populate its _“Strategy report”_ display.
+[Strategies](https://www.tradingview.com/pine-script-docs/concepts/strategies/) simulate trades based on programmed rules, displaying their hypothetical performance results in a dedicated [strategy report](https://www.tradingview.com/pine-script-docs/concepts/strategies/#strategy-report) in the chart’s bottom panel. When an author publishes a strategy script, the script page uses that report’s results along with the strategy’s [properties](https://www.tradingview.com/support/solutions/43000628599-strategy-properties/) and chart’s configuration details to populate the publication’s _“Strategy report”_ display.
 
-Because traders often use a strategy script’s performance information to determine the potential viability of a trading system, programmers must verify that their scripts have _realistic_ properties and results. Before publishing a strategy script, check its information in the “Strategy Tester” tab to validate that everything appears as intended.
+Because traders often use a strategy script’s performance information to determine the potential viability of a trading system, programmers must verify that their scripts have _realistic_ properties and results. Before publishing a strategy script, check the strategy report in the chart’s bottom panel to validate that everything appears as intended.
 
 To maintain realism when publishing strategies, follow these guidelines based on our [Script Publishing Rules](https://www.tradingview.com/support/solutions/43000590599-script-publishing-rules/):
 
@@ -148,7 +148,7 @@ To maintain realism when publishing strategies, follow these guidelines based on
 -   Set the strategy’s order placement logic to risk _sustainable_ capital in the simulated trades. In most real-world settings, risking more than 10% of equity on a single trade is _not_ typically considered sustainable.
 -   Choose a dataset and default strategy configuration that produces a reasonable number of simulated trades, ideally _100 or more_. A strategy report with significantly fewer trades, especially over a short duration, does not typically provide enough information to help traders gauge a strategy’s hypothetical performance.
 -   Ensure the strategy uses the default [properties](https://www.tradingview.com/support/solutions/43000628599-strategy-properties/) set in the [strategy()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy) declaration statement, and explain these defaults in the [description](https://www.tradingview.com/pine-script-docs/writing/publishing/#title-and-description).
--   Resolve any warnings shown in the Strategy Tester before publishing the script.
+-   Resolve any warnings shown in the strategy report before publishing the script.
 
 ### Title and description {#title-and-description}
 

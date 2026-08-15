@@ -369,7 +369,7 @@ Note that:
 
 -   A confirmed realtime bar is **not** the same as a historical bar. Pine’s [execution model](https://www.tradingview.com/pine-script-docs/language/execution-model/) uses separate data feeds for realtime and historical data. The closing time of a confirmed realtime bar is committed to the _realtime_ feed, until the script re-executes on the chart. Only then will this bar’s closing time load _historically_ along with all the other closed bars.
 -   The [barstate.islast](https://www.tradingview.com/pine-script-reference/v6/#var_barstate.islast) value is `true` for all realtime bars in the dataset. Therefore, the elapsed realtime bar and the latest realtime bar both display a purple [label](https://www.tradingview.com/pine-script-docs/concepts/text-and-shapes/#labels) and highlighted [background](https://www.tradingview.com/pine-script-docs/concepts/backgrounds/). See the [Bar states](https://www.tradingview.com/pine-script-docs/concepts/bar-states/) page to learn more about the different `barstate.*` variables in Pine Script.
--   The [time\_close()](https://www.tradingview.com/pine-script-reference/v6/#fun_time_close) function can similarly retrieve the previous bar’s closing time on price-based charts using a `bar_back = 1` argument.
+-   The [time\_close()](https://www.tradingview.com/pine-script-reference/v6/#fun_time_close) function can similarly retrieve the previous bar’s closing time on price-based charts using a `bars_back = 1` argument.
 
 ### `time_tradingday` {#time_tradingday}
 

@@ -103,7 +103,7 @@ barcolor(barstate.islastconfirmedhistory ? color.orange : na, title = "Last hist
 Note that:
 
 -   Each _iteration_ of the [for](https://www.tradingview.com/pine-script-reference/v6/#kw_for) loop retrieves a previous bar’s [high](https://www.tradingview.com/pine-script-reference/v6/#var_high) with the history-referencing operator [\[\]](https://www.tradingview.com/pine-script-reference/v6/#op_[]), using the loop’s _counter_ (`i`) as the historical offset. The [label.new()](https://www.tradingview.com/pine-script-reference/v6/#fun_label.new) call also uses the counter to determine each label’s x-coordinate.
--   The [indicator](https://www.tradingview.com/pine-script-reference/v6/#fun_indicator) declaration statement includes `max_labels_count = 500`, meaning the script can show up to 500 [labels](https://www.tradingview.com/pine-script-docs/visuals/text-and-shapes/#labels) on the chart.
+-   The [indicator()](https://www.tradingview.com/pine-script-reference/v6/#fun_indicator) declaration statement includes the argument `max_labels_count = 500`, meaning the script can show up to 500 [labels](https://www.tradingview.com/pine-script-docs/visuals/text-and-shapes/#labels) on the chart.
 -   The script calls [barcolor()](https://www.tradingview.com/pine-script-reference/v6/#fun_barcolor) to highlight the last historical chart bar, and it draws a horizontal [line](https://www.tradingview.com/pine-script-reference/v6/#type_line) at that bar’s [high](https://www.tradingview.com/pine-script-reference/v6/#var_high) for visual reference.
 
 ## Common characteristics {#common-characteristics}

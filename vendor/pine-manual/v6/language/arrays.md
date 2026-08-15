@@ -555,26 +555,6 @@ if barstate.islast
     label.new(bar_index, 0, "AFTER\na: " + str.tostring(a) + "\nb: " + str.tostring(b) + "\nc: " + str.tostring(c), style = label.style_label_up, size = size.large)
 ```
 
-### Copying {#copying}
-
-Scripts can create copies of an array by using [array.copy()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.copy). This function creates a new array with the same elements and returns that array’s unique ID. Changes to a copied array do not directly affect the original.
-
-For example, the following script creates a new array with `array.new<float>()` and assigns its ID to the `a` variable. Then, it calls `array.copy(a)` to copy that array, and it assigns the copied array’s ID to the `b` variable. Any changes to the array referenced by `b` do not affect the one referenced by `a`, because both variables refer to _separate_ array objects:
-
-```pine
-//@version=6
-indicator("`array.copy()`")
-a = array.new<float>(0)
-array.push(a, 0)
-array.push(a, 1)
-if barstate.islast
-    b = array.copy(a)
-    array.push(b, 2)
-    label.new(bar_index, 0, "a: " + str.tostring(a) + "\nb: " + str.tostring(b), size = size.large)
-```
-
-Note that assigning one variable’s stored array ID to another variable _does not_ create a copy of the referenced array. For example, if we use `b = a` instead of `b = array.copy(a)` in the above script, the `b` variable _does not_ reference a copy of the array referenced by `a`. Instead, both variables hold a reference to the _same_ array. In that case, the call `array.push(b, 2)` directly modifies the array referenced by `a`, and the label’s text shows identical results for the two variables.
-
 ### Joining {#joining}
 
 The [array.join()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.join) function converts an “int”, “float”, or “string” array’s elements into strings, then _joins_ each one to form a single “string” value with a specified `separator` inserted between each combined value. It provides a convenient alternative to converting values to strings with [str.tostring()](https://www.tradingview.com/pine-script-reference/v6/#fun_str.tostring) and performing repeated string concatenation operations.
@@ -892,7 +872,7 @@ myColor id = arr.get(ind)
 barcolor(id.c)
 ```
 
-The [array.sort](https://www.tradingview.com/pine-script-reference/v6/#fun_array.sort) and [array.sort\_indices](https://www.tradingview.com/pine-script-reference/v6/#fun_array.sort_indices) functions can sort UDT arrays whose referenced objects have “int”, “float”, or “string” fields that contain [`na` values](https://www.tradingview.com/pine-script-docs/language/type-system/#na-value). However, these functions **cannot** sort UDT arrays that contain [na](https://www.tradingview.com/pine-script-reference/v6/#var_na) _elements_. In a UDT array, an [na](https://www.tradingview.com/pine-script-reference/v6/#var_na) element represents a _nonexistent ID_, meaning that there is _no associated object_ that contains the field required for sorting. Consequently, attempting to sort a UDT array with one or more [na](https://www.tradingview.com/pine-script-reference/v6/#var_na) elements causes a _runtime error_.
+The [array.sort()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.sort) and [array.sort\_indices()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.sort_indices) functions can sort UDT arrays whose referenced objects have “int”, “float”, or “string” fields that contain [`na` values](https://www.tradingview.com/pine-script-docs/language/type-system/#na-value). However, these functions **cannot** sort UDT arrays that contain [na](https://www.tradingview.com/pine-script-reference/v6/#var_na) _elements_. In a UDT array, an [na](https://www.tradingview.com/pine-script-reference/v6/#var_na) element represents a _nonexistent ID_, meaning that there is _no associated object_ that contains the field required for sorting. Consequently, attempting to sort a UDT array with one or more [na](https://www.tradingview.com/pine-script-reference/v6/#var_na) elements causes a _runtime error_.
 
 For example, the script below declares a type named `Number` with a single “float” field named `value`. On the last historical bar, it creates an array containing multiple `Number` IDs, two of which are [na](https://www.tradingview.com/pine-script-reference/v6/#var_na). Calling [array.sort()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.sort) to rearrange that array causes an error, because the [na](https://www.tradingview.com/pine-script-reference/v6/#var_na) elements in the array do not refer to valid `Number` objects:
 
@@ -983,32 +963,268 @@ if barstate.islast
     label.new(bar_index, 0, "a: " + str.tostring(a))
 ```
 
-### Slicing {#slicing}
+## Copying arrays {#copying-arrays}
 
-Slicing an array using [array.slice()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.slice) creates a shallow copy of a subset of the parent array. You determine the size of the subset to slice using the `index_from` and `index_to` parameters. The `index_to` argument must be one greater than the end of the subset you want to slice.
+A _copy_ of an array is a _separate_ [array](https://www.tradingview.com/pine-script-reference/v6/#type_array) object initialized to have the same structure as the original. Any changes to the elements stored by the copy do not affect the contents of the original array. Scripts can create [shallow copies](https://www.tradingview.com/pine-script-docs/language/arrays/#shallow-copies) for arrays of any type by using the [array.copy()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.copy) function. For [reference-type](https://www.tradingview.com/pine-script-docs/language/type-system/#reference-types) arrays, scripts can also use custom logic to create [deep copies](https://www.tradingview.com/pine-script-docs/language/arrays/#deep-copies) whose elements reference separate objects.
 
-The shallow copy created by the slice acts like a window on the parent array’s content. The indices used for the slice define the window’s position and size over the parent array. If, as in the example below, a slice is created from the first three elements of an array (indices 0 to 2), then regardless of changes made to the parent array, and as long as it contains at least three elements, the shallow copy will always contain the parent array’s first three elements.
+> [!NOTE]
+> Assigning one variable’s stored array ID to another variable _does not_ create a copy of the array. Any changes to the array referenced by one of the variables directly affect the one referenced by the other, because both refer to the same [array](https://www.tradingview.com/pine-script-reference/v6/#type_array) object. See the [Modifying variables vs. objects](https://www.tradingview.com/pine-script-docs/language/type-system/#modifying-variables-vs-objects) section of the [Type system](https://www.tradingview.com/pine-script-docs/language/type-system/) page to learn more about this behavior.
 
-Additionally, once the shallow copy is created, operations on the copy are mirrored on the parent array. Adding an element to the end of the shallow copy, as is done in the following example, will widen the window by one element and also insert that element in the parent array at index 3. In this example, to slice the subset from index 0 to index 2 of array `a`, we must use `sliceOfA = array.slice(a, 0, 3)`:
+### Shallow copies {#shallow-copies}
+
+The [array.copy()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.copy) function creates a _shallow copy_ of an array of any type. A shallow copy is a new [array](https://www.tradingview.com/pine-script-reference/v6/#type_array) object that initially has the same size as the original and stores the _same_ values or references (IDs) as elements.
+
+Although a shallow copy initially shares the same structure as the original array, it is an _independent object_. The script can [insert](https://www.tradingview.com/pine-script-docs/language/arrays/#inserting) new elements and [overwrite](https://www.tradingview.com/pine-script-docs/language/arrays/#reading-and-writing-array-elements), [remove](https://www.tradingview.com/pine-script-docs/language/arrays/#removing), [reverse](https://www.tradingview.com/pine-script-docs/language/arrays/#reversing), or [sort](https://www.tradingview.com/pine-script-docs/language/arrays/#sorting) existing elements in the copied array _without_ affecting the original array’s contents, regardless of the type of elements it contains.
+
+For example, the following script creates an array of “float” values and assigns its ID to a variable named `original` on the last historical bar. It then uses the [array.copy()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.copy) function to create a shallow copy of the array and assigns its ID to a variable named `copy`. The script uses the [array.push()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.push), [array.shift()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.shift), [array.set()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.set), and [array.sort()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.sort) functions to modify the copied array, then displays a string representation of the original array and the copy in a [label](https://www.tradingview.com/pine-script-docs/visuals/text-and-shapes/#labels). As shown by the label’s text, the copied array’s contents change, while the original array remains _unchanged_:
 
 ```pine
 //@version=6
-indicator("`array.slice()`")
-a = array.new<float>(0)
-array.push(a, 0)
-array.push(a, 1)
-array.push(a, 2)
-array.push(a, 3)
-if barstate.islast
-    // Create a shadow of elements at index 1 and 2 from array `a`.
-    sliceOfA = array.slice(a, 0, 3)
-    label.new(bar_index, 0, "BEFORE\na: " + str.tostring(a) + "\nsliceOfA: " + str.tostring(sliceOfA))
-    // Remove first element of parent array `a`.
-    array.remove(a, 0)
-    // Add a new element at the end of the shallow copy, thus also affecting the original array `a`.
-    array.push(sliceOfA, 4)
-    label.new(bar_index, 0, "AFTER\na: " + str.tostring(a) + "\nsliceOfA: " + str.tostring(sliceOfA), style = label.style_label_up)
+indicator("Modifying shallow copies demo")
+
+if barstate.islastconfirmedhistory
+    //@variable References an array of arbitrary "float" values.
+    array<float> original = array.from(-1.0, 4.0, 3.0, 2.0)
+    //@variable References a shallow copy of the `original` array.
+    array<float> copy = array.copy(original)
+
+    //#region
+    // The calls in this region modify only the *copied* array. They do not affect the original array, 
+    // because the `copy` and `original` variables reference separate objects. 
+    // If we change `copy` to `original` in these calls, they affect only the original array, not the copy. 
+
+    // Add a new element to the end of the copy.
+    copy.push(1.0)
+    // Remove the copy's first element.
+    copy.shift()
+    // Assign a new value to the copy's second element.
+    copy.set(1, 3.5)
+    // Sort the elements of the copy in ascending order.
+    array.sort(copy)
+    //#endregion
+
+    //@variable A string representation of the original array and the copied array after modification.
+    string displayStr = str.format("Original:      {0}\nModified copy: {1}", str.tostring(original), str.tostring(copy))
+
+    // Display the text from the formatted string in a label. 
+    label.new(
+        bar_index, 0, displayStr, style = label.style_label_center, size = 36, 
+        textalign = text.align_left, text_font_family = font.family_monospace
+    )
 ```
+
+For an array of [value types](https://www.tradingview.com/pine-script-docs/language/type-system/#value-types), all changes to the data associated with a shallow copy are completely _separate_ from the original array, because the only way to change the data accessed by an element in either array is by replacing the element.
+
+By contrast, it _is_ possible to modify the data associated with arrays of [reference types](https://www.tradingview.com/pine-script-docs/language/type-system/#reference-types) through a shallow copy. When the [array.copy()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.copy) function copies an array of object IDs, it does **not** create new copies of the _objects_ referenced by those elements; it creates a new array whose elements store the **same IDs** as the original. Consequently, if the script modifies the _object_ referenced by one of the elements in the shallow copy, it also modifies the one referenced by the corresponding element in the original array, and vice versa, because _both_ elements refer to the _same object_ that exists elsewhere in memory.
+
+The following example demonstrates this behavior. The script below creates an array containing the ID of a [chart point](https://www.tradingview.com/pine-script-docs/language/type-system/#chart-points) on the last historical bar, then uses the [array.copy()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.copy) function to create a shallow copy of that array. The script uses the [\-=](https://www.tradingview.com/pine-script-reference/v6/#op_-=) and [:=](https://www.tradingview.com/pine-script-reference/v6/#op_:=) operators to modify the `index` field of the chart point referenced by the original array and the `price` field of the one referenced by the copy. Then, it displays formatted text containing the chart coordinates retrieved through both arrays inside labels positioned at those coordinates. Both labels anchor to the same location on the chart and display the same values, because the elements in the original array and the shallow copy access the same [chart.point](https://www.tradingview.com/pine-script-reference/v6/#type_chart.point) object:
+
+```pine
+//@version=6
+indicator("Shallow copy of reference-type array demo")
+
+//@function Creates a string representing an array of `chart.point` IDs. Each listed item enclosed in parentheses 
+//          represents the `index` and `price` coordinates from the referenced chart point.  
+repr(array<chart.point> source) =>
+    string result = "["
+    for item in source
+        result += str.format("(index: {0,number,#}, price: {1,number,#.#####}), ", item.index, item.price)
+    result := str.substring(result, 0, str.length(result) - 2) + "]"
+
+if barstate.islastconfirmedhistory
+    //@variable References an array containing a single `chart.point` ID.
+    array<chart.point> original = array.from(chart.point.from_index(index = bar_index, price = 0))
+
+    // The `array.copy()` call below copies the *original* chart point's *ID* into the new array.
+    // It **does not** create a copy of that object for the new array to reference.
+
+    array<chart.point> shallowCopy = array.copy(original) // Equivalent to: array.from(original.first())
+
+    // These variables reference the same chart point as the arrays, not copies of it. 
+    chart.point originalPoint = original.first()
+    chart.point pointFromCopy = shallowCopy.first()
+
+    // These two operations modify the `index` and `price` fields of the **same** chart point, regardless of whether 
+    // they access that object using the `originalPoint` or `pointFromCopy` variable:
+
+    originalPoint.index -= 10 // Equivalent to: pointFromCopy.index -= 10
+    pointFromCopy.price := 1  // Equivalent to: originalPoint.price := 1
+
+    // Create string representations of the two arrays. 
+    // Because both arrays reference the *same* object, both strings contain the *same data*.
+    string originalStr    = "Original array:\n" + repr(original)
+    string shallowCopyStr = "Shallow copy:\n"   + repr(shallowCopy)
+
+    // Draw labels using the chart point referenced by `originalPoint` and `pointFromCopy`.
+    // The two labels anchor to the same coordinates (x = bar_index - 10, y = 1).
+    label.new(originalPoint, originalStr,    size = 36)
+    label.new(pointFromCopy, shallowCopyStr, size = 36, style = label.style_label_up)
+```
+
+Note that:
+
+-   Assigning the IDs retrieved from an array to separate variables _does not_ create copies of the associated objects. For instance, the `originalPoint` and `pointFromCopy` variables in this script reference the _same_ chart point as their respective arrays.
+
+### Deep copies {#deep-copies}
+
+A _deep copy_ of a [reference-type](https://www.tradingview.com/pine-script-docs/language/type-system/#reference-types) array is a new array that has the same structure as the original, but stores separate elements. Unlike a [shallow copy](https://www.tradingview.com/pine-script-docs/language/arrays/#shallow-copies), which stores the _same_ object IDs as the original array, a deep copy contains the IDs of _copies_ of the original objects. In other words, the deep copy references _different objects_ initialized with the same properties as the original objects. Therefore, modifying the objects referenced by the original array or the deep copy does _not_ affect the objects referenced by the other array.
+
+Creating a deep copy of an array is necessary only if the array stores elements of a _reference type_, and the script must modify the objects referenced by the copy _without_ modifying those referenced by the original, or vice versa. If the original and copied arrays must reference the same objects, or if the script does not modify the array’s associated objects, creating a _shallow copy_ with the [array.copy()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.copy) function is sufficient.
+
+> [!NOTE]
+> For a [value-type](https://www.tradingview.com/pine-script-docs/language/type-system/#value-types) array, a shallow copy is semantically the _same_ as a deep copy, because values are not referenced entities that the script can modify _outside_ the array. The only way to change the data associated with the elements of a value-type array, or its copies, is to _overwrite_ those elements.
+
+To create a deep copy of an array, programmers can do either of the following:
+
+-   Create a new array of the same type with the [array.new<type>()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.new<type>) function. For each element in the original array, create a _copy_ of the referenced object, then insert the copied object’s ID into the new array at the same index.
+-   Create a shallow copy of the original array with the [array.copy()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.copy) function, then convert the shallow copy to a deep copy by _replacing_ each element with the ID of a copied object.
+
+In the example below, we modified the _second_ script from the [Shallow copies](https://www.tradingview.com/pine-script-docs/language/arrays/#shallow-copies) section by adding a [user-defined function](https://www.tradingview.com/pine-script-docs/language/user-defined-functions/) named `deepCopy()`. The function uses an [array.copy()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.copy) call to create an initial shallow copy of the array, then [loops](https://www.tradingview.com/pine-script-docs/language/loops/) through the copy’s elements to convert it to a deep copy. Each iteration creates a shallow copy of the object referenced by the current element, then calls the [array.set()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.set) function to replace that element with the copied object’s ID.
+
+This version of the script calls `deepCopy(original)` to create a deep copy of the original array rather than creating a shallow copy. With this change, modifying the object referenced by the copied array no longer affects the one referenced by the original, because both arrays now reference different objects:
+
+```pine
+//@version=6
+indicator("Deep copies demo")
+
+//@function      Creates a deep copy of a reference-type array. Each element in the copy refers to a shallow copy of 
+//               the object referenced by the corresponding element in the original array.
+//@param source  The ID of an array with elements of the `chart.point` type, a drawing type, or a user-defined type.
+//@returns       The ID of the deep copy. 
+deepCopy(source) =>
+    // Create an initial shallow copy of the `source` array.
+    result = source.copy()
+    // Loop through the array elements to convert the new array to a deep copy.
+    for [i, item] in result
+        // Copy each object referenced by `item`, and use the copy's ID as the new element at index `i`. 
+        copiedItem = item.copy()
+        result.set(i, copiedItem)
+    // Return the new array's ID.
+    result
+
+//@function Creates a string representing an array of `chart.point` IDs. Each listed item enclosed in parentheses 
+//          represents the `index` and `price` coordinates from the referenced chart point.  
+repr(array<chart.point> source) =>
+    string result = "["
+    for item in source
+        result += str.format("(index: {0,number,#}, price: {1,number,#.#####}), ", item.index, item.price)
+    result := str.substring(result, 0, str.length(result) - 2) + "]"
+
+if barstate.islastconfirmedhistory
+    //@variable References an array containing a single `chart.point` ID.
+    array<chart.point> original = array.from(chart.point.from_index(index = bar_index, price = 0))
+    //@variable References a deep copy of the original array. The deep copy stores a *separate* `chart.point` ID.
+    array<chart.point> deepCopy = deepCopy(original)
+
+    // These variables reference the same chart points as their respective arrays, not separate copies. 
+    chart.point originalPoint = original.first()
+    chart.point pointFromCopy = deepCopy.first()
+
+    // Because the deep copy of the array stores the ID of a separate chart point, these two operations no longer 
+    // modify the same object. The first modifies the original chart point, and the second modifies a copy.
+    originalPoint.index -= 10
+    pointFromCopy.price := 1
+
+    // Create string representations of the two arrays. 
+    // Because both arrays now reference different objects, the two strings contain different data.
+    string originalStr = "Original array:\n" + repr(original)
+    string deepCopyStr = "Deep copy:\n"      + repr(deepCopy)
+
+    // Draw labels using the chart point referenced by `originalPoint` and `pointFromCopy`.
+    // The two labels now anchor to different coordinates: (x = bar_index - 10, y = 0) and (x = bar_index, y = 1).
+    label.new(originalPoint, originalStr, size = 36)
+    label.new(pointFromCopy, deepCopyStr, size = 36, style = label.style_label_up)
+```
+
+Note that:
+
+-   This script’s `deepCopy()` function is compatible with arrays of [user-defined types](https://www.tradingview.com/pine-script-docs/language/type-system/#user-defined-types), [drawing types](https://www.tradingview.com/pine-script-docs/language/type-system/#drawing-types), and [chart points](https://www.tradingview.com/pine-script-docs/language/type-system/#chart-points). However, it cannot copy arrays of [footprint](https://www.tradingview.com/pine-script-reference/v6/#type_footprint) or [volume\_row](https://www.tradingview.com/pine-script-reference/v6/#type_volume_row) elements, because Pine Script does not include built-in `*.copy()` methods for those types.
+
+## Slicing arrays {#slicing-arrays}
+
+A _slice_ of an array is a separate array that references the original array’s elements across a specific index range. Unlike a [copy](https://www.tradingview.com/pine-script-docs/language/arrays/#copying-arrays), which _duplicates_ an original array’s structure and stores the data in a _different_ location, a slice provides _direct access_ to a subset of the original array’s contents. Changing the elements in a slice directly changes the elements in the original array, and vice versa.
+
+Scripts can create slices of arrays of any type by using the [array.slice()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.slice) function. The function’s `index_from` and `index_to` parameters specify the index range of the elements that the resulting slice references from the original array. The `index_from` parameter accepts an “int” value from 0 to _one less_ than the array’s size. The `index_to` parameter requires an “int” value that is greater than the `index_from` value and less than or equal to the array’s size. The slice references all the original array’s elements from the index specified by the `index_from` argument to the index that is _one less_ than the `index_to` argument.
+
+As with the element indices in a typical array, the indices in a slice range from 0 to one less than the slice’s size. However, these indices **do not** directly represent the _same_ element indices in the original array. Each element in the slice corresponds to the original array’s element at the index `index_from + i`, where `i` is the index of the slice’s element. For instance, if the `index_from` value is _2_, the slice’s element at index 1 refers to the original array’s element at index _3_.
+
+Programmers often use slices to directly [overwrite](https://www.tradingview.com/pine-script-docs/language/arrays/#reading-and-writing-array-elements), [remove](https://www.tradingview.com/pine-script-docs/language/arrays/#removing), [reverse](https://www.tradingview.com/pine-script-docs/language/arrays/#reversing), or [sort](https://www.tradingview.com/pine-script-docs/language/arrays/#sorting) elements in an array over a specific index range, or to perform calculations that require only a specific subset of an array’s elements.
+
+The following example demonstrates the unique behaviors of array slices. On the last historical bar, the script creates an array of “int” values. Then, it creates a slice of that array to reference the elements from index 1 to index 3. The script modifies the original array to change the slice’s contents, then modifies the slice to change the contents of the original array. The script displays string representations of both arrays after each change in a [table](https://www.tradingview.com/pine-script-docs/visuals/tables/) in the center of the chart pane:
+
+```pine
+//@version=6
+indicator("Slicing demo")
+
+//@function Creates a table row to display information about a main array and its slice.
+method makeRow(table this, int row, string note, array<int> main, array<int> slice) =>
+    this.cell(0, row, note, text_color = chart.fg_color)
+    this.cell(
+        1, row, str.format("Main: {0}\n\nSlice: {1}", main, slice), 
+        text_color = chart.fg_color, text_halign = text.align_left
+    )
+
+if barstate.islastconfirmedhistory
+    //@variable References an array of integers.
+    array<int> mainArray = array.from(1, 2, 3, 4, 5, 6, 7)
+    //@variable References a slice of the original array from index 1 to index 3 (index 4 is not included).
+    array<int> slice = array.slice(mainArray, 1, 4)
+
+    // Initialize the display table and populate its first row.
+    table displayTable = table.new(position.middle_center, 2, 10, border_color = chart.fg_color, border_width = 1)
+    displayTable.makeRow(0, "Initial arrays", mainArray, slice)
+
+    //#region 
+    // Any changes that affect the original array's elements at indices 1 through 3 directly affect the
+    // contents of the slice.
+
+    // Adding or removing elements in the main array changes the elements in the slice's range.
+    mainArray.unshift(0)
+    displayTable.makeRow(1, "Insert a new element at the start of the main array", mainArray, slice)
+    mainArray.remove(2)
+    displayTable.makeRow(2, "Remove the main array element at index 2", mainArray, slice)
+    // If the original array no longer contains elements in the slice's range, the size of the slice reduces.
+    for i = 1 to 6
+        mainArray.pop()
+    displayTable.makeRow(3, "Reduce the main array to one element", mainArray, slice)
+    // The slice's size increases again for each element added to the original array in the required index range.
+    for i = 1 to 7
+        mainArray.push(i)
+    displayTable.makeRow(4, "Push 7 new elements into the main array", mainArray, slice)
+    //#endregion
+
+    //#region 
+    // Modifying the contents of the slice directly modifies the original array's elements in the index range 
+    // covered by the slice.
+
+    // Updating the first element in the slice changes the element at index 2 in the original array.
+    slice.set(0, -1)
+    displayTable.makeRow(5, "Update the first element in the slice", mainArray, slice)
+    // Inserting an element into the slice increases its index range and adds a new element to the original array.
+    slice.push(-3)
+    displayTable.makeRow(6, "Add a new element to the end of the slice", mainArray, slice)
+    // Removing an element from the slice removes the same element from the original array.
+    slice.shift()
+    displayTable.makeRow(7, "Remove the slice's first element", mainArray, slice)
+    // Rearranging the slice also rearranges the original array's elements in the covered range.
+    slice.sort(order.descending)
+    displayTable.makeRow(8, "Sort the slice in descending order", mainArray, slice)
+    //#endregion
+
+    // Reassigning the `mainArray` variable does not affect the slice. The slice continues referencing the original 
+    // array's elements, while the `mainArray` variable now references a completely separate array.
+    mainArray := array.new<int>(5, 1)
+    displayTable.makeRow(9, "Assign a new array ID to `mainArray`", mainArray, slice)
+```
+
+Note that:
+
+-   If the original array no longer contains elements at the indices required by the slice, the slice’s size is automatically _reduced_, as shown by row 3 in the table. However, the script can re-add elements to restore the slice to its _maximum_ size, as shown by row 4.
+-   The maximum index range covered by a slice changes only if the script explicitly _inserts_ new elements into the slice or _removes_ existing ones, as shown by rows 6 and 7.
+-   As shown by the final table row, _reassigning_ an array variable that a script uses to create a slice does _not_ affect that slice. A slice always references a subset of the elements from a specific array; it is not associated with any variables or fields that store that array’s ID.
+
+> [!TIP]
+> If a script must access a portion of an array’s data and _modify_ that data without affecting the contents of the original array, create a [shallow copy](https://www.tradingview.com/pine-script-docs/language/arrays/#shallow-copies) of the slice by using the [array.copy()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.copy) function, or use custom logic to create a [deep copy](https://www.tradingview.com/pine-script-docs/language/arrays/#deep-copies). See the [Copying arrays](https://www.tradingview.com/pine-script-docs/language/arrays/#copying-arrays) section above to learn more about copies and how they differ from slices.
 
 ## Searching arrays {#searching-arrays}
 

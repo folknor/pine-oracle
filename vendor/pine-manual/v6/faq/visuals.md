@@ -640,7 +640,7 @@ The two most robust and scalable ways to keep only the last _n_ number of drawin
 
 The quickest and easiest method to limit the number of drawings displayed is to use the built-in `*.all` array for the drawing type. These arrays automatically contain all drawings of that type that currently display on the chart.
 
-The `*.all` arrays are _read-only_. Scripts cannot change the arrays directly by pushing or shifting elements, but they can _update_ or _delete_ elements in the arrays. The following example script keeps a maximum of 10 labels on the chart. It gets the first label’s ID via the [array.first()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.first) function and then deletes that label with the [label.delete](https://www.tradingview.com/pine-script-reference/v6/#fun_label.delete) function.
+The `*.all` arrays are _read-only_. Scripts cannot change the arrays directly by pushing or shifting elements, but they can _update_ or _delete_ elements in the arrays. The following example script keeps a maximum of 10 labels on the chart. It gets the first label’s ID via the [array.first()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.first) function and then deletes that label with the [label.delete()](https://www.tradingview.com/pine-script-reference/v6/#fun_label.delete) function.
 
 ```pine
 //@version=6

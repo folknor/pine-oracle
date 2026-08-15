@@ -513,7 +513,7 @@ else
 
 In v6, when the total number of orders exceeds 9000, the strategy does _not_ halt. Instead, the orders are _trimmed_ from the beginning until the limit is reached, meaning that the strategy only stores the information for the most recent orders.
 
-Trimmed orders no longer show in the Strategy Tester, and referencing them using the `strategy.closedtrades.*` functions returns [na](https://www.tradingview.com/pine-script-reference/v6/#var_na). Use [strategy.closedtrades.first\_index](https://www.tradingview.com/pine-script-reference/v6/#var_strategy.closedtrades.first_index) to get the index of the first _non-trimmed_ trade:
+Trimmed orders no longer show in the strategy report, and referencing them using the `strategy.closedtrades.*` functions returns [na](https://www.tradingview.com/pine-script-reference/v6/#var_na). Use [strategy.closedtrades.first\_index](https://www.tradingview.com/pine-script-reference/v6/#var_strategy.closedtrades.first_index) to get the index of the first _non-trimmed_ trade:
 
 ```pine
 //@version=6

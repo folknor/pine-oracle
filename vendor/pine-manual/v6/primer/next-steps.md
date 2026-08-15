@@ -8,13 +8,15 @@ section: primer
 
 After your [first steps](https://www.tradingview.com/pine-script-docs/primer/first-steps/) and your [first indicator](https://www.tradingview.com/pine-script-docs/primer/first-indicator/), let us explore a bit more of the Pine Script® landscape by sharing some pointers to guide you in your journey to learn Pine Script.
 
-## ”indicators” vs “strategies” {#indicators-vs-strategies}
+## “indicators” vs “strategies” {#indicators-vs-strategies}
 
-Pine Script [strategies](https://www.tradingview.com/pine-script-docs/concepts/strategies/) are used to backtest on historical data and forward test on open markets. In addition to indicator calculations, they contain `strategy.*()` calls to send trade orders to Pine Script’s broker emulator, which can then simulate their execution. Strategies display backtest results in the “Strategy Tester” tab at the bottom of the chart, next to the “Pine Editor” tab.
+Pine Script [strategies](https://www.tradingview.com/pine-script-docs/concepts/strategies/) are used to backtest on historical data and forward test on open markets. In addition to indicator calculations, they contain `strategy.*()` calls to send trade orders to the [broker emulator](https://www.tradingview.com/pine-script-docs/concepts/strategies/#broker-emulator), which can then simulate their execution. Strategies display trade markers on the chart and simulated backtest results in a [strategy report](https://www.tradingview.com/pine-script-docs/concepts/strategies/#strategy-report) within the chart’s bottom panel.
 
-Pine Script indicators also contain calculations, but cannot be used in backtesting. Because they do not require the broker emulator, they use less resources and will run faster. It is thus advantageous to use indicators whenever you can.
+Pine Script _indicators_ contain calculations, but cannot be used in backtesting. They perform calculations across a dataset to generate outputs like [visuals](https://www.tradingview.com/pine-script-docs/visuals/overview/), [alerts](https://www.tradingview.com/pine-script-docs/concepts/alerts/), or [Pine Logs](https://www.tradingview.com/pine-script-docs/writing/debugging/#pine-logs). Because they do not require the broker emulator, they often use fewer resources and run faster than strategies. It is thus advantageous to use indicators whenever you can.
 
-Both indicators and strategies can run in either overlay mode (over the chart’s bars) or pane mode (in a separate section below or above the chart). Both can also plot information in their respective space, and both can generate [alert events](https://www.tradingview.com/pine-script-docs/concepts/alerts/).
+Both indicators and strategies can run in either overlay mode (displaying over the main chart’s bars) or pane mode (displaying in a separate section below or above the main chart). In either mode, both script types can also [plot](https://www.tradingview.com/pine-script-docs/visuals/overview/#plot-visuals) information, display [drawing objects](https://www.tradingview.com/pine-script-docs/language/type-system/#drawing-types), and generate [alert events](https://www.tradingview.com/pine-script-docs/concepts/alerts/).
+
+For more information about the unique characteristics of the different script types in Pine and how to declare them, refer to the [Declaration statements](https://www.tradingview.com/pine-script-docs/language/declaration-statements/) page.
 
 ## How scripts are executed {#how-scripts-are-executed}
 

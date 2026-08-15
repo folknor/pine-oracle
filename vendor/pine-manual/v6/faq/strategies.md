@@ -8,7 +8,7 @@ section: faq
 
 Using Pine Script® strategy scripts, users can test _simulated_ trades on historical and realtime data, to backtest and forward test trading systems. Strategies are similar to indicators, but with added capabilities such as placing, modifying, and canceling simulated orders and analyzing their results. Scripts that use the [strategy()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy) function as their [declaration statement](https://www.tradingview.com/pine-script-docs/language/script-structure/#declaration-statement) gain access to the `strategy.*` namespace, which contains functions and variables for simulating orders and retrieving strategy information.
 
-When a user applies a strategy that uses [order placement commands](https://www.tradingview.com/pine-script-docs/concepts/strategies/#order-placement-and-cancellation) to the chart, the strategy uses the [broker emulator](https://www.tradingview.com/pine-script-docs/concepts/strategies/#broker-emulator) to calculate simulated trades, and displays the results in the [Strategy Tester](https://www.tradingview.com/pine-script-docs/concepts/strategies/#strategy-tester) tab.
+When a user applies a strategy that uses [order placement commands](https://www.tradingview.com/pine-script-docs/concepts/strategies/#order-placement-and-cancellation) to the chart, the strategy uses the [broker emulator](https://www.tradingview.com/pine-script-docs/concepts/strategies/#broker-emulator) to calculate simulated trades, and displays hypothetical performance results in a [strategy report](https://www.tradingview.com/pine-script-docs/concepts/strategies/#strategy-report) in the chart’s bottom panel.
 
 Strategies support [various types of orders](https://www.tradingview.com/pine-script-docs/concepts/strategies/#order-types) including market, limit, stop, and stop-limit orders, allowing programmers to simulate different trading scenarios. Strategy order commands can send alerts when [order fill events](https://www.tradingview.com/pine-script-docs/concepts/alerts/#order-fill-events) occur. An _order fill event_ is triggered by the broker emulator when it executes a simulated order in realtime.
 
@@ -236,7 +236,7 @@ Users can [alter a strategy’s calculation behavior](https://www.tradingview.co
 strategy("My Strategy", process_orders_on_close = true, ...)
 ```
 
-An alternative method is to specify the `immediately` parameter as `true` in a [strategy.close()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy.close) or [strategy.close\_all](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy.close_all) function call. This setting causes the broker emulator to close a position on the same tick that the strategy creates the close order — meaning, when bar closes instead of the beginning of the next one. The [process\_orders\_on\_close](https://www.tradingview.com/pine-script-docs/concepts/strategies/#process_orders_on_close) parameter affects all closing orders in the strategy, whereas the `immediately` parameter affects only the close order in which it is used.
+An alternative method is to specify the `immediately` parameter as `true` in a [strategy.close()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy.close) or [strategy.close\_all()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy.close_all) function call. This setting causes the broker emulator to close a position on the same tick that the strategy creates the close order — meaning, when bar closes instead of the beginning of the next one. The [`process_orders_on_close`](https://www.tradingview.com/pine-script-docs/concepts/strategies/#process_orders_on_close) parameter affects all closing orders in the strategy, whereas the `immediately` parameter affects only the close order in which it is used.
 
 However, processing orders on close might not give accurate results. For instance, if an alert occurs at the close of the session’s last bar, the actual order can be executed only on the next trading day, since the bar is already closed. In contrast, the emulator would simulate the order being filled at the previous day’s close. This discrepancy can lead to repainting, where the behavior of the strategy’s simulation on historical bars differs from that seen in live trading.
 
@@ -246,7 +246,7 @@ Setting up a strategy with multiple take profit levels enables traders to scale 
 
 There are two main methods for scaling out at varying levels:
 
--   Multiple [strategy.exit](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy.exit) calls. This method is most suitable when each take-profit level has a corresponding stop loss.
+-   Multiple [strategy.exit()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy.exit) calls. This method is most suitable when each take-profit level has a corresponding stop loss.
 -   An [OCA reduce group](https://www.tradingview.com/pine-script-docs/concepts/strategies/#strategyocareduce). This method is ideal for a different number of take-profit levels and stop losses.
 
 #### Multiple `strategy.exit()` functions {#multiple-strategyexit-functions}
@@ -387,7 +387,7 @@ plot(takeProfit, "TP", color.green, style = plot.style_linebr)
 
 ### How can I exit a trade in the same bar as it opens? {#how-can-i-exit-a-trade-in-the-same-bar-as-it-opens}
 
-Sometimes, strategy testers want to be able to exit a trade in the same bar as the entry. By default, if an exit condition occurs during the same bar that a trade is opened, the broker emulator closes the trade at the open of the _next_ bar. To learn why this happens, refer to [this FAQ entry](https://www.tradingview.com/pine-script-docs/faq/strategies/#why-are-my-orders-executed-on-the-bar-following-my-triggers).
+Sometimes, traders want to enter and exit trades on the same bar. By default, if an exit condition occurs during the same bar that a trade is opened, the broker emulator closes the trade at the open of the _next_ bar. To learn why this happens, refer to [this FAQ entry](https://www.tradingview.com/pine-script-docs/faq/strategies/#why-are-my-orders-executed-on-the-bar-following-my-triggers).
 
 To override this default behavior, either specify exit prices, or exit with a market order at the bar close.
 
@@ -918,11 +918,11 @@ For strategies, this means the historical results seen today might change as the
 
 **Export strategy results**
 
-Regularly [exporting strategy results](https://www.tradingview.com/support/solutions/43000613680-how-can-i-export-strategy-data/) to file maintains a record of performance over time despite changes in historical data. Use the “Export Data” option in the top of the [Strategy Tester](https://www.tradingview.com/pine-script-docs/concepts/strategies/#strategy-tester) to export data.
+Regularly [exporting strategy results](https://www.tradingview.com/support/solutions/43000613680-how-to-export-strategy-data/) to a file maintains a record of performance over time despite changes in historical data. Use the “Download data as XLSX” option from the context menu in the [strategy report](https://www.tradingview.com/pine-script-docs/concepts/strategies/#strategy-report) to export all the available report data. Alternatively, use the “Download” button in the upper-right corner of the panel’s “Trades” tab to export only the list of trades data as a comma-separated values (CSV) file.
 
 **Use Deep Backtesting**
 
-Users with [Premium and higher plans](https://www.tradingview.com/pricing/) have access to the [Deep Backtesting](https://www.tradingview.com/support/folders/43000584695/) feature, which provides results from the entire available dataset of a symbol. Deep Backtesting results are displayed in the Strategy Tester but are not visible on the chart.
+Users with [Premium and higher plans](https://www.tradingview.com/pricing/) have access to the [Deep Backtesting](https://www.tradingview.com/support/folders/43000584695/) feature, which provides results from the entire available dataset of a symbol. Deep Backtesting results are displayed in the strategy report but are not visible on the chart.
 
 **Use Bar Replay**
 
@@ -938,7 +938,7 @@ Further, all non-standard chart types with the exception of [Heikin Ashi](https:
 
 Both the distortion of price data and the omission of time in non-standard charts lead to unrealistic and potentially misleading backtesting results.
 
-Programmers can specify the `fill_orders_on_standard_ohlc` parameter of the [strategy](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy) declaration, which causes the strategy to calculate on standard chart data even if the current view is of Heikin Ashi candles. The user can do the same thing by by enabling the “Fill orders on standard OHLC” option in the strategy’s [properties](https://www.tradingview.com/support/solutions/43000628599). This option has no effect on other non-standard chart types, because they use non-standard time as well as price.
+Programmers can specify the `fill_orders_on_standard_ohlc` parameter of the [strategy()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy) declaration, which causes the strategy to calculate on standard chart data even if the current view is of Heikin Ashi candles. The user can do the same thing by by enabling the “Fill orders on standard OHLC” option in the strategy’s [properties](https://www.tradingview.com/support/solutions/43000628599). This option has no effect on other non-standard chart types, because they use non-standard time as well as price.
 
 For a more detailed analysis of how non-standard chart types affect strategy results, refer to [this script](https://www.tradingview.com/script/q9laJNG9-Backtesting-on-Non-Standard-Charts-Caution-PineCoders-FAQ/) from the [PineCoders](https://www.tradingview.com/u/PineCoders/) account.
 
@@ -952,38 +952,15 @@ Starting the [Bar Replay](https://www.tradingview.com/support/solutions/43000712
 
 **Deep Backtesting**
 
-For TradingView users with [Premium and higher plans](https://www.tradingview.com/pricing/), the [Deep Backtesting](https://www.tradingview.com/support/folders/43000584695/) feature calculates the strategy on _all_ historical data available for the selected symbol. The results are displayed in the Strategy Tester but are not visible on the chart. The results from Deep Backtesting might be different from results from the [Strategy Tester](https://www.tradingview.com/pine-script-docs/concepts/strategies/#strategy-tester) in regular mode, as explained in [this Help Center article](https://www.tradingview.com/support/solutions/43000666266/).
+For TradingView users with [Premium and higher plans](https://www.tradingview.com/pricing/), the [Deep Backtesting](https://www.tradingview.com/support/folders/43000584695/) mode can execute the strategy across _all_ historical data available for the selected symbol. The results from Deep Backtesting mode are displayed only in the [strategy report](https://www.tradingview.com/pine-script-docs/concepts/strategies/#strategy-report), and the trade markers from using this mode are not visible on the chart; the trades shown on the chart are always calculated without Deep Backtesting. The strategy report results from Deep Backtesting mode might be different from the results in regular mode for the same chart and strategy, as explained in [this Help Center article](https://www.tradingview.com/support/solutions/43000666266/).
 
 ### How can I backtest multiple symbols? {#how-can-i-backtest-multiple-symbols}
 
-Each Pine Script strategy runs on one symbol at a time. To evaluate a strategy across various markets or instruments:
+Each Pine Script strategy runs on one dataset at a time. To evaluate a strategy across various markets or instruments:
 
 -   Apply the strategy to the chart and then switch the chart to the desired symbol.
 -   Use TradingView’s watchlist feature to organize and quickly access different symbols.
--   Export the results from the [Strategy Tester](https://www.tradingview.com/pine-script-docs/concepts/strategies/#strategy-tester) and use external tools such as spreadsheet software to compare the performance of a strategy on different symbols.
-
-### What does Bar Magnifier do? {#what-does-bar-magnifier-do}
-
-The [Bar Magnifier](https://www.tradingview.com/pine-script-docs/concepts/strategies/#bar-magnifier) feature, available for TradingView [Premium and Ultimate](https://www.tradingview.com/pricing/) account holders, significantly enhances the accuracy of order fills in strategy backtests. This tool uses data from lower timeframes to obtain more detailed price movement within a bar, which can result in more precise order fills. When selected, Bar Magnifier mode replaces the assumptions that the [broker emulator](https://www.tradingview.com/pine-script-docs/concepts/strategies/#broker-emulator) must make about price movement using only a single set of OHLC values for each historical bar.
-
-The Bar Magnifier chooses the lower timeframe based on the chart timeframe:
-
-| Chart Timeframe | Intrabar Timeframe |
-| --- | --- |
-| 1S | 1S |
-| 30S | 5S |
-| 1 | 10S |
-| 5 | 30S |
-| 10 | 1 |
-| 15 | 2 |
-| 30 | 5 |
-| 60 | 10 |
-| 240 | 30 |
-| 1D | 60 |
-| 3D | 240 |
-| 1W | 1D |
-
-To fully appreciate the effectiveness of Bar Magnifier, refer to the script demonstrations in the section about [Bar Magnifier](https://www.tradingview.com/pine-script-docs/concepts/strategies/#bar-magnifier) in the User Manual.
+-   Export the results from the [strategy report](https://www.tradingview.com/pine-script-docs/concepts/strategies/#strategy-report) and use external tools such as spreadsheet software to compare the performance of a strategy on different symbols.
 
 ## Advanced features and integration {#advanced-features-and-integration}
 
@@ -1077,9 +1054,9 @@ If the delay value is not divisible by the duration of a chart bar, each delay l
 
 ### How can I calculate custom statistics in a strategy? {#how-can-i-calculate-custom-statistics-in-a-strategy}
 
-To track metrics other than the default metrics that the Strategy Tester tracks, strategies can calculate custom statistics. These calculations might need to detect order executions, track closed trades, monitor entries into trades, and assess whether a trade is active. Changes in [built-in](https://www.tradingview.com/pine-script-docs/language/built-ins/#built-in-variables) variables such as [strategy.opentrades](https://www.tradingview.com/pine-script-reference/v6/#var_strategy.opentrades) and [strategy.closedtrades](https://www.tradingview.com/pine-script-reference/v6/#var_strategy.closedtrades) can track the execution of orders.
+To track metrics other than the default metrics that the [strategy report](https://www.tradingview.com/pine-script-docs/concepts/strategies/#strategy-report) tracks, strategies can calculate custom statistics. These calculations might need to detect order executions, track closed trades, monitor entries into trades, and assess whether a trade is active. Changes in [built-in variables](https://www.tradingview.com/pine-script-docs/language/built-ins/#built-in-variables) such as [strategy.opentrades](https://www.tradingview.com/pine-script-reference/v6/#var_strategy.opentrades) and [strategy.closedtrades](https://www.tradingview.com/pine-script-reference/v6/#var_strategy.closedtrades) can track the execution of orders.
 
-The following example script uses a moving average crossover strategy to generate orders. It calculates custom metrics, including the price risk at entry, average position size, and the average percentage of bars involved in trades across the dataset, and plots the custom metrics and some built-in variables to the Data Window. Users can view the history of values plotted in the Data Window by moving the cursor over any bar. In contrast, the Strategy Tester summarizes data over the entire testing period.
+The following example script uses a moving average crossover strategy to generate orders. It calculates custom metrics, including the price risk at entry, average position size, and the average percentage of bars involved in trades across the dataset, and plots the custom metrics and some built-in variables to the Data Window. Users can view the history of values plotted in the Data Window by moving the cursor over any bar. In contrast, the strategy report summarizes data over the entire testing period.
 
 ```pine
 //@version=6
@@ -1140,8 +1117,8 @@ plot(tradeRiskPct,           "Trade Risk Value",            display = display.da
 Note that:
 
 -   The strategy incorporates [trading costs](https://www.tradingview.com/pine-script-docs/concepts/strategies/#simulating-trading-costs). Failing to account for these costs can lead to an unrealistic perception of strategy performance and diminish the credibility of test results.
--   We round the [open](https://www.tradingview.com/pine-script-reference/v6/#var_open), [high](https://www.tradingview.com/pine-script-reference/v6/#var_high), [low](https://www.tradingview.com/pine-script-reference/v6/#var_low) and [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) (OHLC) built-in variables to the symbol’s precision. This rounding ensures that any statistics the script calculates align within the [Strategy Tester](https://www.tradingview.com/pine-script-docs/concepts/strategies/#strategy-tester) and with strategy order-related built-in variables.
--   The script creates global variables for the changes in built-in variables for open and closed trades so that the [ta.change](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.change) function is called on every bar for consistency.
+-   We round the [open](https://www.tradingview.com/pine-script-reference/v6/#var_open), [high](https://www.tradingview.com/pine-script-reference/v6/#var_high), [low](https://www.tradingview.com/pine-script-reference/v6/#var_low) and [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) (OHLC) built-in variables to the symbol’s precision. This rounding ensures that any statistics the script calculates align within the strategy report and with strategy order-related built-in variables.
+-   The script creates global variables `changeInOpenTrades` and `changeInClosedTrades` for the changes in built-in variables for open and closed trades so that it calls the [ta.change()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.change) function on every bar for consistency. See the [Storing and using data from previous bars](https://www.tradingview.com/pine-script-docs/language/execution-model/#storing-and-using-data-from-previous-bars) section of the [Execution model](https://www.tradingview.com/pine-script-docs/language/execution-model/) page to learn more.
 
 ### How do I incorporate leverage into my strategy? {#how-do-i-incorporate-leverage-into-my-strategy}
 
@@ -1172,7 +1149,7 @@ Strategies cannot use these methods, because Pine strategies can only have posit
 
 ### Can I connect my strategies to my paper trading account? {#can-i-connect-my-strategies-to-my-paper-trading-account}
 
-Pine Script does not support placing orders using the brokers integrated via the Trading Panel, or using TradingView’s built-in [paper trading account](https://www.tradingview.com/support/solutions/43000516466-paper-trading-main-functionality/). The Strategy Tester closely mimics a paper trading account by simulating orders and tracking theoretical positions and capital in a risk-free environment.
+Pine Script does not support placing orders using the brokers integrated via the Trading Panel, or using TradingView’s built-in [paper trading account](https://www.tradingview.com/support/solutions/43000516466-paper-trading-main-functionality/). The strategy report closely mimics a paper trading account by simulating orders and tracking theoretical positions and capital in a risk-free environment.
 
 Strategies can customize [order fill alerts](https://www.tradingview.com/pine-script-docs/concepts/strategies/#strategy-alerts) to include detailed results and performance metrics in the alert strings, providing a record of the strategy’s theoretical fills and overall performance in realtime.
 
@@ -1183,27 +1160,29 @@ Strategies can customize [order fill alerts](https://www.tradingview.com/pine-sc
 
 ### Why are no trades executed after I add the strategy to the chart? {#why-are-no-trades-executed-after-i-add-the-strategy-to-the-chart}
 
-If a strategy that is running on the chart does not place any orders, the Strategy Tester’s “Overview” tab displays the message, “This strategy did not generate any orders throughout the testing range.” By contrast, while no strategy is loaded and visible on the chart, the Strategy Tester displays a different message: “To test a strategy, apply it to the chart.”
+The [strategy report](https://www.tradingview.com/pine-script-docs/concepts/strategies/#strategy-report), which displays a strategy’s simulated trading results, becomes available when at least one strategy script is _active_ (loaded and visible) on the chart. If a strategy that is running on the chart does not place any orders, the panel displays a message to inform the user that no trade data is available.
 
 If a valid script that uses the [strategy()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy) declaration statement is running but is not placing any orders, consider the following potential problems and their solutions:
 
 **Lack of order placement commands**
 
-The strategy must use either the [strategy.order()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy.order) or [strategy.entry()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy.entry) order [placement commands](https://www.tradingview.com/pine-script-docs/concepts/strategies/#order-placement-and-cancellation) to place orders. Add [log.info](https://www.tradingview.com/pine-script-reference/v6/#fun_log.info) messages and review the Pine Logs to check whether the conditions to run the commands are met.
+The strategy must use either the [strategy.order()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy.order) or [strategy.entry()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy.entry) order [placement commands](https://www.tradingview.com/pine-script-docs/concepts/strategies/#order-placement-and-cancellation) to place orders. Add [log.info()](https://www.tradingview.com/pine-script-reference/v6/#fun_log.info) messages and review the [Pine Logs](https://www.tradingview.com/pine-script-docs/writing/debugging/#pine-logs) to check whether the conditions to run those commands are met.
 
 **Insufficient capital**
 
-Verify that the strategy has enough initial capital to cover the position sizes it attempts to open. Remember, the cost of entering a futures contract position is the chart price multiplied by the [syminfo.pointvalue](https://www.tradingview.com/pine-script-reference/v6/#var_syminfo.pointvalue), which can be significantly greater than the chart price. For a quick fix, increase the initial capital to a very high value in the _Properties_ tab.
+Verify that the strategy has enough initial capital to cover the position sizes it attempts to open. Remember, the cost of entering a futures contract position is the chart price multiplied by the [syminfo.pointvalue](https://www.tradingview.com/pine-script-reference/v6/#var_syminfo.pointvalue), which can be significantly greater than the chart price. For a quick fix, increase the initial capital to a very high value in the strategy’s “Settings/Properties” tab.
 
 **Runtime errors**
 
 Check for runtime errors indicated by a red exclamation mark on the chart pane next to the script’s title. Resolve any issues by correcting the script as necessary.
 
-For more detailed guidance and troubleshooting tips, refer to the dedicated article on this topic in the [Help Center](https://www.tradingview.com/support/solutions/43000478450-i-ve-successfully-added-a-strategy-to-my-chart-but-it-doesn-t-generate-orders/).
+By contrast, if a strategy produces too few trades, or executes over too short a duration, there might not be enough information to populate the full strategy report. In that case, the strategy report panel can generate a portion of its results, but some report sections might display no results for certain metrics or show the message “Not enough data to display” in place of certain visuals. To address this problem, adjust the chosen dataset, testing range, and strategy configuration to ensure that the strategy produces a reasonable number of simulated trades to assess its hypothetical performance (ideally 100 trades or more).
+
+For more detailed guidance on this topic and troubleshooting tips, refer to the Help Center article [I’ve successfully added a strategy to my chart, but it doesn’t generate orders](https://www.tradingview.com/support/solutions/43000478450-i-ve-successfully-added-a-strategy-to-my-chart-but-it-doesn-t-generate-orders/).
 
 ### Why does my strategy not place any orders on recent bars? {#why-does-my-strategy-not-place-any-orders-on-recent-bars}
 
-If a strategy places one or more orders early in the testing range but then stops placing orders, check the following issues.
+If a strategy places one or more orders early in the testing range but then stops placing orders, check the following issues:
 
 **Total account loss**
 
@@ -1211,7 +1190,7 @@ Check whether the simulated account balance experienced a total loss of equity e
 
 **No exit condition**
 
-Some programmers define entry conditions that rely on having no positions currently open. Make sure to explicitly close trades by specifying corresponding exit conditions for all trades. Without explicit instructions to close an open position using [strategy.close()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy.close) or [strategy.exit()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy.exit) commands, the strategy might display only a single entry order early in the chart’s history and in the _List of Trades_ tab. If trades are not closed, they do not generate results in the _Overview_.
+Some programmers define entry conditions that rely on having no positions currently open. Make sure to explicitly close trades by specifying corresponding exit conditions for all trades. Without explicit instructions to close an open position using [strategy.close()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy.close) or [strategy.exit()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy.exit) commands, the strategy might display only a single entry order early in the chart’s history and in the strategy report’s [“Trades” tab](https://www.tradingview.com/pine-script-docs/concepts/strategies/#trades-tab). If trades are not closed, they do not generate results in the report’s [“Metrics” tab](https://www.tradingview.com/pine-script-docs/concepts/strategies/#metrics-tab).
 
 ### Why is my strategy repainting? {#why-is-my-strategy-repainting}
 
@@ -1219,15 +1198,15 @@ Pine scripts _repaint_ if they behave differently on historical and realtime bar
 
 Some strategy properties cause repainting:
 
--   The [calc\_on\_every\_tick](https://www.tradingview.com/pine-script-docs/concepts/strategies/#calc_on_every_tick) setting causes a strategy to recalculate with every price update, which may cause orders and alerts to trigger during the formation of a bar in realtime. By contrast, on historical bars, calculations are performed at the close of the bar.
--   The [calc\_on\_order\_fills](https://www.tradingview.com/pine-script-docs/concepts/strategies/#calc_on_order_fills) setting causes a strategy to recalculate immediately after simulating an order fill. For example, this feature is particularly useful for strategies that rely on entry prices to set exit prices on the entry bar, rather than waiting for the bar to close, such as the first example script in the FAQ entry [How can I set stop-loss and take-profit levels as a percentage from my entry point using `calc_on_order_fills`?](https://www.tradingview.com/pine-script-docs/faq/strategies/#using-calc_on_order_fills) However, using this setting can introduce _lookahead bias_ into the strategy, leading to potentially unrealistic outcomes. For instance, if a strategy’s entry conditions are met within a bar that also triggers an exit, the strategy would execute an entry order within the same bar on the next tick. On historical bars, such entries could occur at any of the bar’s [open](https://www.tradingview.com/pine-script-reference/v6/#var_open), [high](https://www.tradingview.com/pine-script-reference/v6/#var_high), [low](https://www.tradingview.com/pine-script-reference/v6/#var_low), or [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) (OHLC) prices, resulting in entry prices that are unrealistically favorable.
--   Since strategies and their alerts execute at the close of a historical bar, the next possible moment for an entry order to be filled is the beginning of the next bar. However, the [process\_orders\_on\_close](https://www.tradingview.com/pine-script-docs/concepts/strategies/#process_orders_on_close) setting causes the strategy to use the close price of the bar where the condition is met for its order prices instead. See the FAQ entry [Why are my orders executed on the bar following my triggers?](https://www.tradingview.com/pine-script-docs/faq/strategies/#why-are-my-orders-executed-on-the-bar-following-my-triggers) for more information.
+-   The [`calc_on_every_tick`](https://www.tradingview.com/pine-script-docs/concepts/strategies/#calc_on_every_tick) setting causes a strategy to recalculate with every price update, which may cause orders and alerts to trigger during the formation of a bar in realtime. By contrast, on historical bars, calculations are performed at the close of the bar.
+-   The [`calc_on_order_fills`](https://www.tradingview.com/pine-script-docs/concepts/strategies/#calc_on_order_fills) setting causes a strategy to recalculate immediately after simulating an order fill. For example, this feature is particularly useful for strategies that rely on entry prices to set exit prices on the entry bar, rather than waiting for the bar to close, such as the first example script in the FAQ entry [How can I set stop-loss and take-profit levels as a percentage from my entry point using `calc_on_order_fills`?](https://www.tradingview.com/pine-script-docs/faq/strategies/#using-calc_on_order_fills) However, using this setting can introduce _lookahead bias_ into the strategy, leading to potentially unrealistic outcomes. For instance, if a strategy’s entry conditions are met within a bar that also triggers an exit, the strategy would execute an entry order within the same bar on the next tick. On historical bars, such entries could occur at any of the bar’s [open](https://www.tradingview.com/pine-script-reference/v6/#var_open), [high](https://www.tradingview.com/pine-script-reference/v6/#var_high), [low](https://www.tradingview.com/pine-script-reference/v6/#var_low), or [close](https://www.tradingview.com/pine-script-reference/v6/#var_close) (OHLC) prices, resulting in entry prices that are unrealistically favorable.
+-   Since strategies and their alerts execute at the close of a historical bar, the next possible moment for an entry order to be filled is the beginning of the next bar. However, the [`process_orders_on_close`](https://www.tradingview.com/pine-script-docs/concepts/strategies/#process_orders_on_close) setting causes the strategy to use the close price of the bar where the condition is met for its order prices instead. See the FAQ entry [Why are my orders executed on the bar following my triggers?](https://www.tradingview.com/pine-script-docs/faq/strategies/#why-are-my-orders-executed-on-the-bar-following-my-triggers) for more information.
 
-To avoid repainting, set the [calc\_on\_every\_tick](https://www.tradingview.com/pine-script-docs/concepts/strategies/#calc_on_every_tick), [calc\_on\_order\_fills](https://www.tradingview.com/pine-script-docs/concepts/strategies/#calc_on_order_fills), and [process\_orders\_on\_close](https://www.tradingview.com/pine-script-docs/concepts/strategies/#process_orders_on_close) parameters to `false` in the [strategy()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy) declaration statement.
+To avoid repainting, set the [`calc_on_every_tick`](https://www.tradingview.com/pine-script-docs/concepts/strategies/#calc_on_every_tick), [`calc_on_order_fills`](https://www.tradingview.com/pine-script-docs/concepts/strategies/#calc_on_order_fills), and [`process_orders_on_close`](https://www.tradingview.com/pine-script-docs/concepts/strategies/#process_orders_on_close) parameters to `false` in the [strategy()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy) declaration statement.
 
-Additionally, using unfixed data from a higher timeframe can cause repainting. If the data from the higher timeframe changes during the higher timeframe bar, this can change the script’s oputput for historical bars. Ensure that strategies use only fixed values from a higher timeframe, as described in [Avoiding repainting](https://www.tradingview.com/pine-script-docs/concepts/other-timeframes-and-data/#avoiding-repainting).
+Additionally, using unfixed data from a higher timeframe can cause repainting. If the data from the higher timeframe changes during the higher timeframe bar, this can change the script’s oputput for historical bars. Ensure that strategies use only fixed values from a higher timeframe, as described in the [Avoiding repainting](https://www.tradingview.com/pine-script-docs/concepts/other-timeframes-and-data/#avoiding-repainting) section of the [Other timeframes and data](https://www.tradingview.com/pine-script-docs/concepts/other-timeframes-and-data/) page.
 
-Although these are the most common causes of repainting in strategies, they are not the only causes. For additional information, refer to the section on [repainting](https://www.tradingview.com/pine-script-docs/concepts/repainting/) in the User Manual.
+Although these are the most common causes of repainting in strategies, they are not the only causes. For additional information, refer to the [Repainting](https://www.tradingview.com/pine-script-docs/concepts/repainting/) page in the User Manual.
 
 ### How do I turn off alerts for stop loss and take profit orders? {#how-do-i-turn-off-alerts-for-stop-loss-and-take-profit-orders}
 

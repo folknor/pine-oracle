@@ -330,7 +330,7 @@ See the User Manual’s page on [Inputs](https://www.tradingview.com/pine-script
 | `time_close(resolution)` | `time_close(timeframe)` |
 | `nz(x, y)` | `nz(source, replacement)` |
 
-#### ”ta” namespace for technical analysis functions and variables {#ta-namespace-for-technical-analysis-functions-and-variables}
+#### “ta” namespace for technical analysis functions and variables {#ta-namespace-for-technical-analysis-functions-and-variables}
 
 ##### Indicator functions and variables {#indicator-functions-and-variables}
 
@@ -407,7 +407,7 @@ See the User Manual’s page on [Inputs](https://www.tradingview.com/pine-script
 | `valuewhen()` | `ta.valuewhen()` |
 | `variance()` | `ta.variance()` |
 
-#### ”math” namespace for math-related functions and variables {#math-namespace-for-math-related-functions-and-variables}
+#### “math” namespace for math-related functions and variables {#math-namespace-for-math-related-functions-and-variables}
 
 | v4 | v5 |
 | --- | --- |
@@ -436,7 +436,7 @@ See the User Manual’s page on [Inputs](https://www.tradingview.com/pine-script
 | `todegrees()` | `math.todegrees()` |
 | `toradians()` | `math.toradians()` |
 
-#### ”request” namespace for functions that request external data {#request-namespace-for-functions-that-request-external-data}
+#### “request” namespace for functions that request external data {#request-namespace-for-functions-that-request-external-data}
 
 | v4 | v5 |
 | --- | --- |
@@ -447,7 +447,7 @@ See the User Manual’s page on [Inputs](https://www.tradingview.com/pine-script
 | `dividends()` | `request.dividends()` |
 | `earnings()` | `request.earnings()` |
 
-#### ”ticker” namespace for functions that help create tickers {#ticker-namespace-for-functions-that-help-create-tickers}
+#### “ticker” namespace for functions that help create tickers {#ticker-namespace-for-functions-that-help-create-tickers}
 
 | v4 | v5 |
 | --- | --- |
@@ -458,7 +458,7 @@ See the User Manual’s page on [Inputs](https://www.tradingview.com/pine-script
 | `renko()` | `ticker.renko()` |
 | `tickerid()` | `ticker.new()` |
 
-#### ”str” namespace for functions that manipulate strings {#str-namespace-for-functions-that-manipulate-strings}
+#### “str” namespace for functions that manipulate strings {#str-namespace-for-functions-that-manipulate-strings}
 
 | v4 | v5 |
 | --- | --- |

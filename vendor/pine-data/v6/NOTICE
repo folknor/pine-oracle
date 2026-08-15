@@ -32,15 +32,19 @@ Schema notes:
     reference card straight from pine-data; the markdown reference vendor was
     retired once they landed.
 
-Snapshot: pine-tools scrape 2026-06-07. Three changes vs. 2026-06-02:
-  - functions.json: mass `required` correction (94 -> 1223 params flagged
-    required; upstream had been under-reporting requiredness).
-  - functions.json: new `flags.historyDependent` (true on the whole ta.*
-    namespace plus fixnan and math.sum - functions whose conditional or
-    iterative calls build an inconsistent series, TV's CW10003 criterion).
-  - variables.json: new entry `syminfo.cftc_code` (161 -> 162; undocumented
-    in the v6 reference, probed against TV's linter 2026-06-07).
-The other five files are byte-identical to 2026-06-02.
+Snapshot: pine-tools scrape 2026-08-15 (pine-tools 0764211, "Refresh v6
+reference data and Manual against TradingView"). Entry counts are unchanged
+across all seven catalogs; the changes vs. 2026-06-07 are content-level:
+  - functions.json: 217 entries changed. 206 of them are example-code refreshes
+    (TV's invisible whitespace - non-breaking spaces and zero-width characters -
+    is now stripped from generated examples and prose upstream).
+  - functions.json: `array.binary_search{,_leftmost,_rightmost}` gained new
+    overloads plus revised description / remarks / parameters.
+  - functions.json: `strategy` gained the `calc_on_every_history_tick`
+    parameter (syntax line updated to match), and
+    `strategy.exit` + the six `strategy.risk.*` functions have revised `flags`.
+  - annotations.json: whitespace-only (same invisible-character strip).
+The other five files are byte-identical to 2026-06-07.
 The JSON files are bare arrays with no embedded generation timestamp; the
 snapshot date above is baked into the binary as behavior::PINE_DATA_SNAPSHOT for
 `po version`.

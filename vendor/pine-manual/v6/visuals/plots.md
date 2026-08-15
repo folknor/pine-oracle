@@ -410,7 +410,7 @@ hline(150)
 
 Note that:
 
--   We have added levels using [hline](https://www.tradingview.com/pine-script-reference/v6/#fun_hline) to situate both signals.
+-   We have added levels using [hline()](https://www.tradingview.com/pine-script-reference/v6/#fun_hline) to situate both signals.
     
 -   In order for both signal lines to oscillate on the same range of 100, we divide the [TSI](https://www.tradingview.com/support/solutions/43000592290) value by 2 because it has a 200 range (-100 to +100). We then shift this value up by 150 so it oscillates between 100 and 200, making 150 its centerline.
     

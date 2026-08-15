@@ -106,7 +106,6 @@
         "returns": "array<int>"
       }
     ],
-    "examples": [],
     "seeAlso": [
       "array.new_float",
       "array.insert",
@@ -173,26 +172,76 @@
     "name": "array.binary_search",
     "namespace": "array",
     "syntax": "array.binary_search(id, val) → series int",
-    "description": "The function returns the index of the value, or -1 if the value is not found. The array to search must be sorted in ascending order.",
+    "description": "Performs a binary search through a sorted array to locate an element corresponding to a target value. The function returns an element's index if the value from that element equals the target value. Otherwise, it returns -1.",
     "parameters": [
       {
         "name": "id",
-        "type": "array<int/float>",
-        "description": "An array object.",
+        "type": "unknown",
+        "description": "The ID of the array to search. The function can search an array of \"int\" or \"float\" values, or an array with elements of any user-defined type that contains at least one \"int\" or \"float\" field. The array's elements must be sorted in ascending order by numeric value for correct results.",
         "required": true
       },
       {
         "name": "val",
-        "type": "series int/float",
-        "description": "The value to search for in the array.",
+        "type": "series int/float/string",
+        "description": "The target value to locate in the array. If the array contains elements of the \"int\" or \"float\" type, the function searches the elements for the value directly. If the array contains elements of a user-defined type, the function searches for the value in the specified \"int\" or \"float\" field from the objects referenced by the array's elements.",
         "required": true
+      },
+      {
+        "name": "sort_field",
+        "type": "const int/string",
+        "description": "Optional. If the array contains elements of a user-defined type, this parameter specifies which of the type's fields the function uses to search the elements. The function can search the array using any of the type's \"int\" or \"float\" fields. An \"int\" sort_field argument specifies a field by its index, where 0 refers to the first field in the type declaration. A \"string\" argument specifies a field by its name. For correct results, the array's elements must be sorted in ascending order by the specified field. The default is 0.",
+        "required": false,
+        "default": "0"
       }
     ],
     "returns": "series int",
+    "overloads": [
+      {
+        "parameters": [
+          {
+            "name": "id",
+            "type": "array<int/float>",
+            "description": "The ID of the array to search. The function can search an array of \"int\" or \"float\" values, or an array with elements of any user-defined type that contains at least one \"int\" or \"float\" field. The array's elements must be sorted in ascending order by numeric value for correct results.",
+            "required": true
+          },
+          {
+            "name": "val",
+            "type": "series int/float",
+            "description": "The target value to locate in the array. If the array contains elements of the \"int\" or \"float\" type, the function searches the elements for the value directly. If the array contains elements of a user-defined type, the function searches for the value in the specified \"int\" or \"float\" field from the objects referenced by the array's elements.",
+            "required": true
+          }
+        ],
+        "returns": "series int"
+      },
+      {
+        "parameters": [
+          {
+            "name": "id",
+            "type": "any array type",
+            "description": "The ID of the array to search. The function can search an array of \"int\" or \"float\" values, or an array with elements of any user-defined type that contains at least one \"int\" or \"float\" field. The array's elements must be sorted in ascending order by numeric value for correct results.",
+            "required": true
+          },
+          {
+            "name": "val",
+            "type": "series int/float/string",
+            "description": "The target value to locate in the array. If the array contains elements of the \"int\" or \"float\" type, the function searches the elements for the value directly. If the array contains elements of a user-defined type, the function searches for the value in the specified \"int\" or \"float\" field from the objects referenced by the array's elements.",
+            "required": true
+          },
+          {
+            "name": "sort_field",
+            "type": "const int/string",
+            "description": "Optional. If the array contains elements of a user-defined type, this parameter specifies which of the type's fields the function uses to search the elements. The function can search the array using any of the type's \"int\" or \"float\" fields. An \"int\" sort_field argument specifies a field by its index, where 0 refers to the first field in the type declaration. A \"string\" argument specifies a field by its name. For correct results, the array's elements must be sorted in ascending order by the specified field. The default is 0.",
+            "required": false,
+            "default": "0"
+          }
+        ],
+        "returns": "series int"
+      }
+    ],
     "examples": [
       "//@version=6\nindicator(\"array.binary_search\")\na = array.from(5, -2, 0, 9, 1)\narray.sort(a) // [-2, 0, 1, 5, 9]\nposition = array.binary_search(a, 0) // 1\nplot(position)"
     ],
-    "remarks": "A binary search works on arrays pre-sorted in ascending order. It begins by comparing an element in the middle of the array with the target value. If the element matches the target value, its position in the array is returned. If the element's value is greater than the target value, the search continues in the lower half of the array. If the element's value is less than the target value, the search continues in the upper half of the array. By doing this recursively, the algorithm progressively eliminates smaller and smaller portions of the array in which the target value cannot lie.",
+    "remarks": "Unlike array.indexof() and array.lastindexof(), this function searches an array by repeatedly checking the middle element in the index range and dividing the search range in half. First, it checks if the value from the element at the middle index equals the target value, then returns that index immediately if the two values are equal. If the values are not equal, the function then reduces the search range to the first half of the current range if the target value is less than the middle value, and to the second half otherwise. This process repeats until the function either finds an element corresponding to the target value or reduces the search range to a single index.\nIf a sorted array contains multiple elements whose values match the target value, the index returned by this function does not necessarily correspond to the first or last occurrence of that value. To perform a binary search on an array and then retrieve the index for the first or last occurrence of a value, use the array.binary_search_leftmost() or array.binary_search_rightmost() function, respectively.",
     "seeAlso": [
       "array.new_float",
       "array.insert",
@@ -206,27 +255,77 @@
     "name": "array.binary_search_leftmost",
     "namespace": "array",
     "syntax": "array.binary_search_leftmost(id, val) → series int",
-    "description": "The function returns the index of the value if it is found. When the value is not found, the function returns the index of the next smallest element to the left of where the value would lie if it was in the array. The array to search must be sorted in ascending order.",
+    "description": "Performs a binary search through a sorted array to locate an element corresponding to a target value. If the function locates the target value in the array's elements or referenced object fields, it returns the index of the first element whose retrieved value equals that value. Otherwise, it returns the index of the last element whose retrieved value is less than the target value, or 0 if the target value is less than the value from the first element.",
     "parameters": [
       {
         "name": "id",
-        "type": "array<int/float>",
-        "description": "An array object.",
+        "type": "unknown",
+        "description": "The ID of the array to search. The function can search an array of \"int\" or \"float\" values, or an array with elements of any user-defined type that contains at least one \"int\" or \"float\" field. The array's elements must be sorted in ascending order by numeric value for correct results.",
         "required": true
       },
       {
         "name": "val",
-        "type": "series int/float",
-        "description": "The value to search for in the array.",
+        "type": "series int/float/string",
+        "description": "The target value to locate in the array. If the array contains elements of the \"int\" or \"float\" type, the function searches the elements for the value directly. If the array contains elements of a user-defined type, the function searches for the value in the specified \"int\" or \"float\" field from the objects referenced by the array's elements.",
         "required": true
+      },
+      {
+        "name": "sort_field",
+        "type": "const int/string",
+        "description": "Optional. If the array contains elements of a user-defined type, this parameter specifies which of the type's fields the function uses to search the elements. The function can search the array using any of the type's \"int\" or \"float\" fields. An \"int\" sort_field argument specifies a field by its index, where 0 refers to the first field in the type declaration. A \"string\" argument specifies a field by its name. For correct results, the array's elements must be sorted in ascending order by the specified field. The default is 0.",
+        "required": false,
+        "default": "0"
       }
     ],
     "returns": "series int",
+    "overloads": [
+      {
+        "parameters": [
+          {
+            "name": "id",
+            "type": "array<int/float>",
+            "description": "The ID of the array to search. The function can search an array of \"int\" or \"float\" values, or an array with elements of any user-defined type that contains at least one \"int\" or \"float\" field. The array's elements must be sorted in ascending order by numeric value for correct results.",
+            "required": true
+          },
+          {
+            "name": "val",
+            "type": "series int/float",
+            "description": "The target value to locate in the array. If the array contains elements of the \"int\" or \"float\" type, the function searches the elements for the value directly. If the array contains elements of a user-defined type, the function searches for the value in the specified \"int\" or \"float\" field from the objects referenced by the array's elements.",
+            "required": true
+          }
+        ],
+        "returns": "series int"
+      },
+      {
+        "parameters": [
+          {
+            "name": "id",
+            "type": "any array type",
+            "description": "The ID of the array to search. The function can search an array of \"int\" or \"float\" values, or an array with elements of any user-defined type that contains at least one \"int\" or \"float\" field. The array's elements must be sorted in ascending order by numeric value for correct results.",
+            "required": true
+          },
+          {
+            "name": "val",
+            "type": "series int/float/string",
+            "description": "The target value to locate in the array. If the array contains elements of the \"int\" or \"float\" type, the function searches the elements for the value directly. If the array contains elements of a user-defined type, the function searches for the value in the specified \"int\" or \"float\" field from the objects referenced by the array's elements.",
+            "required": true
+          },
+          {
+            "name": "sort_field",
+            "type": "const int/string",
+            "description": "Optional. If the array contains elements of a user-defined type, this parameter specifies which of the type's fields the function uses to search the elements. The function can search the array using any of the type's \"int\" or \"float\" fields. An \"int\" sort_field argument specifies a field by its index, where 0 refers to the first field in the type declaration. A \"string\" argument specifies a field by its name. For correct results, the array's elements must be sorted in ascending order by the specified field. The default is 0.",
+            "required": false,
+            "default": "0"
+          }
+        ],
+        "returns": "series int"
+      }
+    ],
     "examples": [
       "//@version=6\nindicator(\"array.binary_search_leftmost\")\na = array.from(5, -2, 0, 9, 1)\narray.sort(a) // [-2, 0, 1, 5, 9]\nposition = array.binary_search_leftmost(a, 3) // 2\nplot(position)",
       "//@version=6\nindicator(\"array.binary_search_leftmost, repetitive elements\")\na = array.from(4, 5, 5, 5)\n// Returns the index of the first instance.\nposition = array.binary_search_leftmost(a, 5)\nplot(position) // Plots 1"
     ],
-    "remarks": "A binary search works on arrays pre-sorted in ascending order. It begins by comparing an element in the middle of the array with the target value. If the element matches the target value, its position in the array is returned. If the element's value is greater than the target value, the search continues in the lower half of the array. If the element's value is less than the target value, the search continues in the upper half of the array. By doing this recursively, the algorithm progressively eliminates smaller and smaller portions of the array in which the target value cannot lie.",
+    "remarks": "Unlike array.indexof() and array.lastindexof(), this function searches an array by repeatedly checking the middle element in the index range and dividing the search range in half. First, it checks if the value from the element at the middle index equals the target value, then returns that index immediately if the two values are equal. If the values are not equal, the function then reduces the search range to the first half of the current range if the target value is less than the middle value, and to the second half otherwise. This process repeats until the function either finds an element corresponding to the target value or reduces the search range to a single index.",
     "seeAlso": [
       "array.new_float",
       "array.insert",
@@ -240,27 +339,77 @@
     "name": "array.binary_search_rightmost",
     "namespace": "array",
     "syntax": "array.binary_search_rightmost(id, val) → series int",
-    "description": "The function returns the index of the value if it is found. When the value is not found, the function returns the index of the element to the right of where the value would lie if it was in the array. The array must be sorted in ascending order.",
+    "description": "Performs a binary search through a sorted array to locate an element corresponding to a target value. If the function locates the target value in the array's elements or referenced object fields, it returns the index of the last element whose retrieved value equals that value. Otherwise, it returns the index of the first element whose retrieved value is greater than the target value, or the array's last index plus one if the target value is greater than the value from the last element.",
     "parameters": [
       {
         "name": "id",
-        "type": "array<int/float>",
-        "description": "An array object.",
+        "type": "unknown",
+        "description": "The ID of the array to search. The function can search an array of \"int\" or \"float\" values, or an array with elements of any user-defined type that contains at least one \"int\" or \"float\" field. The array's elements must be sorted in ascending order by numeric value for correct results.",
         "required": true
       },
       {
         "name": "val",
-        "type": "series int/float",
-        "description": "The value to search for in the array.",
+        "type": "series int/float/string",
+        "description": "The target value to locate in the array. If the array contains elements of the \"int\" or \"float\" type, the function searches the elements for the value directly. If the array contains elements of a user-defined type, the function searches for the value in the specified \"int\" or \"float\" field from the objects referenced by the array's elements.",
         "required": true
+      },
+      {
+        "name": "sort_field",
+        "type": "const int/string",
+        "description": "Optional. If the array contains elements of a user-defined type, this parameter specifies which of the type's fields the function uses to search the elements. The function can search the array using any of the type's \"int\" or \"float\" fields. An \"int\" sort_field argument specifies a field by its index, where 0 refers to the first field in the type declaration. A \"string\" argument specifies a field by its name. For correct results, the array's elements must be sorted in ascending order by the specified field. The default is 0.",
+        "required": false,
+        "default": "0"
       }
     ],
     "returns": "series int",
+    "overloads": [
+      {
+        "parameters": [
+          {
+            "name": "id",
+            "type": "array<int/float>",
+            "description": "The ID of the array to search. The function can search an array of \"int\" or \"float\" values, or an array with elements of any user-defined type that contains at least one \"int\" or \"float\" field. The array's elements must be sorted in ascending order by numeric value for correct results.",
+            "required": true
+          },
+          {
+            "name": "val",
+            "type": "series int/float",
+            "description": "The target value to locate in the array. If the array contains elements of the \"int\" or \"float\" type, the function searches the elements for the value directly. If the array contains elements of a user-defined type, the function searches for the value in the specified \"int\" or \"float\" field from the objects referenced by the array's elements.",
+            "required": true
+          }
+        ],
+        "returns": "series int"
+      },
+      {
+        "parameters": [
+          {
+            "name": "id",
+            "type": "any array type",
+            "description": "The ID of the array to search. The function can search an array of \"int\" or \"float\" values, or an array with elements of any user-defined type that contains at least one \"int\" or \"float\" field. The array's elements must be sorted in ascending order by numeric value for correct results.",
+            "required": true
+          },
+          {
+            "name": "val",
+            "type": "series int/float/string",
+            "description": "The target value to locate in the array. If the array contains elements of the \"int\" or \"float\" type, the function searches the elements for the value directly. If the array contains elements of a user-defined type, the function searches for the value in the specified \"int\" or \"float\" field from the objects referenced by the array's elements.",
+            "required": true
+          },
+          {
+            "name": "sort_field",
+            "type": "const int/string",
+            "description": "Optional. If the array contains elements of a user-defined type, this parameter specifies which of the type's fields the function uses to search the elements. The function can search the array using any of the type's \"int\" or \"float\" fields. An \"int\" sort_field argument specifies a field by its index, where 0 refers to the first field in the type declaration. A \"string\" argument specifies a field by its name. For correct results, the array's elements must be sorted in ascending order by the specified field. The default is 0.",
+            "required": false,
+            "default": "0"
+          }
+        ],
+        "returns": "series int"
+      }
+    ],
     "examples": [
       "//@version=6\nindicator(\"array.binary_search_rightmost\")\na = array.from(5, -2, 0, 9, 1)\narray.sort(a) // [-2, 0, 1, 5, 9]\nposition = array.binary_search_rightmost(a, 3) // 3\nplot(position)",
       "//@version=6\nindicator(\"array.binary_search_rightmost, repetitive elements\")\na = array.from(4, 5, 5, 5)\n// Returns the index of the last instance.\nposition = array.binary_search_rightmost(a, 5)\nplot(position) // Plots 3"
     ],
-    "remarks": "A binary search works on sorted arrays in ascending order. It begins by comparing an element in the middle of the array with the target value. If the element matches the target value, its position in the array is returned. If the element's value is greater than the target value, the search continues in the lower half of the array. If the element's value is less than the target value, the search continues in the upper half of the array. By doing this recursively, the algorithm progressively eliminates smaller and smaller portions of the array in which the target value cannot lie.",
+    "remarks": "Unlike array.indexof() and array.lastindexof(), this function searches an array by repeatedly checking the middle element in the index range and dividing the search range in half. First, it checks if the value from the element at the middle index equals the target value, then returns that index immediately if the two values are equal. If the values are not equal, the function then reduces the search range to the first half of the current range if the target value is less than the middle value, and to the second half otherwise. This process repeats until the function either finds an element corresponding to the target value or reduces the search range to a single index.",
     "seeAlso": [
       "array.new_float",
       "array.insert",
@@ -404,7 +553,6 @@
       }
     ],
     "returns": "series bool",
-    "examples": [],
     "remarks": "This function also works with arrays of int and float types, in which case zero values are considered false, and all others true.",
     "seeAlso": [
       "array.some",
@@ -1489,7 +1637,6 @@
       }
     ],
     "returns": "array<linefill>",
-    "examples": [],
     "returnsDescription": "The ID of an array object which may be used in other array.*() functions.",
     "remarks": "An array index starts from 0."
   },
@@ -1615,7 +1762,6 @@
         "returns": "series int"
       }
     ],
-    "examples": [],
     "remarks": "In statistics, the percentile is the percent of ranking items that appear at or below a certain score. This measurement shows the percentage of scores within a standard frequency distribution that is lower than the percentile rank being measured. Linear interpolation estimates the value between two ranks.\nReturns na if the id array is empty.",
     "seeAlso": [
       "array.new_float",
@@ -1682,7 +1828,6 @@
         "returns": "series int"
       }
     ],
-    "examples": [],
     "remarks": "In statistics, the percentile is the percent of ranking items that appear at or below a certain score. This measurement shows the percentage of scores within a standard frequency distribution that is lower than the percentile rank you're measuring.\nReturns na if the id array is empty.",
     "seeAlso": [
       "array.new_float",
@@ -1749,7 +1894,6 @@
         "returns": "series int"
       }
     ],
-    "examples": [],
     "remarks": "Percentile rank is the number of elements in the array that are less than or equal to the reference value, expressed as a percentage.\nReturns na if the id array is empty.",
     "seeAlso": [
       "array.new_float",
@@ -2075,7 +2219,6 @@
       }
     ],
     "returns": "series bool",
-    "examples": [],
     "remarks": "This function also works with arrays of int and float types, in which case zero values are considered false, and all others true.",
     "seeAlso": [
       "array.every",
@@ -2716,7 +2859,6 @@
         "returns": "series bool"
       }
     ],
-    "examples": [],
     "returnsDescription": "The value of the argument after casting to bool.",
     "seeAlso": [
       "float",
@@ -2740,7 +2882,6 @@
       }
     ],
     "returns": "series box",
-    "examples": [],
     "returnsDescription": "The value of the argument after casting to box.",
     "seeAlso": [
       "float",
@@ -2788,7 +2929,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "box.new"
     ]
@@ -2807,7 +2947,6 @@
       }
     ],
     "returns": "series float",
-    "examples": [],
     "returnsDescription": "The price value.",
     "seeAlso": [
       "box.new",
@@ -2828,7 +2967,6 @@
       }
     ],
     "returns": "series int",
-    "examples": [],
     "returnsDescription": "A bar index or a UNIX timestamp (in milliseconds).",
     "seeAlso": [
       "box.new",
@@ -2849,7 +2987,6 @@
       }
     ],
     "returns": "series int",
-    "examples": [],
     "returnsDescription": "A bar index or a UNIX timestamp (in milliseconds).",
     "seeAlso": [
       "box.new",
@@ -2870,7 +3007,6 @@
       }
     ],
     "returns": "series float",
-    "examples": [],
     "returnsDescription": "The price value.",
     "seeAlso": [
       "box.new",
@@ -3426,7 +3562,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "box.new"
     ]
@@ -3451,7 +3586,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "box.new"
     ]
@@ -3476,7 +3610,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "box.new",
       "line.style_solid",
@@ -3504,7 +3637,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "box.new"
     ]
@@ -3529,7 +3661,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "box.new",
       "box.get_bottom"
@@ -3554,8 +3685,7 @@
         "required": true
       }
     ],
-    "returns": "void",
-    "examples": []
+    "returns": "void"
   },
   {
     "name": "box.set_extend",
@@ -3577,7 +3707,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "box.new",
       "extend.none",
@@ -3606,7 +3735,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "box.new",
       "box.get_left"
@@ -3638,7 +3766,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "box.new",
       "box.get_left",
@@ -3665,7 +3792,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "box.new",
       "box.get_right"
@@ -3697,7 +3823,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "box.new",
       "box.get_right",
@@ -3724,7 +3849,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "box.set_text_color",
       "box.set_text_size",
@@ -3753,7 +3877,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "box.set_text",
       "box.set_text_size",
@@ -3820,7 +3943,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "box.set_text_color",
       "box.set_text_size",
@@ -3854,7 +3976,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "box.set_text",
       "box.set_text_size",
@@ -3882,7 +4003,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "box.set_text",
       "box.set_text_color",
@@ -3915,7 +4035,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "box.set_text",
       "box.set_text_size",
@@ -3947,7 +4066,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "box.set_text",
       "box.set_text_size",
@@ -3976,7 +4094,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "box.new",
       "box.get_top"
@@ -4001,8 +4118,7 @@
         "required": true
       }
     ],
-    "returns": "void",
-    "examples": []
+    "returns": "void"
   },
   {
     "name": "box.set_xloc",
@@ -4040,7 +4156,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "box.new",
       "xloc.bar_index",
@@ -4060,8 +4175,7 @@
         "required": true
       }
     ],
-    "returns": "chart.point",
-    "examples": []
+    "returns": "chart.point"
   },
   {
     "name": "chart.point.from_index",
@@ -4083,7 +4197,6 @@
       }
     ],
     "returns": "chart.point",
-    "examples": [],
     "remarks": "The time field values of chart.point instances returned from this function will be na, meaning drawing objects with xloc values set to xloc.bar_time will not work with them."
   },
   {
@@ -4106,7 +4219,6 @@
       }
     ],
     "returns": "chart.point",
-    "examples": [],
     "remarks": "The index field values of chart.point instances returned from this function will be na, meaning drawing objects with xloc values set to xloc.bar_index will not work with them."
   },
   {
@@ -4135,7 +4247,6 @@
       }
     ],
     "returns": "chart.point",
-    "examples": [],
     "remarks": "Whether a drawing object uses a point's time or index field as an x-coordinate depends on the xloc type used in the function call that returned the drawing.\nIt's important to note that this function does not verify that the time and index values refer to the same bar.",
     "seeAlso": [
       "polyline.new"
@@ -4156,7 +4267,6 @@
       }
     ],
     "returns": "chart.point",
-    "examples": [],
     "remarks": "The chart.point instance returned from this function records values for its index and time fields on the bar it executed on, making it suitable for use with drawing objects of any xloc type."
   },
   {
@@ -4218,7 +4328,6 @@
         "returns": "series color"
       }
     ],
-    "examples": [],
     "returnsDescription": "The value of the argument after casting to color.",
     "seeAlso": [
       "float",
@@ -4855,7 +4964,6 @@
       }
     ],
     "returns": "series int",
-    "examples": [],
     "returnsDescription": "The calculated day of the month, expressed in the specified time zone.",
     "remarks": "A UNIX timestamp represents the number of milliseconds elapsed since 00:00 UTC on 1970-01-01. The meaning of a UNIX timestamp does not change relative to any time zone.",
     "seeAlso": [
@@ -4890,7 +4998,6 @@
       }
     ],
     "returns": "series int",
-    "examples": [],
     "returnsDescription": "The calculated day number, expressed in the specified time zone.",
     "remarks": "A UNIX timestamp represents the number of milliseconds elapsed since 00:00 UTC on 1970-01-01. The meaning of a UNIX timestamp does not change relative to any time zone.",
     "seeAlso": [
@@ -5252,7 +5359,6 @@
         "returns": "series float"
       }
     ],
-    "examples": [],
     "returnsDescription": "Series without na gaps.",
     "seeAlso": [
       "na",
@@ -5319,7 +5425,6 @@
         "returns": "series float"
       }
     ],
-    "examples": [],
     "returnsDescription": "The value of the argument after casting to float.",
     "seeAlso": [
       "int",
@@ -5344,7 +5449,6 @@
       }
     ],
     "returns": "series float",
-    "examples": [],
     "returnsDescription": "The total \"buy\" volume measured by the footprint."
   },
   {
@@ -5361,7 +5465,6 @@
       }
     ],
     "returns": "series float",
-    "examples": [],
     "returnsDescription": "The overall volume delta for the footprint."
   },
   {
@@ -5384,7 +5487,6 @@
       }
     ],
     "returns": "volume_row",
-    "examples": [],
     "returnsDescription": "The ID of a volume_row object representing the footprint row that contains the specified price, or na if the price is outside the footprint's price range."
   },
   {
@@ -5401,7 +5503,6 @@
       }
     ],
     "returns": "volume_row",
-    "examples": [],
     "returnsDescription": "The ID of a volume_row object representing the footprint's POC row."
   },
   {
@@ -5418,7 +5519,6 @@
       }
     ],
     "returns": "array<volume_row>",
-    "examples": [],
     "returnsDescription": "The ID of an array containing a volume_row ID for each row in the footprint."
   },
   {
@@ -5435,7 +5535,6 @@
       }
     ],
     "returns": "series float",
-    "examples": [],
     "returnsDescription": "The total \"sell\" volume measured by the footprint."
   },
   {
@@ -5452,7 +5551,6 @@
       }
     ],
     "returns": "series float",
-    "examples": [],
     "returnsDescription": "The total volume measured by the footprint."
   },
   {
@@ -5469,7 +5567,6 @@
       }
     ],
     "returns": "volume_row",
-    "examples": [],
     "returnsDescription": "The ID of a volume_row object representing the footprint's VAH row."
   },
   {
@@ -5486,7 +5583,6 @@
       }
     ],
     "returns": "volume_row",
-    "examples": [],
     "returnsDescription": "The ID of a volume_row object representing the footprint's VAL row."
   },
   {
@@ -5578,7 +5674,6 @@
       }
     ],
     "returns": "series int",
-    "examples": [],
     "returnsDescription": "Hour (in exchange timezone) for provided UNIX time.",
     "remarks": "UNIX time is the number of milliseconds that have elapsed since 00:00:00 UTC, 1 January 1970.",
     "seeAlso": [
@@ -7647,7 +7742,6 @@
         "returns": "series int"
       }
     ],
-    "examples": [],
     "returnsDescription": "The value of the argument after casting to int.",
     "seeAlso": [
       "float",
@@ -7671,7 +7765,6 @@
       }
     ],
     "returns": "series label",
-    "examples": [],
     "returnsDescription": "The value of the argument after casting to label.",
     "seeAlso": [
       "float",
@@ -7719,7 +7812,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "label.new"
     ]
@@ -7782,7 +7874,6 @@
       }
     ],
     "returns": "series float",
-    "examples": [],
     "returnsDescription": "Floating point value representing price.",
     "seeAlso": [
       "label.new"
@@ -8251,7 +8342,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "label.new"
     ]
@@ -8275,8 +8365,7 @@
         "required": true
       }
     ],
-    "returns": "void",
-    "examples": []
+    "returns": "void"
   },
   {
     "name": "label.set_size",
@@ -8299,7 +8388,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "size.auto",
       "size.tiny",
@@ -8353,7 +8441,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "label.new"
     ]
@@ -8378,7 +8465,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "label.new",
       "label.set_text_formatting"
@@ -8443,7 +8529,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "label.new",
       "label.set_text"
@@ -8474,7 +8559,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "text.align_left",
       "text.align_center",
@@ -8502,7 +8586,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "label.new"
     ]
@@ -8527,7 +8610,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "label.new"
     ]
@@ -8552,7 +8634,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "label.new"
     ]
@@ -8583,7 +8664,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "xloc.bar_index",
       "xloc.bar_time",
@@ -8616,7 +8696,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "label.new"
     ]
@@ -8641,7 +8720,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "label.new"
     ]
@@ -8666,7 +8744,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "yloc.price",
       "yloc.abovebar",
@@ -8725,7 +8802,6 @@
       }
     ],
     "returns": "series line",
-    "examples": [],
     "returnsDescription": "The value of the argument after casting to line.",
     "seeAlso": [
       "float",
@@ -8773,7 +8849,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "line.new"
     ]
@@ -8843,7 +8918,6 @@
       }
     ],
     "returns": "series int",
-    "examples": [],
     "returnsDescription": "UNIX timestamp (in milliseconds) or bar index.",
     "seeAlso": [
       "line.new"
@@ -8863,7 +8937,6 @@
       }
     ],
     "returns": "series float",
-    "examples": [],
     "returnsDescription": "Price value.",
     "seeAlso": [
       "line.new"
@@ -8883,7 +8956,6 @@
       }
     ],
     "returns": "series float",
-    "examples": [],
     "returnsDescription": "Price value.",
     "seeAlso": [
       "line.new"
@@ -9167,7 +9239,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "line.new"
     ]
@@ -9192,7 +9263,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "extend.none",
       "extend.right",
@@ -9220,8 +9290,7 @@
         "required": true
       }
     ],
-    "returns": "void",
-    "examples": []
+    "returns": "void"
   },
   {
     "name": "line.set_second_point",
@@ -9242,8 +9311,7 @@
         "required": true
       }
     ],
-    "returns": "void",
-    "examples": []
+    "returns": "void"
   },
   {
     "name": "line.set_style",
@@ -9265,7 +9333,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "line.style_solid",
       "line.style_dotted",
@@ -9296,7 +9363,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "line.new"
     ]
@@ -9321,7 +9387,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "line.new"
     ]
@@ -9346,7 +9411,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "line.new"
     ]
@@ -9383,7 +9447,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "xloc.bar_index",
       "xloc.bar_time",
@@ -9416,7 +9479,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "line.new"
     ]
@@ -9447,7 +9509,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "line.new"
     ]
@@ -9472,7 +9533,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "line.new"
     ]
@@ -9497,7 +9557,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "line.new"
     ]
@@ -9515,7 +9574,6 @@
       }
     ],
     "returns": "series linefill",
-    "examples": [],
     "returnsDescription": "The value of the argument after casting to linefill.",
     "seeAlso": [
       "float",
@@ -9540,8 +9598,7 @@
         "required": true
       }
     ],
-    "returns": "void",
-    "examples": []
+    "returns": "void"
   },
   {
     "name": "linefill.get_line1",
@@ -9556,8 +9613,7 @@
         "required": true
       }
     ],
-    "returns": "series line",
-    "examples": []
+    "returns": "series line"
   },
   {
     "name": "linefill.get_line2",
@@ -9572,8 +9628,7 @@
         "required": true
       }
     ],
-    "returns": "series line",
-    "examples": []
+    "returns": "series line"
   },
   {
     "name": "linefill.new",
@@ -9601,7 +9656,6 @@
       }
     ],
     "returns": "series linefill",
-    "examples": [],
     "returnsDescription": "The ID of a linefill object that can be passed to other linefill.*() functions.",
     "remarks": "If any line of the two is deleted, the linefill object is also deleted. If the lines are moved (e.g. via line.set_xy() functions), the linefill object is also moved.\nIf both lines are extended in the same direction relative to the lines themselves (e.g. both have extend.right as the value of their extend= parameter), the space between line extensions will also be filled."
   },
@@ -9624,8 +9678,7 @@
         "required": true
       }
     ],
-    "returns": "void",
-    "examples": []
+    "returns": "void"
   },
   {
     "name": "log.error",
@@ -10282,7 +10335,6 @@
         "returns": "series float"
       }
     ],
-    "examples": [],
     "returnsDescription": "The absolute value of number."
   },
   {
@@ -10345,7 +10397,6 @@
         "returns": "series float"
       }
     ],
-    "examples": [],
     "returnsDescription": "The arc cosine of a value; the returned angle is in the range [0, Pi], or na if y is outside of range [-1, 1]."
   },
   {
@@ -10408,7 +10459,6 @@
         "returns": "series float"
       }
     ],
-    "examples": [],
     "returnsDescription": "The arcsine of a value; the returned angle is in the range [-Pi/2, Pi/2], or na if y is outside of range [-1, 1]."
   },
   {
@@ -10471,7 +10521,6 @@
         "returns": "series float"
       }
     ],
-    "examples": [],
     "returnsDescription": "The arc tangent of a value; the returned angle is in the range [-Pi/2, Pi/2]."
   },
   {
@@ -10535,7 +10584,6 @@
         "returns": "series float"
       }
     ],
-    "examples": [],
     "returnsDescription": "Average.",
     "seeAlso": [
       "math.sum",
@@ -10603,7 +10651,6 @@
         "returns": "series int"
       }
     ],
-    "examples": [],
     "returnsDescription": "The smallest \"int\" value that is greater than or equal to the number.",
     "seeAlso": [
       "math.floor",
@@ -10670,7 +10717,6 @@
         "returns": "series float"
       }
     ],
-    "examples": [],
     "returnsDescription": "The trigonometric cosine of an angle."
   },
   {
@@ -10733,7 +10779,6 @@
         "returns": "series float"
       }
     ],
-    "examples": [],
     "returnsDescription": "A value representing e raised to the power of number.",
     "seeAlso": [
       "math.pow"
@@ -10799,7 +10844,6 @@
         "returns": "series int"
       }
     ],
-    "examples": [],
     "returnsDescription": "The largest \"int\" value that is less than or equal to the number.",
     "seeAlso": [
       "math.ceil",
@@ -10866,7 +10910,6 @@
         "returns": "series float"
       }
     ],
-    "examples": [],
     "returnsDescription": "The natural logarithm of number.",
     "seeAlso": [
       "math.log10"
@@ -10932,7 +10975,6 @@
         "returns": "series float"
       }
     ],
-    "examples": [],
     "returnsDescription": "The base 10 logarithm of number.",
     "seeAlso": [
       "math.log"
@@ -11407,7 +11449,6 @@
       }
     ],
     "returns": "series float",
-    "examples": [],
     "returnsDescription": "A random value."
   },
   {
@@ -11544,7 +11585,6 @@
         "returns": "series float"
       }
     ],
-    "examples": [],
     "returnsDescription": "The value of number rounded to the nearest integer, or according to precision.",
     "remarks": "Note that for 'na' values function returns 'na'.",
     "seeAlso": [
@@ -11590,7 +11630,6 @@
         "returns": "series float"
       }
     ],
-    "examples": [],
     "returnsDescription": "The number rounded to tick precision.",
     "remarks": "Note that for 'na' values function returns 'na'.",
     "seeAlso": [
@@ -11661,7 +11700,6 @@
         "returns": "series float"
       }
     ],
-    "examples": [],
     "returnsDescription": "The sign of the argument."
   },
   {
@@ -11724,7 +11762,6 @@
         "returns": "series float"
       }
     ],
-    "examples": [],
     "returnsDescription": "The trigonometric sine of an angle."
   },
   {
@@ -11787,7 +11824,6 @@
         "returns": "series float"
       }
     ],
-    "examples": [],
     "returnsDescription": "The square root of number.",
     "seeAlso": [
       "math.pow"
@@ -11819,7 +11855,6 @@
       "polymorphic": "numeric",
       "historyDependent": true
     },
-    "examples": [],
     "returnsDescription": "Sum of source for length bars back.",
     "remarks": "na values in the source series are ignored; the function calculates on the length quantity of non-na values.",
     "seeAlso": [
@@ -11887,7 +11922,6 @@
         "returns": "series float"
       }
     ],
-    "examples": [],
     "returnsDescription": "The trigonometric tangent of an angle."
   },
   {
@@ -11904,7 +11938,6 @@
       }
     ],
     "returns": "series float",
-    "examples": [],
     "returnsDescription": "The angle value in degrees."
   },
   {
@@ -11921,7 +11954,6 @@
       }
     ],
     "returns": "series float",
-    "examples": [],
     "returnsDescription": "The angle value in radians."
   },
   {
@@ -12405,7 +12437,6 @@
       }
     ],
     "returns": "series int",
-    "examples": [],
     "seeAlso": [
       "matrix.new",
       "matrix.columns",
@@ -12574,8 +12605,7 @@
       }
     ],
     "returns": "series bool",
-    "examples": [],
-    "returnsDescription": "Returns true if the id matrix is ​​anti-diagonal, false otherwise.",
+    "returnsDescription": "Returns true if the id matrix is anti-diagonal, false otherwise.",
     "remarks": "Returns false with non-square matrices.",
     "seeAlso": [
       "matrix.new",
@@ -12599,7 +12629,6 @@
       }
     ],
     "returns": "series bool",
-    "examples": [],
     "returnsDescription": "Returns true, if the id matrix is antisymmetric, false otherwise.",
     "remarks": "Returns false with non-square matrices.",
     "seeAlso": [
@@ -12623,7 +12652,6 @@
       }
     ],
     "returns": "series bool",
-    "examples": [],
     "returnsDescription": "Returns true if the id matrix is binary, false otherwise.",
     "seeAlso": [
       "matrix.new",
@@ -12645,7 +12673,6 @@
       }
     ],
     "returns": "series bool",
-    "examples": [],
     "returnsDescription": "Returns true if the id matrix is diagonal, false otherwise.",
     "remarks": "Returns false with non-square matrices.",
     "seeAlso": [
@@ -12670,7 +12697,6 @@
       }
     ],
     "returns": "series bool",
-    "examples": [],
     "returnsDescription": "Returns true if id is an identity matrix, false otherwise.",
     "remarks": "Returns false with non-square matrices.",
     "seeAlso": [
@@ -12693,7 +12719,6 @@
       }
     ],
     "returns": "series bool",
-    "examples": [],
     "returnsDescription": "Returns true if the id matrix is square, false otherwise.",
     "seeAlso": [
       "matrix.new",
@@ -12717,7 +12742,6 @@
       }
     ],
     "returns": "series bool",
-    "examples": [],
     "returnsDescription": "Returns true if the id matrix is stochastic, false otherwise.",
     "seeAlso": [
       "matrix.new",
@@ -12738,7 +12762,6 @@
       }
     ],
     "returns": "series bool",
-    "examples": [],
     "returnsDescription": "Returns true if the id matrix is symmetric, false otherwise.",
     "remarks": "Returns false with non-square matrices.",
     "seeAlso": [
@@ -12762,7 +12785,6 @@
       }
     ],
     "returns": "series bool",
-    "examples": [],
     "returnsDescription": "Returns true if the id matrix is triangular, false otherwise.",
     "remarks": "Returns false with non-square matrices.",
     "seeAlso": [
@@ -12785,7 +12807,6 @@
       }
     ],
     "returns": "series bool",
-    "examples": [],
     "returnsDescription": "Returns true if all elements of the id matrix are zero, false otherwise.",
     "seeAlso": [
       "matrix.new",
@@ -14018,7 +14039,6 @@
       }
     ],
     "returns": "series int",
-    "examples": [],
     "returnsDescription": "Minute (in exchange timezone) for provided UNIX time.",
     "remarks": "UNIX time is the number of milliseconds that have elapsed since 00:00:00 UTC, 1 January 1970.",
     "seeAlso": [
@@ -14052,7 +14072,6 @@
       }
     ],
     "returns": "series int",
-    "examples": [],
     "returnsDescription": "Month (in exchange timezone) for provided UNIX time.",
     "remarks": "UNIX time is the number of milliseconds that have elapsed since 00:00:00 UTC, 1 January 1970.\nNote that this function returns the month based on the time of the bar's open. For overnight sessions (e.g. EURUSD, where Monday session starts on Sunday, 17:00 UTC-4) this value can be lower by 1 than the month of the trading day.",
     "seeAlso": [
@@ -15057,8 +15076,7 @@
         "required": true
       }
     ],
-    "returns": "void",
-    "examples": []
+    "returns": "void"
   },
   {
     "name": "polyline.new",
@@ -15458,7 +15476,6 @@
       }
     ],
     "returns": "footprint",
-    "examples": [],
     "returnsDescription": "The ID of a footprint object containing volume footprint data for the current bar, or na if no data is available.",
     "remarks": "Only accounts with Premium or Ultimate plans can use scripts that call this function.\nA single script cannot include more than one request.footprint() call."
   },
@@ -15788,8 +15805,7 @@
         "required": true
       }
     ],
-    "returns": "void",
-    "examples": []
+    "returns": "void"
   },
   {
     "name": "second",
@@ -15811,7 +15827,6 @@
       }
     ],
     "returns": "series int",
-    "examples": [],
     "returnsDescription": "Second (in exchange timezone) for provided UNIX time.",
     "remarks": "UNIX time is the number of milliseconds that have elapsed since 00:00:00 UTC, 1 January 1970.",
     "seeAlso": [
@@ -15980,7 +15995,6 @@
         "returns": "series bool"
       }
     ],
-    "examples": [],
     "returnsDescription": "True if the source string ends with the substring specified in str, false otherwise.",
     "seeAlso": [
       "str.startswith"
@@ -16154,7 +16168,6 @@
         "returns": "series int"
       }
     ],
-    "examples": [],
     "returnsDescription": "The number of chars in source string."
   },
   {
@@ -16206,7 +16219,6 @@
         "returns": "series string"
       }
     ],
-    "examples": [],
     "returnsDescription": "A new string with all letters converted to lowercase.",
     "seeAlso": [
       "str.upper"
@@ -16351,7 +16363,6 @@
         "returns": "series int"
       }
     ],
-    "examples": [],
     "returnsDescription": "Position of the str string in the source string.",
     "remarks": "Strings indexing starts at 0.",
     "seeAlso": [
@@ -16694,7 +16705,6 @@
         "returns": "series string"
       }
     ],
-    "examples": [],
     "returnsDescription": "Processed string."
   },
   {
@@ -16717,7 +16727,6 @@
       }
     ],
     "returns": "array<string>",
-    "examples": [],
     "returnsDescription": "The id of an array of strings."
   },
   {
@@ -16793,7 +16802,6 @@
         "returns": "series bool"
       }
     ],
-    "examples": [],
     "returnsDescription": "True if the source string starts with the substring specified in str, false otherwise.",
     "seeAlso": [
       "str.endswith"
@@ -16971,7 +16979,6 @@
         "returns": "series float"
       }
     ],
-    "examples": [],
     "returnsDescription": "A \"float\" equivalent of the value in string. If the value is not a properly formed integer or floating point value, the function returns na."
   },
   {
@@ -17066,7 +17073,6 @@
         "returns": "series string"
       }
     ],
-    "examples": [],
     "returnsDescription": "The string representation of the value argument.\nIf the value argument is a string, it is returned as is.\nWhen the value is na, the function returns the string \"NaN\".",
     "remarks": "The formatting of float values will also round those values when necessary, e.g. str.tostring(3.99, '#') will return \"4\".\nTo display trailing zeros, use '0' instead of '#'. For example, '#.000'.\nWhen using format.mintick, the value will be rounded to the nearest number that can be divided by syminfo.mintick without the remainder. The string is returned with trailing zeros.\nIf the x argument is a string, the same string value will be returned.\nBool type arguments return \"true\" or \"false\".\nWhen x is na, the function returns \"NaN\"."
   },
@@ -17184,7 +17190,6 @@
         "returns": "series string"
       }
     ],
-    "examples": [],
     "returnsDescription": "A new string with all letters converted to uppercase.",
     "seeAlso": [
       "str.lower"
@@ -17192,7 +17197,7 @@
   },
   {
     "name": "strategy",
-    "syntax": "strategy(title, shorttitle, overlay, format, precision, scale, pyramiding, calc_on_order_fills, calc_on_every_tick, max_bars_back, backtest_fill_limits_assumption, default_qty_type, default_qty_value, initial_capital, currency, slippage, commission_type, commission_value, process_orders_on_close, close_entries_rule, margin_long, margin_short, explicit_plot_zorder, max_lines_count, max_labels_count, max_boxes_count, calc_bars_count, risk_free_rate, use_bar_magnifier, fill_orders_on_standard_ohlc, max_polylines_count, dynamic_requests, behind_chart) → void",
+    "syntax": "strategy(title, shorttitle, overlay, format, precision, scale, pyramiding, calc_on_order_fills, calc_on_every_tick, max_bars_back, backtest_fill_limits_assumption, default_qty_type, default_qty_value, initial_capital, currency, slippage, commission_type, commission_value, process_orders_on_close, close_entries_rule, margin_long, margin_short, explicit_plot_zorder, max_lines_count, max_labels_count, max_boxes_count, calc_bars_count, risk_free_rate, use_bar_magnifier, fill_orders_on_standard_ohlc, max_polylines_count, dynamic_requests, behind_chart, calc_on_every_history_tick) → void",
     "description": "This declaration statement designates the script as a strategy and sets a number of strategy-related properties.",
     "parameters": [
       {
@@ -17256,14 +17261,14 @@
       {
         "name": "calc_on_order_fills",
         "type": "const bool",
-        "description": "Specifies whether the strategy should be recalculated after an order is filled. If true, the strategy recalculates after an order is filled, as opposed to recalculating only when the bar closes. This setting can also be changed in the strategy's \"Settings/Properties\" tab. Optional. The default is false.",
+        "description": "Optional. Modifies the strategy's default calculation behavior on historical and realtime bars. Users can change the behavior by selecting the \"On order fill\" checkbox from the \"Script executions\" dropdown menu in the \"Settings/Properties\" tab. If true, the strategy performs a new execution to update its calculations on each tick where an order fill occurs. On historical bars, ticks refer to bar OHLC prices or intrabar prices from a lower timeframe, depending on the selected level of historical bar detail. On realtime bars, ticks refer to new price updates from the data feed. If the argument is false, the strategy executes only on the closing tick of each bar, and on any other ticks allowed by the selected \"Script executions\" settings. The default is false.",
         "required": false,
         "default": "false"
       },
       {
         "name": "calc_on_every_tick",
         "type": "const bool",
-        "description": "Specifies whether the strategy should be recalculated on each realtime tick. If true, when the strategy is running on a realtime bar, it will recalculate on each chart update. If false, the strategy only calculates when the realtime bar closes. The argument used does not affect strategy calculation on historical data. This setting can also be changed in the strategy's \"Settings/Properties\" tab. Optional. The default is false.",
+        "description": "Optional. Modifies the strategy's default calculation behavior on realtime bars. Users can change the behavior by selecting the \"On realtime bar tick\" checkbox from the \"Script executions\" dropdown menu in the \"Settings/Properties\" tab. If true, the strategy performs a new execution to update its calculations on every available tick in each realtime bar, where a tick refers to a new price update from the data feed. If false, the strategy executes only on the closing tick of each bar, and on any other ticks allowed by the selected \"Script executions\" settings. The default is false.",
         "required": false,
         "default": "false"
       },
@@ -17450,6 +17455,13 @@
         "description": "Optional. Controls whether all plots and drawings appear behind the chart display (if true) or in front of it (if false). This parameter only takes effect when the overlay parameter is true. The default is true.",
         "required": false,
         "default": "true"
+      },
+      {
+        "name": "calc_on_every_history_tick",
+        "type": "const bool",
+        "description": "Optional. Modifies the strategy's default calculation behavior on historical bars. Users can change the behavior by selecting the \"On history bar tick\" checkbox from the \"Script executions\" dropdown menu in the \"Settings/Properties\" tab. An argument for this parameter must include the parameter's name (e.g., calc_on_every_history_tick = true). If the value is true, the strategy performs a new execution to update its calculations on every available tick in each historical bar. Historical ticks refer to bar OHLC prices or intrabar prices from a lower timeframe, depending on the selected level of historical bar detail. If false, the strategy executes only on the closing tick of each bar, and on any other ticks allowed by the selected \"Script executions\" settings. The default is false.",
+        "required": false,
+        "default": "false"
       }
     ],
     "returns": "void",
@@ -17887,7 +17899,6 @@
       }
     ],
     "returns": "series float",
-    "examples": [],
     "seeAlso": [
       "strategy.closedtrades.max_drawdown",
       "strategy.max_drawdown"
@@ -17929,7 +17940,6 @@
       }
     ],
     "returns": "series float",
-    "examples": [],
     "seeAlso": [
       "strategy.closedtrades.max_runup",
       "strategy.max_runup"
@@ -17972,7 +17982,6 @@
       }
     ],
     "returns": "series float",
-    "examples": [],
     "seeAlso": [
       "strategy.closedtrades.profit"
     ]
@@ -18308,6 +18317,33 @@
       }
     ],
     "returns": "void",
+    "flags": {
+      "argGroups": {
+        "message": "strategy.exit must have at least one of the following parameters: \"profit\", \"limit\", \"loss\", \"stop\" or one of the following pairs: \"trail_offset\" and \"trail_price\" / \"trail_points\". To close the position at market price, use \"strategy.close\"",
+        "anyOf": [
+          [
+            "profit"
+          ],
+          [
+            "limit"
+          ],
+          [
+            "loss"
+          ],
+          [
+            "stop"
+          ],
+          [
+            "trail_offset",
+            "trail_price"
+          ],
+          [
+            "trail_offset",
+            "trail_points"
+          ]
+        ]
+      }
+    },
     "examples": [
       "//@version=6\nstrategy(\"Exit bracket strategy\", overlay = true)\n\n// Inputs that define the profit and loss amount of each trade as a tick distance from the entry price.\nint profitDistanceInput = input.int(100, \"Profit distance, in ticks\", 1)\nint lossDistanceInput   = input.int(100, \"Loss distance, in ticks\", 1)\n\n// Variables to track the take-profit and stop-loss price.\nvar float takeProfit = na\nvar float stopLoss   = na\n\n// Calculate a 14-bar and 28-bar moving average of `close` prices.\nfloat sma14 = ta.sma(close, 14)\nfloat sma28 = ta.sma(close, 28)\n\nif ta.crossover(sma14, sma28) and strategy.opentrades == 0\n    // Place a market order to enter a long position.\n    strategy.entry(\"My Long Entry ID\", strategy.long)\n    // Place a take-profit and stop-loss order when the entry order fills.\n    strategy.exit(\"My Long Exit ID\", \"My Long Entry ID\", profit = profitDistanceInput, loss = lossDistanceInput)\n\nif ta.change(strategy.opentrades) == 1\n    //@variable The long entry price.\n    float entryPrice = strategy.opentrades.entry_price(0)\n    // Update the `takeProfit` and `stopLoss` values.\n    takeProfit := entryPrice + profitDistanceInput * syminfo.mintick\n    stopLoss   := entryPrice - lossDistanceInput * syminfo.mintick\n\nif ta.change(strategy.closedtrades) == 1\n    // Reset the `takeProfit` and `stopLoss`.\n    takeProfit := na\n    stopLoss   := na\n\n// Plot the `takeProfit` and `stopLoss`.\nplot(takeProfit, \"Take-profit level\", color.green, 2, plot.style_linebr)\nplot(stopLoss, \"Stop-loss level\", color.red, 2, plot.style_linebr)",
       "//@version=6\nstrategy(\"Trailing stop strategy\", overlay = true)\n\n//@variable The distance required to activate the trailing stop.\nfloat activationDistanceInput = input.int(100, \"Trail activation distance, in ticks\") * syminfo.mintick\n//@variable The number of ticks the trailing stop follows behind the price as it reaches new peaks.\nint trailDistanceInput = input.int(100, \"Trail distance, in ticks\")\n\n//@function Draws a label and line at the specified `price` to visualize a trailing stop order's activation level.\ndrawActivation(float price) =>\n    label.new(\n         bar_index, price, \"Activation level\", style = label.style_label_right,\n         color = color.gray, textcolor = color.white\n     )\n    line.new(\n         bar_index, price, bar_index + 1, price, extend = extend.right, style = line.style_dashed, color = color.gray\n     )\n\n//@function Stops the `l` line from extending further.\nmethod stopExtend(line l) =>\n    l.set_x2(bar_index)\n    l.set_extend(extend.none)\n\n// The activation line, active trailing stop price, and active trailing stop flag.\nvar line activationLine     = na\nvar float trailingStopPrice = na\nvar bool isActive           = false\n\nif bar_index % 100 == 0 and strategy.opentrades == 0\n    trailingStopPrice := na\n    isActive          := false\n    // Place a market order to enter a long position.\n    strategy.entry(\"My Long Entry ID\", strategy.long)\n    //@variable The activation level's price.\n    float activationPrice = close + activationDistanceInput\n    // Create a trailing stop order that activates the defined number of ticks above the entry price.\n    strategy.exit(\n         \"My Long Exit ID\", \"My Long Entry ID\", trail_price = activationPrice, trail_offset = trailDistanceInput,\n         oca_name = \"Exit\"\n     )\n    // Create new drawings at the `activationPrice`.\n    activationLine := drawActivation(activationPrice)\n\n// Logic for trailing stop visualization.\nif strategy.opentrades == 1\n    // Stop extending the `activationLine` when the stop activates.\n    if not isActive and high > activationLine.get_price(bar_index)\n        isActive := true\n        activationLine.stopExtend()\n    // Update the `trailingStopPrice` while the trailing stop is active.\n    if isActive\n        float offsetPrice = high - trailDistanceInput * syminfo.mintick\n        trailingStopPrice := math.max(nz(trailingStopPrice, offsetPrice), offsetPrice)\n\n// Close the trade with a market order if the trailing stop does not activate before the next 300th bar.\nif not isActive and bar_index % 300 == 0\n    strategy.close_all(\"Market close\")\n\n// Reset the `trailingStopPrice` and `isActive` flags when the trade closes, and stop extending the `activationLine`.\nif ta.change(strategy.closedtrades) > 0\n    if not isActive\n        activationLine.stopExtend()\n    trailingStopPrice := na\n    isActive          := false\n\n// Plot the `trailingStopPrice`.\nplot(trailingStopPrice, \"Trailing stop\", color.red, 3, plot.style_linebr)"
@@ -18488,7 +18524,6 @@
       }
     ],
     "returns": "series float",
-    "examples": [],
     "seeAlso": [
       "strategy.opentrades.max_drawdown",
       "strategy.max_drawdown"
@@ -18531,7 +18566,6 @@
       }
     ],
     "returns": "series float",
-    "examples": [],
     "seeAlso": [
       "strategy.opentrades.max_runup",
       "strategy.max_runup"
@@ -18576,7 +18610,6 @@
       }
     ],
     "returns": "series float",
-    "examples": [],
     "seeAlso": [
       "strategy.opentrades.profit"
     ]
@@ -18711,6 +18744,9 @@
       }
     ],
     "returns": "void",
+    "flags": {
+      "topLevelOnly": true
+    },
     "examples": [
       "//@version=6\nstrategy(\"strategy.risk.allow_entry_in\")\n\nstrategy.risk.allow_entry_in(strategy.direction.long)\nif open > close\n    strategy.entry(\"Long\", strategy.long)\n// Instead of opening a short position with 10 contracts, this command will close long entries.\nif open < close\n    strategy.entry(\"Short\", strategy.short, qty = 10)"
     ]
@@ -18735,6 +18771,9 @@
       }
     ],
     "returns": "void",
+    "flags": {
+      "topLevelOnly": true
+    },
     "examples": [
       "//@version=6\nstrategy(\"risk.max_cons_loss_days Demo 1\")\nstrategy.risk.max_cons_loss_days(3) // No orders will be placed after 3 days, if each day is with loss.\nplot(strategy.position_size)"
     ]
@@ -18767,6 +18806,9 @@
       }
     ],
     "returns": "void",
+    "flags": {
+      "topLevelOnly": true
+    },
     "examples": [
       "//@version=6\nstrategy(\"risk.max_drawdown Demo 1\")\nstrategy.risk.max_drawdown(50, strategy.percent_of_equity) // set maximum drawdown to 50% of maximum equity\nplot(strategy.position_size)",
       "//@version=6\nstrategy(\"risk.max_drawdown Demo 2\", currency = \"EUR\")\nstrategy.risk.max_drawdown(2000, strategy.cash) // set maximum drawdown to 2000 EUR from maximum equity\nplot(strategy.position_size)"
@@ -18792,6 +18834,9 @@
       }
     ],
     "returns": "void",
+    "flags": {
+      "topLevelOnly": true
+    },
     "examples": [
       "//@version=6\nstrategy(\"risk.max_intraday_filled_orders Demo\")\nstrategy.risk.max_intraday_filled_orders(10) // After 10 orders are filled, no more strategy orders will be placed (except for a market order to exit current open market position, if there is any).\nif open > close\n    strategy.entry(\"buy\", strategy.long)\nif open < close\n    strategy.entry(\"sell\", strategy.short)"
     ]
@@ -18824,6 +18869,9 @@
       }
     ],
     "returns": "void",
+    "flags": {
+      "topLevelOnly": true
+    },
     "examples": [
       "// Sets the maximum intraday loss using the strategy's equity value.\n//@version=6\nstrategy(\"strategy.risk.max_intraday_loss Example 1\", overlay = false, default_qty_type = strategy.percent_of_equity, default_qty_value = 100)\n\n// Input for maximum intraday loss %.\nlossPct = input.float(10)\n\n// Set maximum intraday loss to our lossPct input\nstrategy.risk.max_intraday_loss(lossPct, strategy.percent_of_equity)\n\n// Enter Short at bar_index zero.\nif bar_index == 0\n    strategy.entry(\"Short\", strategy.short)\n\n// Store equity value from the beginning of the day\neqFromDayStart = ta.valuewhen(ta.change(dayofweek) > 0, strategy.equity, 0)\n\n// Calculate change of the current equity from the beginning of the current day.\neqChgPct = 100 * ((strategy.equity - eqFromDayStart) / strategy.equity)\n\n// Plot it\nplot(eqChgPct)\nhline(-lossPct)",
       "// Sets the maximum intraday loss using the strategy's cash value.\n//@version=6\nstrategy(\"strategy.risk.max_intraday_loss Example 2\", overlay = false)\n\n// Input for maximum intraday loss in absolute cash value of the symbol.\nabsCashLoss = input.float(5)\n\n// Set maximum intraday loss to `absCashLoss` in account currency.\nstrategy.risk.max_intraday_loss(absCashLoss, strategy.cash)\n\n// Enter Short at bar_index zero.\nif bar_index == 0\n    strategy.entry(\"Short\", strategy.short)\n\n// Store the open price value from the beginning of the day.\nbeginPrice = ta.valuewhen(ta.change(dayofweek) > 0, open, 0)\n\n// Calculate the absolute price change for the current period.\npriceChg = (close - beginPrice)\n\nhline(absCashLoss)\nplot(priceChg)"
@@ -18848,6 +18896,9 @@
       }
     ],
     "returns": "void",
+    "flags": {
+      "topLevelOnly": true
+    },
     "examples": [
       "//@version=6\nstrategy(\"risk.max_position_size Demo\", default_qty_value = 100)\nstrategy.risk.max_position_size(10)\nif open > close\n    strategy.entry(\"buy\", strategy.long)\nplot(strategy.position_size) // max plot value will be 10"
     ]
@@ -18911,7 +18962,6 @@
         "returns": "series string"
       }
     ],
-    "examples": [],
     "returnsDescription": "The value of the argument after casting to string.",
     "seeAlso": [
       "float",
@@ -19239,7 +19289,6 @@
     "flags": {
       "historyDependent": true
     },
-    "examples": [],
     "returnsDescription": "Commodity channel index of source for length bars back.",
     "remarks": "na values in the source series are ignored."
   },
@@ -19429,7 +19478,6 @@
     "flags": {
       "historyDependent": true
     },
-    "examples": [],
     "returnsDescription": "Correlation coefficient.",
     "remarks": "na values in the source series are ignored; the function calculates on the length quantity of non-na values.",
     "seeAlso": [
@@ -19459,7 +19507,6 @@
     "flags": {
       "historyDependent": true
     },
-    "examples": [],
     "returnsDescription": "true if two series have crossed each other, otherwise false.",
     "seeAlso": [
       "ta.change"
@@ -19488,7 +19535,6 @@
     "flags": {
       "historyDependent": true
     },
-    "examples": [],
     "returnsDescription": "true if source1 crossed over source2 otherwise false."
   },
   {
@@ -19514,7 +19560,6 @@
     "flags": {
       "historyDependent": true
     },
-    "examples": [],
     "returnsDescription": "true if source1 crossed under source2 otherwise false."
   },
   {
@@ -19534,7 +19579,6 @@
     "flags": {
       "historyDependent": true
     },
-    "examples": [],
     "returnsDescription": "Total sum series.",
     "seeAlso": [
       "math.sum"
@@ -19666,7 +19710,6 @@
     "flags": {
       "historyDependent": true
     },
-    "examples": [],
     "returnsDescription": "true if current source value is less than any previous source value for length bars back, false otherwise.",
     "remarks": "na values in the source series are ignored; the function calculates on the length quantity of non-na values.",
     "seeAlso": [
@@ -19726,7 +19769,6 @@
         "returns": "series float"
       }
     ],
-    "examples": [],
     "returnsDescription": "Highest value in the series.",
     "remarks": "Two args version: source is a series and length is the number of bars back.\nOne arg version: length is the number of bars back. Algorithm uses high as a source series.\nna values in the source series are ignored.",
     "seeAlso": [
@@ -19790,7 +19832,6 @@
         "returns": "series int"
       }
     ],
-    "examples": [],
     "returnsDescription": "Offset to the highest bar.",
     "remarks": "Two args version: source is a series and length is the number of bars back.\nOne arg version: length is the number of bars back. Algorithm uses high as a source series.\nna values in the source series are ignored.",
     "seeAlso": [
@@ -19959,7 +20000,6 @@
     "flags": {
       "historyDependent": true
     },
-    "examples": [],
     "returnsDescription": "Linear regression curve.",
     "remarks": "na values in the source series are included in calculations and will produce an na result."
   },
@@ -20016,7 +20056,6 @@
         "returns": "series float"
       }
     ],
-    "examples": [],
     "returnsDescription": "Lowest value in the series.",
     "remarks": "Two args version: source is a series and length is the number of bars back.\nOne arg version: length is the number of bars back. Algorithm uses low as a source series.\nna values in the source series are ignored.",
     "seeAlso": [
@@ -20080,7 +20119,6 @@
         "returns": "series int"
       }
     ],
-    "examples": [],
     "returnsDescription": "Offset to the lowest bar.",
     "remarks": "Two args version: source is a series and length is the number of bars back.\nOne arg version: length is the number of bars back. Algorithm uses low as a source series.\nna values in the source series are ignored.",
     "seeAlso": [
@@ -20154,7 +20192,6 @@
     "flags": {
       "historyDependent": true
     },
-    "examples": [],
     "remarks": "na"
   },
   {
@@ -20217,7 +20254,6 @@
         "returns": "series float"
       }
     ],
-    "examples": [],
     "returnsDescription": "The median of the series.",
     "remarks": "na values in the source series are ignored; the function calculates on the length quantity of non-na values."
   },
@@ -20271,7 +20307,6 @@
     "flags": {
       "historyDependent": true
     },
-    "examples": [],
     "remarks": "na"
   },
   {
@@ -20334,7 +20369,6 @@
         "returns": "series float"
       }
     ],
-    "examples": [],
     "returnsDescription": "The most frequently occurring value from the source. If none exists, returns the smallest value instead.",
     "remarks": "na values in the source series are ignored; the function calculates on the length quantity of non-na values."
   },
@@ -20361,7 +20395,6 @@
     "flags": {
       "historyDependent": true
     },
-    "examples": [],
     "returnsDescription": "Momentum of source price and source price length bars ago.",
     "remarks": "na values in the source series are included in calculations and will produce an na result.",
     "seeAlso": [
@@ -20397,7 +20430,6 @@
     "flags": {
       "historyDependent": true
     },
-    "examples": [],
     "returnsDescription": "P-th percentile of source series for length bars back.",
     "remarks": "Note that a percentile calculated using this method will NOT always be a member of the input data set.\nna values in the source series are included in calculations and will produce an na result.",
     "seeAlso": [
@@ -20433,7 +20465,6 @@
     "flags": {
       "historyDependent": true
     },
-    "examples": [],
     "returnsDescription": "P-th percentile of source series for length bars back.",
     "remarks": "Using the Nearest Rank method on lengths less than 100 bars back can result in the same number being used for more than one percentile.\nA percentile calculated using the Nearest Rank method will always be a member of the input data set.\nThe 100th percentile is defined to be the largest value in the input data set.\nna values in the source series are ignored.",
     "seeAlso": [
@@ -20463,7 +20494,6 @@
     "flags": {
       "historyDependent": true
     },
-    "examples": [],
     "returnsDescription": "Percent rank of source for length bars back.",
     "remarks": "na values in the source series are included in calculations and will produce an na result."
   },
@@ -20725,7 +20755,6 @@
         "returns": "series float"
       }
     ],
-    "examples": [],
     "returnsDescription": "The difference between the min and max values in the series.",
     "remarks": "na values in the source series are ignored; the function calculates on the length quantity of non-na values."
   },
@@ -20752,7 +20781,6 @@
     "flags": {
       "historyDependent": true
     },
-    "examples": [],
     "returnsDescription": "The Rank Correlation Index, a value between -100 to 100."
   },
   {
@@ -20778,7 +20806,6 @@
     "flags": {
       "historyDependent": true
     },
-    "examples": [],
     "returnsDescription": "true if current source is greater than any previous source for length bars back, false otherwise.",
     "remarks": "na values in the source series are ignored.",
     "seeAlso": [
@@ -20846,7 +20873,6 @@
     "flags": {
       "historyDependent": true
     },
-    "examples": [],
     "returnsDescription": "The rate of change of source for length bars back.",
     "remarks": "na values in the source series are included in calculations and will produce an na result."
   },
@@ -21028,7 +21054,6 @@
     "flags": {
       "historyDependent": true
     },
-    "examples": [],
     "returnsDescription": "Stochastic.",
     "remarks": "na values in the source series are ignored.",
     "seeAlso": [
@@ -21114,7 +21139,6 @@
     "flags": {
       "historyDependent": true
     },
-    "examples": [],
     "returnsDescription": "True range. It is math.max(high - low, math.abs(high - close[1]), math.abs(low - close[1])).",
     "remarks": "ta.tr(false) is exactly the same as ta.tr.",
     "seeAlso": [
@@ -21151,7 +21175,6 @@
     "flags": {
       "historyDependent": true
     },
-    "examples": [],
     "returnsDescription": "True strength index. A value in range [-1, 1].",
     "remarks": "na values in the source series are ignored; the function calculates on the length quantity of non-na values."
   },
@@ -21321,7 +21344,6 @@
     "flags": {
       "historyDependent": true
     },
-    "examples": [],
     "returnsDescription": "Variance of source for length bars back.",
     "remarks": "If biased is true, function will calculate using a biased estimate of the entire population, if false - unbiased estimate of a sample.\nna values in the source series are ignored; the function calculates on the length quantity of non-na values.",
     "seeAlso": [
@@ -21526,7 +21548,6 @@
       }
     ],
     "returns": "series table",
-    "examples": [],
     "returnsDescription": "The value of the argument after casting to table.",
     "seeAlso": [
       "float",
@@ -21657,7 +21678,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "remarks": "This function does not create the table itself, but defines the table’s cells. To use it, you first need to create a table object with table.new().\nEach table.cell() call overwrites all previously defined properties of a cell. If you call table.cell() twice in a row, e.g., the first time with text='Test Text', and the second time with text_color=color.red but without a new text argument, the default value of the 'text' being an empty string, it will overwrite 'Test Text', and your cell will display an empty string. If you want, instead, to modify any of the cell's properties, use the table.cell_set_*() functions.\nA single script can only display one table in each of the possible locations. If table.cell() is used on several bars to change the same attribute of a cell (e.g. change the background color of the cell to red on the first bar, then to yellow on the second bar), only the last change will be reflected in the table, i.e., the cell’s background will be yellow. Avoid unnecessary setting of cell properties by enclosing function calls in an if barstate.islast block whenever possible, to restrict their execution to the last bar of the series.",
     "seeAlso": [
       "table.cell_set_bgcolor",
@@ -21704,7 +21724,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "table.cell_set_height",
       "table.cell_set_text",
@@ -21748,7 +21767,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "table.cell_set_bgcolor",
       "table.cell_set_text",
@@ -21839,7 +21857,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "table.cell_set_bgcolor",
       "table.cell_set_height",
@@ -21934,7 +21951,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "table.cell_set_bgcolor",
       "table.cell_set_height",
@@ -21984,7 +22000,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "table.cell_set_bgcolor",
       "table.cell_set_height",
@@ -22029,7 +22044,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "table.cell_set_bgcolor",
       "table.cell_set_height",
@@ -22078,7 +22092,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "table.cell_set_bgcolor",
       "table.cell_set_height",
@@ -22168,7 +22181,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "table.cell_set_bgcolor",
       "table.cell_set_height",
@@ -22414,7 +22426,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "table.clear",
       "table.delete",
@@ -22447,7 +22458,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "table.clear",
       "table.delete",
@@ -22480,7 +22490,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "table.clear",
       "table.delete",
@@ -22513,7 +22522,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "table.clear",
       "table.delete",
@@ -22546,7 +22554,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "table.clear",
       "table.delete",
@@ -22589,7 +22596,6 @@
       }
     ],
     "returns": "void",
-    "examples": [],
     "seeAlso": [
       "table.clear",
       "table.delete",
@@ -24346,7 +24352,6 @@
       }
     ],
     "returns": "series float",
-    "examples": [],
     "returnsDescription": "The total \"buy\" volume for the footprint row."
   },
   {
@@ -24363,7 +24368,6 @@
       }
     ],
     "returns": "series float",
-    "examples": [],
     "returnsDescription": "The volume delta for the footprint row."
   },
   {
@@ -24380,7 +24384,6 @@
       }
     ],
     "returns": "series float",
-    "examples": [],
     "returnsDescription": "The lower boundary of the footprint row's price range."
   },
   {
@@ -24397,7 +24400,6 @@
       }
     ],
     "returns": "series bool",
-    "examples": [],
     "returnsDescription": "A value of true if the footprint row has a detected buy imbalance, and false otherwise."
   },
   {
@@ -24414,7 +24416,6 @@
       }
     ],
     "returns": "series bool",
-    "examples": [],
     "returnsDescription": "A value of true if the footprint row has a detected sell imbalance, and false otherwise."
   },
   {
@@ -24431,7 +24432,6 @@
       }
     ],
     "returns": "series float",
-    "examples": [],
     "returnsDescription": "The total \"sell\" volume for the footprint row."
   },
   {
@@ -24448,7 +24448,6 @@
       }
     ],
     "returns": "series float",
-    "examples": [],
     "returnsDescription": "The total volume for the footprint row."
   },
   {
@@ -24465,7 +24464,6 @@
       }
     ],
     "returns": "series float",
-    "examples": [],
     "returnsDescription": "The upper boundary of the footprint row's price range."
   },
   {
@@ -24488,7 +24486,6 @@
       }
     ],
     "returns": "series int",
-    "examples": [],
     "returnsDescription": "The calculated week number, expressed in the specified time zone.",
     "remarks": "A UNIX timestamp represents the number of milliseconds elapsed since 00:00 UTC on 1970-01-01. The meaning of a UNIX timestamp does not change relative to any time zone.",
     "seeAlso": [
@@ -24523,7 +24520,6 @@
       }
     ],
     "returns": "series int",
-    "examples": [],
     "returnsDescription": "Year (in exchange timezone) for provided UNIX time.",
     "remarks": "UNIX time is the number of milliseconds that have elapsed since 00:00:00 UTC, 1 January 1970.\nNote that this function returns the year based on the time of the bar's open. For overnight sessions (e.g. EURUSD, where Monday session starts on Sunday, 17:00 UTC-4) this value can be lower by 1 than the year of the trading day.",
     "seeAlso": [

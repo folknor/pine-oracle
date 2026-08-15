@@ -147,7 +147,7 @@ plot(osc, "Z-score", osc > 0 ? color.green : color.red, style = plot.style_colum
 
 Note that:
 
--   The `source` parameter requires an “int” or “float” value because its declaration includes the [float](https://www.tradingview.com/pine-script-reference/v6/#type_float) keyword. The `length` parameter requires an “int” value because its declaration uses the [int](https://www.tradingview.com/pine-script-reference/v6/#fun_int) keyword. See the [Declaring parameter types](https://www.tradingview.com/pine-script-docs/language/user-defined-functions/#declaring-parameter-types) section to learn more.
+-   The `source` parameter requires an “int” or “float” value because its declaration includes the [float](https://www.tradingview.com/pine-script-reference/v6/#type_float) keyword. The `length` parameter requires an “int” value because its declaration uses the [int](https://www.tradingview.com/pine-script-reference/v6/#type_int) keyword. See the [Declaring parameter types](https://www.tradingview.com/pine-script-docs/language/user-defined-functions/#declaring-parameter-types) section to learn more.
 -   The `//@variable` and `//@function` comments are [annotations](https://www.tradingview.com/pine-script-docs/language/script-structure/#compiler-annotations) that document identifiers in the code. The `//@function` annotation provides documentation for the `zScore()` function. Users can hover over the function’s name in the Pine Editor, or write a function call, to view the annotation’s formatted text in a pop-up window. See the [Documenting functions](https://www.tradingview.com/pine-script-docs/language/user-defined-functions/#documenting-functions) section for more information.
 
 > [!TIP]
@@ -303,7 +303,7 @@ The sections below explain how type and qualifier keywords affect the behavior o
 
 ### Type keywords {#type-keywords}
 
-Parameter declarations prefixed by _type keywords_ — such as [int](https://www.tradingview.com/pine-script-reference/v6/#fun_int), [float](https://www.tradingview.com/pine-script-reference/v6/#type_float), [string](https://www.tradingview.com/pine-script-reference/v6/#type_string), or [label](https://www.tradingview.com/pine-script-reference/v6/#type_label) — declare the [types](https://www.tradingview.com/pine-script-docs/language/type-system/#types) of data that the parameters represent in any function call. If a parameter declaration includes a type keyword, it accepts only arguments of that type, or arguments that Pine can automatically [cast](https://www.tradingview.com/pine-script-docs/language/type-system/#type-casting) to that type.
+Parameter declarations prefixed by _type keywords_ — such as [int](https://www.tradingview.com/pine-script-reference/v6/#type_int), [float](https://www.tradingview.com/pine-script-reference/v6/#type_float), [string](https://www.tradingview.com/pine-script-reference/v6/#type_string), or [label](https://www.tradingview.com/pine-script-reference/v6/#type_label) — declare the [types](https://www.tradingview.com/pine-script-docs/language/type-system/#types) of data that the parameters represent in any function call. If a parameter declaration includes a type keyword, it accepts only arguments of that type, or arguments that Pine can automatically [cast](https://www.tradingview.com/pine-script-docs/language/type-system/#type-casting) to that type.
 
 If a function parameter does _not_ have a type keyword in its declaration, its type is initially _undefined_. In each separate call to the function, the parameter automatically inherits the _same_ type as its specified argument. In other words, the parameter can take on _any type_, except for [void](https://www.tradingview.com/pine-script-docs/language/type-system/#void), depending on the function call.
 
@@ -328,7 +328,7 @@ plotDisplay = pass(display.all - display.status_line) // "const plot_display"
 plot(plotSeries, plotTitle, plotColor, lineWidth, display = plotDisplay)
 ```
 
-We can restrict the `source` parameter’s type, and thus the arguments it can accept, by including a type keyword in its declaration. For example, in the modified script below, we added the [int](https://www.tradingview.com/pine-script-reference/v6/#fun_int) keyword to the declaration to specify that the parameter’s type is “int”. With this change, the last three `pass()` calls now cause a compilation error, because the parameter no longer allows “string”, “color”, or “plot\_display” arguments:
+We can restrict the `source` parameter’s type, and thus the arguments it can accept, by including a type keyword in its declaration. For example, in the modified script below, we added the [int](https://www.tradingview.com/pine-script-reference/v6/#type_int) keyword to the declaration to specify that the parameter’s type is “int”. With this change, the last three `pass()` calls now cause a compilation error, because the parameter no longer allows “string”, “color”, or “plot\_display” arguments:
 
 ```pine
 //@version=6
@@ -424,7 +424,7 @@ float emaDiff = ta.ema(close - open, length = lengthVal)
 plot(emaDiff, "Smoothed difference", color.purple, 3)
 ```
 
-If we add [int](https://www.tradingview.com/pine-script-reference/v6/#fun_int) to the `source` declaration, the parameter then requires an “int” value, but it **does not** directly inherit the _same_ type qualifier as its argument. Instead, the compiler first checks if it can assign _“series”_ to the parameter, then tries using _“simple”_ if “series” does not work.
+If we add [int](https://www.tradingview.com/pine-script-reference/v6/#type_int) to the `source` declaration, the parameter then requires an “int” value, but it **does not** directly inherit the _same_ type qualifier as its argument. Instead, the compiler first checks if it can assign _“series”_ to the parameter, then tries using _“simple”_ if “series” does not work.
 
 Our `pass()` function does not use the `source` parameter in any local function calls that require a “simple int” value, so the compiler sets its qualifier to **“series”**. Consequently, the function’s returned type is always _“series int”_, even if the `source` argument is a “const” value. Adding this change to the previous script thus causes a _compilation error_, because the `length` parameter of [ta.ema()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.ema) cannot accept a “series” argument; only “simple” or weaker qualifiers are allowed:
 
