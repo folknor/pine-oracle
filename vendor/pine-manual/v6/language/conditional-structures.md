@@ -8,12 +8,11 @@ section: language
 
 ## Introduction {#introduction}
 
-The conditional structures in Pine Script® are [if](https://www.tradingview.com/pine-script-reference/v6/#kw_if) and [switch](https://www.tradingview.com/pine-script-reference/v6/#kw_switch). They can be used:
+The conditional structures in Pine Script® are [if](https://www.tradingview.com/pine-script-reference/v6/#kw_if), [switch](https://www.tradingview.com/pine-script-reference/v6/#kw_switch), and [once](https://www.tradingview.com/pine-script-reference/v6/#kw_once).
 
--   For their side effects, i.e., when they don’t return a value but do things, like reassign values to variables or call functions.
--   To return a value or a tuple which can then be assigned to one (or more, in the case of tuples) variable.
+Scripts can use all of these structures for their side effects, i.e., the actions they perform, like reassigning values to variables, or calling functions. The [if](https://www.tradingview.com/pine-script-reference/v6/#kw_if) and [switch](https://www.tradingview.com/pine-script-reference/v6/#kw_switch) structures can also return a value or a tuple which can then be assigned to a variable (or multiple variables in the case of tuples). The [once](https://www.tradingview.com/pine-script-reference/v6/#kw_once) structure cannot return a value.
 
-Conditional structures, like the [for](https://www.tradingview.com/pine-script-reference/v6/#kw_for) and [while](https://www.tradingview.com/pine-script-reference/v6/#kw_while) structures, can be embedded; you can use an [if](https://www.tradingview.com/pine-script-reference/v6/#kw_if) or [switch](https://www.tradingview.com/pine-script-reference/v6/#kw_switch) inside another structure.
+Scripts can use an [if](https://www.tradingview.com/pine-script-reference/v6/#kw_if), [switch](https://www.tradingview.com/pine-script-reference/v6/#kw_switch), or [once](https://www.tradingview.com/pine-script-reference/v6/#kw_once) structure inside the local scope of a loop, function, conditional structure, or other structure.
 
 Some Pine Script built-in functions are **not** callable from within the local blocks of conditional structures, including [barcolor()](https://www.tradingview.com/pine-script-reference/v6/#fun_barcolor), [bgcolor()](https://www.tradingview.com/pine-script-reference/v6/#fun_bgcolor), [plot()](https://www.tradingview.com/pine-script-reference/v6/#fun_plot), [plotshape()](https://www.tradingview.com/pine-script-reference/v6/#fun_plotshape), [plotchar()](https://www.tradingview.com/pine-script-reference/v6/#fun_plotchar), [plotarrow()](https://www.tradingview.com/pine-script-reference/v6/#fun_plotarrow), [plotcandle()](https://www.tradingview.com/pine-script-reference/v6/#fun_plotcandle), [plotbar()](https://www.tradingview.com/pine-script-reference/v6/#fun_plotbar), [hline()](https://www.tradingview.com/pine-script-reference/v6/#fun_hline), [fill()](https://www.tradingview.com/pine-script-reference/v6/#fun_fill), [alertcondition()](https://www.tradingview.com/pine-script-reference/v6/#fun_alertcondition), [indicator()](https://www.tradingview.com/pine-script-reference/v6/#fun_indicator), [strategy()](https://www.tradingview.com/pine-script-reference/v6/#fun_strategy), and [library()](https://www.tradingview.com/pine-script-reference/v6/#fun_library).
 
@@ -63,7 +62,7 @@ else
     strategy.cancel(id="BBandLE")
 ```
 
-Restricting the execution of your code to specific bars ican be done using [if](https://www.tradingview.com/pine-script-reference/v6/#kw_if) structures, as we do here to restrict updates to our label to the chart’s last bar:
+Restricting the execution of your code to specific bars can be done using [if](https://www.tradingview.com/pine-script-reference/v6/#kw_if) structures, as we do here to restrict updates to our label to the chart’s last bar:
 
 ```pine
 //@version=6
@@ -183,7 +182,7 @@ Only one local block of a [switch](https://www.tradingview.com/pine-script-refer
 
 Both forms are allowed as the value used to initialize a variable.
 
-As with the [if](https://www.tradingview.com/pine-script-reference/v6/#kw_if) structure, if no local block is exectuted, the expression returns either [false](https://www.tradingview.com/pine-script-reference/v6/#const_false) (when other local blocks return a “bool” value) or [na](https://www.tradingview.com/pine-script-reference/v6/#var_na) (in all other cases).
+As with the [if](https://www.tradingview.com/pine-script-reference/v6/#kw_if) structure, if no local block is executed, the expression returns either [false](https://www.tradingview.com/pine-script-reference/v6/#const_false) (when other local blocks return a “bool” value) or [na](https://www.tradingview.com/pine-script-reference/v6/#var_na) (in all other cases).
 
 ### `switch` with an expression {#switch-with-an-expression}
 
@@ -233,7 +232,7 @@ Note that:
 
 -   We are using the [switch](https://www.tradingview.com/pine-script-reference/v6/#kw_switch) to select the appropriate strategy order to emit, depending on whether the `longCondition` or `shortCondition` “bool” variables are `true`.
 -   The building conditions of `longCondition` and `shortCondition` are exclusive. While they can both be `false` simultaneously, they cannot be `true` at the same time. The fact that only **one** local block of the [switch](https://www.tradingview.com/pine-script-reference/v6/#kw_switch) structure is ever executed is thus not an issue for us.
--   We evaluate the calls to [ta.crossover()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.crossover) and [ta.crossunder()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.crossunder) **prior** to entry in the [switch](https://www.tradingview.com/pine-script-reference/v6/#kw_switch) structure. Not doing so, as in the following example, would prevent the functions to be executed on each bar, which would result in a compiler warning and erratic behavior:
+-   We evaluate the calls to [ta.crossover()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.crossover) and [ta.crossunder()](https://www.tradingview.com/pine-script-reference/v6/#fun_ta.crossunder) **prior** to entry in the [switch](https://www.tradingview.com/pine-script-reference/v6/#kw_switch) structure. Not doing so, as in the following example, would prevent the functions being executed on each bar, which would result in a compiler warning and erratic behavior:
 
 ```pine
 //@version=6
@@ -244,6 +243,133 @@ switch
     ta.crossover( ta.sma(close, 14), ta.sma(close, 28)) => strategy.entry("Long ID", strategy.long)
     ta.crossunder(ta.sma(close, 14), ta.sma(close, 28)) => strategy.entry("Short ID", strategy.short)
 ```
+
+## `once` structure {#once-structure}
+
+Unlike the [if](https://www.tradingview.com/pine-script-reference/v6/#kw_if) and [switch](https://www.tradingview.com/pine-script-reference/v6/#kw_switch) structures, which are evaluated on every execution of their containing scope, the [once](https://www.tradingview.com/pine-script-reference/v6/#kw_once) structure is evaluated only once, when its condition is true for the first time, and then never again after that. See the [`once` on the realtime bar](https://www.tradingview.com/pine-script-docs/language/conditional-structures/#once-on-the-realtime-bar) section below for details of the behavior of the [once](https://www.tradingview.com/pine-script-reference/v6/#kw_once) structure on the realtime bar, where it _can_ fire more than once.
+
+The [once](https://www.tradingview.com/pine-script-reference/v6/#kw_once) structure has the following syntax:
+
+```
+once [<condition>]
+    <statements>
+```
+
+where:
+
+-   `<condition>` is an optional parameter, `true` by default, that takes an argument of type “series bool”. This conditional expression controls the structure’s execution. The structure executes its local block when the expression evaluates to `true`. It prevents additional executions of the block after the condition is `true` for the first time on a closed bar.
+-   `<statements>` is the block of statements and expressions that execute when the condition evaluates to `true`. The block must be indented by four spaces or a single tab.
+
+The following example uses the [once](https://www.tradingview.com/pine-script-reference/v6/#kw_once) structure to draw a label the first time that price closes above a moving average. It also draws another label on the same condition, with equivalent code using an [if structure](https://www.tradingview.com/pine-script-docs/language/conditional-structures/#if-structure) and a Boolean flag:
+
+```pine
+//@version=6
+indicator("`once` simple demo", overlay = true)
+
+//@variable The simple moving average of `close` prices, using the input length.
+mySMA = ta.sma(close, 20)
+
+//@function Prints a label above or below the current bar at a given price with the supplied text.
+printLabel(float y, string txt, bool isAbove = true) =>
+    label.new(bar_index, y, txt, xloc.bar_index, yloc.price, #2195f382, 
+      isAbove ? label.style_label_down : label.style_label_up, chart.fg_color)
+
+// The first time price closes above the SMA, print a label.
+once close > mySMA
+    printLabel(mySMA, "First close above\nthe moving average\ndetected using `once`.")
+
+//@variable This persistent flag is `true` if we have printed a label; `false` otherwise.
+var bool printedLabel = false
+// The first time price closes above the SMA, print a label.
+if close > mySMA and printedLabel == false
+    printLabel(mySMA, "First close above \nthe moving average\ndetected using `if` plus a flag.", false)
+    printedLabel := true  // Set the flag so that this `if` structure does not fire again.
+
+// Plot the SMA line.
+plot(mySMA)
+```
+
+Note that:
+
+-   The equivalent logic using the [if structure](https://www.tradingview.com/pine-script-docs/language/conditional-structures/#if-structure) and a Boolean flag achieves the same result, but uses more code and is less performant.
+
+Unlike the other conditional structures, the [if](https://www.tradingview.com/pine-script-reference/v6/#kw_if) and [switch](https://www.tradingview.com/pine-script-reference/v6/#kw_switch) structures, the [once](https://www.tradingview.com/pine-script-reference/v6/#kw_once) structure does _not_ return usable values. Scripts cannot assign a `once` statement or a call to a function that ends with a `once` statement to a variable or a tuple of variables.
+
+The following example script demonstrates this limitation. The first structure correctly reassigns a “string” variable _inside_ a [once](https://www.tradingview.com/pine-script-reference/v6/#kw_once) block. The second structure uses an [if structure](https://www.tradingview.com/pine-script-docs/language/conditional-structures/#if-structure) and a Boolean flag to emulate a [once](https://www.tradingview.com/pine-script-reference/v6/#kw_once) block; it _returns_ a value that is additively assigned to the same “string” variable. The third structure is commented out. It attempts to _return_ a string from a [once](https://www.tradingview.com/pine-script-reference/v6/#kw_once) block and additively assign it the same “string” variable as the previous structures. Uncommenting this third structure causes a _compilation error_, because a [once](https://www.tradingview.com/pine-script-reference/v6/#kw_once) structure _cannot_ return usable values. When the script is in a form that compiles, it displays the final string in a label:
+
+```pine
+//@version=6
+indicator("`once` compilation error demo", overlay = true)
+
+//@variable The text to display in the label.
+var string txt = ""
+
+// Structure 1: Assign a success message to the `txt` variable once, *inside* the `once` structure.
+once close > open
+    txt := "Structure 1 works."
+
+//@variable A flag indicating whether Structure 2 fired.
+var bool condition2Fired = false
+// Structure 2: If this condition has not fired before, set the `condition2Fired` flag to `true` and return a
+// success message.
+txt += if close > open and not condition2Fired
+    condition2Fired := true  // Set the flag.
+    "\nStructure 2 works."   // Return a string. It is appended to the `txt` variable's value.
+
+// // Uncommenting this section causes a compilation error, because it attempts to use the returned value from 
+// // the `once` structure, and `once` structures cannot return values. 
+// txt += once close > open
+//     txt := "\nStructure 3 works."
+
+// Draw a label on the last bar showing the `txt` string.
+if barstate.islast
+    label.new(bar_index + 1, open, txt, style = label.style_label_left)
+```
+
+### `once` on the realtime bar {#once-on-the-realtime-bar}
+
+On the live realtime bar, a [once](https://www.tradingview.com/pine-script-reference/v6/#kw_once) structure that has not yet fired is evaluated on _each tick_. If the structure’s condition is `true`, its statements are executed. However, unless that tick is the _closing_ tick of the bar, the structure’s state is _reset_ by Pine’s rollback process on the bar’s next tick. If the structure’s condition is `true` on a subsequent tick of the same bar, its statements are executed again.
+
+In this way, a [once](https://www.tradingview.com/pine-script-reference/v6/#kw_once) structure can execute its statements multiple times on one realtime bar.
+
+The block must execute on a bar’s _closing tick_ in order to make the [once](https://www.tradingview.com/pine-script-reference/v6/#kw_once) structure inactive. An inactive [once](https://www.tradingview.com/pine-script-reference/v6/#kw_once) structure never executes its statements again.
+
+This behavior can affect code that is _not_ reset by rollback, including [varip variables](https://www.tradingview.com/pine-script-docs/language/variable-declarations/#varip), function calls that create [Pine Logs](https://www.tradingview.com/pine-script-docs/writing/debugging/#pine-logs), [strategy](https://www.tradingview.com/pine-script-docs/concepts/strategies/) commands, and [`alert()` calls](https://www.tradingview.com/pine-script-docs/concepts/alerts/#alert-function-events). Refer to the [Executions on realtime bars](https://www.tradingview.com/pine-script-docs/language/execution-model/#executions-on-realtime-bars) section of our User Manual for advanced details about rollback and its exceptions.
+
+If a script uses code that is not reset by rollback, one way to prevent multiple executions of a [once](https://www.tradingview.com/pine-script-reference/v6/#kw_once) structure is to append `and barstate.isconfirmed` to its condition. This addition means that the condition can be `true` only on the closing tick of a realtime bar, or on a historical bar.
+
+The following example script demonstrates this behavior. It declares two different counter variables using the [varip](https://www.tradingview.com/pine-script-reference/v6/#kw_varip) keyword, so that their values persist across intrabar rollbacks. It increments these counters inside two [once](https://www.tradingview.com/pine-script-reference/v6/#kw_once) blocks. Both structures are inside an `if barstate.isrealtime` block so that they are active when the script starts executing on its first realtime bar. The first [once](https://www.tradingview.com/pine-script-reference/v6/#kw_once) structure uses an empty condition, so it increases its counter and logs its message on every tick of the first realtime bar. The second [once](https://www.tradingview.com/pine-script-reference/v6/#kw_once) block uses `barstate.isconfirmed` as its condition, so it increases its counter and logs its message only on the _closing tick_ of the first realtime bar. We can see that both counters are zero on historical bars. On the first realtime bar on which the script executes, the on-close counter increments to 1 because the block that increments it runs only once, while the per-tick counter increases beyond 1 because its block runs several times during the bar. On subsequent bars, the values of both counters persist without incrementing, because the [once](https://www.tradingview.com/pine-script-reference/v6/#kw_once) blocks cannot run again. The log messages show the same behavior as the plots:
+
+```pine
+//@version=6
+indicator("`once` upon a realtime bar")
+
+//@variable counts how many times the first `count` block executes per bar.
+varip int realTimeCount = 0
+//@variable counts how many times the second `count` block, which runs only on the closing tick, executes per bar.
+varip int closingTickCount = 0
+
+// Evaluate our `once` blocks only on realtime bars, so that a closed bar does not fire them once and forever.
+if barstate.isrealtime
+    // Fires on every tick of the first realtime bar on which the script executes.
+    once
+        realTimeCount += 1  // Increase the realtime count by one.
+        log.info("Close > open on this tick.")  // Log a message.
+    // Fires on the *closing tick* of the first realtime bar on which the script executes.
+    once barstate.isconfirmed
+        closingTickCount += 1  // Increase the closing count by one.
+        log.info("🕛 Close > open on the closing tick.")  // Log a message.
+ 
+// Plot both counts.
+plot(realTimeCount,    "Once per realtime tick")
+plot(closingTickCount, "Once per realtime bar", color.red)
+// Plot a zero line.
+hline(0, linestyle = hline.style_dotted)
+```
+
+Note that:
+
+-   If the counter variables are instead declared using the [var keyword](https://www.tradingview.com/pine-script-docs/language/variable-declarations/#var), they both increment to 1 and remain there, because their values are _rolled back_ after each realtime tick.
 
 ## Matching local block type requirement {#matching-local-block-type-requirement}
 

@@ -60,6 +60,18 @@
     ]
   },
   {
+    "name": "for...in",
+    "description": "Creates a collection-controlled loop, which iterates over the elements of an array, the rows of a matrix, or the key-value pairs of a map in order. The loop's local code block executes once for each element, row, or pair in the specified collection.",
+    "remarks": "Only the second form of the for...in loop is compatible with maps. The loop iterates over the key-value pairs of a map in the insertion order of its keys.\nScripts can modify the sizes of arrays and matrices while iterating over their contents with a for...in loop. However, they cannot modify the sizes of maps while looping over them directly with this structure. To modify a map while using a for...in loop, use the loop on a copy of the map or on the map's map.keys() array.\nIf a script initializes a variable declared with var or varip using a loop's result, the loop stops after the first iteration, even if the header's criteria allow more iterations. Instead of initializing the variable with the result of this structure directly, declare the variable first and use := to update it with the result. Alternatively, move the loop into a Declaring functions and initialize the variable using a call to that function.\nSee the Loops page of our User Manual to learn more about loops and how they work.",
+    "seeAlso": [
+      "for",
+      "while",
+      "array.sum",
+      "array.min",
+      "array.max"
+    ]
+  },
+  {
     "name": "if",
     "description": "If statement defines what block of statements must be executed when conditions of the expression are satisfied."
   },
@@ -89,6 +101,11 @@
     "name": "not",
     "description": "Logical negation (NOT). Applicable to boolean expressions.",
     "returnsDescription": "Boolean value, or series of boolean values."
+  },
+  {
+    "name": "once",
+    "description": "Defines a conditional structure that executes a single block of code when a specified condition evaluates to true. After the local block executes for the first time on a closed bar, it does not execute again on any subsequent bars, regardless of the condition.",
+    "remarks": "Unlike if and switch structures, the once structure does not return usable values. Scripts cannot assign a once statement or a call to a function that ends with a once statement to a variable or a tuple of variables.\nIf the condition of an active once structure evaluates to true during an open bar, the local block executes on the bar's current tick, then Pine's rollback process resets the structure's state after the execution ends. Therefore, the structure remains active while the bar is open, allowing an execution on each new tick where the condition is true. The structure becomes inactive, preventing further executions of its local block, only after the block executes on a bar's closing tick. This behavior can affect code that is not reset by rollback, including varip variables, log.*() function calls, strategy commands, and alert() calls. Refer to the Executions on realtime bars section of our User Manual for advanced details about rollback and its exceptions."
   },
   {
     "name": "or",

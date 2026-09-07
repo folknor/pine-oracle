@@ -314,15 +314,15 @@ Note that:
 
 ### Compiled tokens {#compiled-tokens}
 
-Before the execution of a script, the compiler translates it into a tokenized _Intermediate Language_ (IL). Using an IL allows Pine Script to accommodate larger scripts by applying various memory and performance optimizations. The compiler determines the size of a script based on the _number of tokens_ in its IL form, **not** the number of characters or lines in the code viewable in the Pine Editor.
+Pine Script is a compiled language optimized for efficient, repeated script execution. When a user saves a script or applies it to a dataset, the compiler translates the Pine Script code into a tokenized _intermediate language (IL)_, then generates the final compiled code from the script’s IL form. Using an IL representation enables the compiler to perform multiple transformations to optimize the script’s structure. The compiler measures the size of a script based on the _number of tokens_ in the script’s _IL form_ after transformations. It **does not** measure size as the number of characters or lines in the written source code.
 
-The compiled form of each indicator, strategy, and library script is limited to 100,000 tokens. If a script imports libraries, the total number of tokens from all imported libraries cannot exceed 1 million. There is no way to inspect a script’s compiled form, nor its IL token count. As such, you will only know your script exceeds the size limit when the compiler reaches it.
+The IL form of each indicator, strategy, and library script can contain a maximum of _100,256 tokens_. Libraries are compiled separately from the scripts that import them. In other words, code imported from a library does _not_ directly affect a script’s compiled size. However, the total size of all libraries that a script imports cannot exceed _1 million tokens_. There is no direct way to inspect a script’s IL form or its size if the script compiles successfully. The only time that a script’s size is visible is when it exeeds the size limit.
 
-In most cases, a script’s compiled size will likely not reach the limit. However, if a compiled script does reach the token limit, the most effective ways to decrease compiled tokens are to reduce repetitive code, encapsulate redundant calls within functions, and utilize [libraries](https://www.tradingview.com/pine-script-docs/concepts/libraries/) when possible.
+In most cases, the compiled size of a script will likely not reach the token limit. However, if it does, there are several techniques that can help reduce the size, including reducing _embedded data_, shortening or removing large constant [strings](https://www.tradingview.com/pine-script-docs/concepts/strings/), replacing repetitive statements with [loops](https://www.tradingview.com/pine-script-docs/language/loops/) or concise function calls, splitting logic into multiple scripts, and moving code into separate [libraries](https://www.tradingview.com/pine-script-docs/concepts/libraries/).
 
-It’s important to note that the compilation process omits any _unused_ variables, functions, types, etc. from the final IL form, where “unused” refers to anything that _does not_ affect the script’s outputs. This optimization prevents superfluous elements in the code from contributing to the script’s IL token count.
+It’s important to note that, due to the compiler’s automatic optimizations, several types of manual code changes have _little to no effect_ on a compiled script’s size. For instance, the compiler automatically _discards_ any _unused_ code that does not affect the script’s [plots](https://www.tradingview.com/pine-script-docs/visuals/plots/), [drawings](https://www.tradingview.com/pine-script-docs/visuals/overview/#drawing-visuals), or other _outputs_. Manually removing unused code thus has zero impact on the tokens in a script’s IL form. Refer to the [Compiled script contains too many tokens](https://www.tradingview.com/pine-script-docs/errors/CE10117/) error page to learn more about how code changes affect a script’s compiled size, as well as how to reduce the size if it reaches the token limits.
 
-For example, the script below declares a [user-defined type](https://www.tradingview.com/pine-script-docs/language/type-system/#user-defined-types) and a [user-defined method](https://www.tradingview.com/pine-script-docs/language/methods/#user-defined-methods) and defines a sequence of calls using them:
+The following example demonstrates how the compiler omits _unused_ code, and why removing such code manually does not affect a script’s size. The script below declares a [user-defined type](https://www.tradingview.com/pine-script-docs/language/type-system/#user-defined-types) and a [user-defined method](https://www.tradingview.com/pine-script-docs/language/methods/#user-defined-methods), then creates a simple sequence of calculations:
 
 ```pine
 //@version=6
@@ -340,7 +340,7 @@ arr.push(myType.new(25))
 arr.m(myType.new())
 ```
 
-Despite the inclusion of `array.new<myType>()`, `myType.new()`, and `arr.m()` calls in the script, the only thing actually **output** by the script is `plot(close)`. The rest of the code does not affect the output. Therefore, the compiled form of this script will have the _same_ number of tokens as:
+Although the above script contains multiple pieces of code, most of it _does not_ contribute to the script’s outputs. The _only_ part of the script that produces an output is the `plot(close)` call. The compiler recognizes that the rest of the code is unused and _excludes_ it from the script’s IL translation. Therefore, the compiled form of the script is _identical_ to that of the script below:
 
 ```pine
 //@version=6

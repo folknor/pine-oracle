@@ -12,6 +12,20 @@ This page contains release notes describing notable changes to the Pine Script®
 
 ### August 2026 {#august-2026}
 
+#### Pine Screener improvements {#pine-screener-improvements}
+
+We’ve made two improvements to the [Pine Screener](https://www.tradingview.com/pine-screener/): adding indices as a symbol source option, and making the full “Indicators” dialog box available when selecting an indicator script for the screener.
+
+Previously, the Pine Screener could scan symbols only from a user’s watchlist and use indicators only from the user’s “Favorites” list.
+
+Now, users can scan the symbols of any _index_ using the Pine Screener, without first creating a watchlist of those symbols. Select the “Index” tab in the “Symbol source” dropdown menu to choose an index and scan up to 4,000 of its symbols. Clicking the “Add indicator” button now opens the “Indicators” dialog box. Users can select personal, invite-only, purchased, built-in, or community scripts to use with the Pine Screener. Note that the Pine Screener supports only _indicator_ scripts that contain _at least one_ `plot*()` or [alertcondition()](https://www.tradingview.com/pine-script-reference/v6/#fun_alertcondition) call; if a script is not compatible with the screener, it is grayed out in the “Indicators” dialog box and cannot be selected.
+
+Refer to the [Pine Screener key features and requirements](https://www.tradingview.com/support/solutions/43000742436-tradingview-pine-screener-key-features-and-requirements/) article in our Help Center to learn more about the Pine Screener.
+
+#### `once` conditional structure {#once-conditional-structure}
+
+We’ve added a new [once](https://www.tradingview.com/pine-script-reference/v6/#kw_once) keyword. It defines a conditional structure that executes a block of code when its condition evaluates to `true`. After the local block executes for the first time on a closed bar, it does not execute again on any subsequent bars, regardless of the condition. For more information, see the [`once` structure](https://www.tradingview.com/pine-script-docs/language/conditional-structures/#once-structure) section of the [Conditional structures](https://www.tradingview.com/pine-script-docs/language/conditional-structures) page.
+
 #### Binary search in UDT arrays {#binary-search-in-udt-arrays}
 
 The [array.binary\_search()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.binary_search), [array.binary\_search\_leftmost()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.binary_search_leftmost), and [array.binary\_search\_rightmost()](https://www.tradingview.com/pine-script-reference/v6/#fun_array.binary_search_rightmost) functions can now search [arrays](https://www.tradingview.com/pine-script-docs/language/arrays/) that store IDs of [user-defined types (UDTs)](https://www.tradingview.com/pine-script-docs/language/type-system/#user-defined-types). Like the [sorting functions for UDT collections](https://www.tradingview.com/pine-script-docs/release-notes/#sorting-udt-collections), these functions include a `sort_field` parameter, which specifies the [object](https://www.tradingview.com/pine-script-docs/language/objects/) field that a call compares while searching. The parameter accepts a “const int” _field index_ (0 by default, referring to the first field in the type declaration) or a “const string” _field name_. Note that the array must be _sorted_ by the same field, in ascending order, for the search to return correct results.
@@ -1506,7 +1520,7 @@ label.set_tooltip(l, "Label Tooltip")
 
 -   Added an ability to create [alerts on strategies](https://www.tradingview.com/support/solutions/43000481368).
 -   A new function [line.get\_price()](https://www.tradingview.com/pine-script-reference/v4/#fun_line.get_price) can be used to determine the price level at which the line is located on a certain bar.
--   New [label styles](https://www.tradingview.com/pine-script-docs/concepts/text-and-shapes/#positioning-labels) allow you to position the label pointer in any direction.
+-   New [label styles](https://www.tradingview.com/pine-script-docs/visuals/text-and-shapes/#positioning-labels) allow you to position the label pointer in any direction.
 
 -   Find and Replace was added to Pine Editor. To use this, press CTRL+F (find) or CTRL+H (find and replace).
 

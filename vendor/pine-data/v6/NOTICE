@@ -13,7 +13,7 @@ Files:
   - functions.json    (475 entries) signatures, params, flags, overloads, examples
   - variables.json    (162 entries) built-in variables (close, high, time)
   - constants.json    (237 entries) constants (color.red, shape.circle)
-  - keywords.json      (28 entries)  reserved keywords (objects: description + prose sub-sections)
+  - keywords.json      (30 entries)  reserved keywords (objects: description + prose sub-sections)
   - types.json         (20 entries)  built-in types (chart.point, line, array, ...)
   - annotations.json   (10 entries)  compiler annotations (@version=, @param, ...)
   - operators.json     (21 entries)  operators (+, -, ?:, [], +=, ...)
@@ -26,25 +26,30 @@ Schema notes:
   - Per-parameter `default`, `allowedValues`, `min`, and `max` and a top-level
     `overloads[]` array (per-overload signatures) are newer fields; the binary
     surfaces them in `po lookup` and BM25 search.
+  - Parameters (and overload parameters) carry two newer lint-oriented fields:
+    `expectedTypeNoun` (the single concrete type a union-typed parameter such as
+    "series int/float" actually expects) and `rangeSource` ("reference" when the
+    min/max came from TV's published docs, "runtime" when it was observed from
+    the compiler). The binary deserializes leniently and does not render either.
   - Every catalog now carries the prose sub-sections `remarks`, `seeAlso`, and
     `returnsDescription` (the "Returns" sentence, distinct from the typed
     return) where TV documents them. These let `po lookup` render the full
     reference card straight from pine-data; the markdown reference vendor was
     retired once they landed.
 
-Snapshot: pine-tools scrape 2026-08-15 (pine-tools 0764211, "Refresh v6
-reference data and Manual against TradingView"). Entry counts are unchanged
-across all seven catalogs; the changes vs. 2026-06-07 are content-level:
-  - functions.json: 217 entries changed. 206 of them are example-code refreshes
-    (TV's invisible whitespace - non-breaking spaces and zero-width characters -
-    is now stripped from generated examples and prose upstream).
-  - functions.json: `array.binary_search{,_leftmost,_rightmost}` gained new
-    overloads plus revised description / remarks / parameters.
-  - functions.json: `strategy` gained the `calc_on_every_history_tick`
-    parameter (syntax line updated to match), and
-    `strategy.exit` + the six `strategy.risk.*` functions have revised `flags`.
-  - annotations.json: whitespace-only (same invisible-character strip).
-The other five files are byte-identical to 2026-06-07.
+Snapshot: pine-tools scrape 2026-09-07 (pine-tools ab72479, "Validate UDT field
+defaults"). Changes vs. 2026-08-15:
+  - keywords.json: 28 -> 30 entries. `once` (the new single-execution
+    conditional structure) and `for...in` are now documented as keywords; the
+    latter was previously hidden by a crawler bug fixed upstream in dfa6c6d.
+  - functions.json: 140 entries changed, all of them parameter-level metadata
+    additions - `expectedTypeNoun` on union-typed parameters, and `rangeSource`
+    plus a few runtime-observed `min` bounds (e.g. `ta.pivothigh`'s `leftbars`).
+    No whitespace-only churn.
+  - functions.json: `math.avg`, `math.sign`, and `math.sum` lost
+    `flags.polymorphic = "numeric"`; the classification now applies only to
+    `math.abs`, `math.max`, and `math.min`.
+  - The other five catalogs are byte-identical to 2026-08-15.
 The JSON files are bare arrays with no embedded generation timestamp; the
 snapshot date above is baked into the binary as behavior::PINE_DATA_SNAPSHOT for
 `po version`.

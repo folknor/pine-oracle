@@ -2,7 +2,7 @@
 
 > Auto-generated from the TradingView Pine Script Manual.  
 > Source: <https://www.tradingview.com/pine-script-docs/>  
-> Scraped: 2026-08-15T18:15:37.398Z
+> Scraped: 2026-09-07T05:19:11.123Z
 
 ## General
 
@@ -78,6 +78,7 @@
 
 - [Overview](errors/overview.md)
 - [CE10101](errors/CE10101.md)
+- [CE10117](errors/CE10117.md)
 - [CW10003](errors/CW10003.md)
 - [RE10139](errors/RE10139.md)
 - [RE10143](errors/RE10143.md)
