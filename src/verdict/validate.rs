@@ -1,0 +1,329 @@
+// Record validation, shared by the write path (`add` / `observe` refuse to
+// write an invalid record) and the strict read path (`load` refuses to serve
+// a store holding one). Errors block; warnings are surfaced but allowed.
+
+use sha2::{Digest, Sha256};
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
+
+use super::{Diag, Kind, Observation, Outcome, Question, Source};
+use crate::behavior;
+
+/// Problems found in one or more records.
+#[derive(Debug, Default)]
+pub(super) struct Report {
+    pub(super) errors: Vec<String>,
+    pub(super) warnings: Vec<String>,
+}
+
+/// What validation needs beyond the question itself.
+pub(super) struct Context<'a> {
+    /// Every question id the store holds (for `derived_from`).
+    pub(super) known_ids: &'a BTreeSet<String>,
+    /// A fixture sha256 about to be written alongside this question: treated
+    /// as present, since the write path validates before touching disk.
+    pub(super) pending_fixture: Option<&'a str>,
+}
+
+/// The records file a question lives in.
+pub(super) fn question_path(root: &Path, id: &str) -> PathBuf {
+    root.join(format!("{id}.toml"))
+}
+
+/// The content-addressed fixture store under a records directory.
+pub(super) fn fixture_path(root: &Path, sha256: &str) -> PathBuf {
+    root.join("fixtures").join(format!("{sha256}.pine"))
+}
+
+/// Lowercase hex sha256 of `bytes`.
+pub(super) fn sha256_hex(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    digest.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// A question id: 8 lowercase hex digits.
+pub(super) fn is_id(s: &str) -> bool {
+    s.len() == 8 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+fn is_sha256(s: &str) -> bool {
+    s.len() == 64 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+/// Validate one question and all its observations into `out`.
+pub(super) fn question(q: &Question, cx: &Context<'_>, out: &mut Report) {
+    let file = question_path(&q.root, &q.id).display().to_string();
+    let mut errs = Vec::new();
+    let mut warns = Vec::new();
+
+    if q.question.trim().is_empty() {
+        errs.push("`question` is empty".to_string());
+    }
+    if q.answer.trim().is_empty() {
+        errs.push("`answer` is empty".to_string());
+    }
+    let mut seen_idents = BTreeSet::new();
+    for ident in &q.identifiers {
+        if let Err(msg) = identifier(ident) {
+            errs.push(msg);
+        }
+        if !seen_idents.insert(ident.to_ascii_lowercase()) {
+            errs.push(format!("identifier `{ident}` listed twice"));
+        }
+    }
+    for d in &q.derived_from {
+        if d == &q.id {
+            errs.push("`derived_from` names the question itself".to_string());
+        } else if !cx.known_ids.contains(d) {
+            errs.push(format!("`derived_from` names unknown question `{d}`"));
+        }
+    }
+    // Runtime status compares candidates across runs by name, so a name must
+    // mean the same model everywhere in the question.
+    let mut models: BTreeMap<&str, Option<&str>> = BTreeMap::new();
+    for c in q.observations.iter().flat_map(|o| &o.candidates) {
+        let model = c.model.as_deref();
+        match models.get(c.name.as_str()) {
+            Some(first) if *first != model => {
+                errs.push(format!(
+                    "candidate `{}` names different models across observations",
+                    c.name
+                ));
+            }
+            Some(_) => {}
+            None => {
+                models.insert(c.name.as_str(), model);
+            }
+        }
+    }
+    for (i, o) in q.observations.iter().enumerate() {
+        let label = format!("observation {} ({} {})", i + 1, o.source.as_str(), o.date);
+        for msg in observation(q.kind, o, &q.root, cx) {
+            errs.push(format!("{label}: {msg}"));
+        }
+        if q.kind == Kind::Compile && o.outcome == Some(Outcome::Rejected) && o.errors.is_empty() {
+            warns.push(format!("{label}: rejected with no error recorded"));
+        }
+    }
+    if q.identifiers.is_empty() {
+        warns.push("no identifiers".to_string());
+    }
+    out.errors
+        .extend(errs.into_iter().map(|m| format!("{file}: {m}")));
+    out.warnings
+        .extend(warns.into_iter().map(|m| format!("{file}: {m}")));
+}
+
+/// An identifier is a pine-data name (function, variable, keyword, operator,
+/// ...) or a qualified parameter `function(parameter)` whose parameter belongs
+/// to that function in some overload. A bare parameter name is refused: the
+/// same name is a parameter of many functions.
+fn identifier(ident: &str) -> Result<(), String> {
+    let qualified = ident
+        .strip_suffix(')')
+        .and_then(|s| s.split_once('('))
+        .filter(|(func, param)| !func.is_empty() && !param.is_empty());
+    let Some((func, param)) = qualified else {
+        return if behavior::lookup_all(ident).is_empty() {
+            Err(format!(
+                "identifier `{ident}` is not in pine-data (qualify a parameter as `function(parameter)`)"
+            ))
+        } else {
+            Ok(())
+        };
+    };
+    let functions: Vec<behavior::FunctionBehavior> = behavior::lookup_all(func)
+        .into_iter()
+        .filter_map(|b| match b {
+            behavior::Behavior::Function(f) => Some(f),
+            _ => None,
+        })
+        .collect();
+    if functions.is_empty() {
+        return Err(format!(
+            "identifier `{ident}`: `{func}` is not a pine-data function"
+        ));
+    }
+    let has_param = functions.iter().any(|f| {
+        f.parameters
+            .iter()
+            .chain(f.overloads.iter().flat_map(|o| &o.parameters))
+            .any(|p| p.name == param)
+    });
+    if has_param {
+        Ok(())
+    } else {
+        Err(format!(
+            "identifier `{ident}`: `{param}` is not a parameter of `{func}`"
+        ))
+    }
+}
+
+/// Every error in one observation, as messages without location.
+fn observation(kind: Kind, o: &Observation, root: &Path, cx: &Context<'_>) -> Vec<String> {
+    let mut errs = Vec::new();
+
+    if o.date.date.is_none() || o.date.time.is_some() || o.date.offset.is_some() {
+        errs.push(format!("date `{}` must be a plain YYYY-MM-DD date", o.date));
+    }
+    for (field, value) in [
+        ("crash", &o.crash),
+        ("result", &o.result),
+        ("settings", &o.settings),
+        ("inconclusive", &o.inconclusive),
+        ("environment", &o.environment),
+        ("note", &o.note),
+        ("fixture_name", &o.fixture_name),
+    ] {
+        if value.as_deref().is_some_and(|v| v.trim().is_empty()) {
+            errs.push(format!("`{field}` is empty"));
+        }
+    }
+
+    match kind {
+        Kind::Compile => compile_fields(o, &mut errs),
+        Kind::Runtime => runtime_fields(o, &mut errs),
+    }
+    for d in &o.errors {
+        diag(kind, d, false, &mut errs);
+    }
+    for d in &o.warnings {
+        diag(kind, d, true, &mut errs);
+    }
+
+    match &o.fixture {
+        Some(sha) => fixture(root, sha, cx, &mut errs),
+        None => {
+            if o.fixture_name.is_some() {
+                errs.push("`fixture_name` without `fixture`".to_string());
+            }
+        }
+    }
+    for e in &o.evidence {
+        if e.trim().is_empty() {
+            errs.push("empty evidence path".to_string());
+        } else if !root.join(e).is_file() {
+            errs.push(format!("evidence `{e}` is not an existing file"));
+        }
+    }
+    errs
+}
+
+fn compile_fields(o: &Observation, errs: &mut Vec<String>) {
+    match o.outcome {
+        None => errs.push("compile observation needs an outcome".to_string()),
+        Some(Outcome::Accepted) if !o.errors.is_empty() => {
+            errs.push("accepted but carries errors".to_string());
+        }
+        Some(Outcome::Crashed) if !o.errors.is_empty() || !o.warnings.is_empty() => {
+            errs.push("crashed but carries diagnostics".to_string());
+        }
+        _ => {}
+    }
+    match (o.outcome == Some(Outcome::Crashed), o.crash.is_some()) {
+        (true, false) => errs.push("crashed without a `crash` message".to_string()),
+        (false, true) => {
+            errs.push("`crash` message on an observation that did not crash".to_string());
+        }
+        _ => {}
+    }
+    for (field, present) in [
+        ("result", o.result.is_some()),
+        ("settings", o.settings.is_some()),
+        ("candidate", !o.candidates.is_empty()),
+    ] {
+        if present {
+            errs.push(format!("`{field}` belongs to runtime observations"));
+        }
+    }
+}
+
+fn runtime_fields(o: &Observation, errs: &mut Vec<String>) {
+    if o.source != Source::Chart {
+        errs.push(format!(
+            "runtime observations come from a chart run, not `{}`",
+            o.source.as_str()
+        ));
+    }
+    if o.outcome.is_some() || o.crash.is_some() {
+        errs.push("accept / reject / crash belong to compile observations".to_string());
+    }
+    if o.result.is_none() {
+        errs.push("runtime observation needs a `result`".to_string());
+    }
+    if o.settings.is_none() {
+        errs.push("runtime observation needs `settings`".to_string());
+    }
+    if !o.warnings.is_empty() {
+        errs.push("runtime observations carry errors only, not warnings".to_string());
+    }
+    let mut names = BTreeSet::new();
+    for c in &o.candidates {
+        if c.name.trim().is_empty() {
+            errs.push("candidate with an empty name".to_string());
+        } else if !names.insert(c.name.as_str()) {
+            errs.push(format!("candidate `{}` listed twice", c.name));
+        }
+        if c.model.as_deref().is_some_and(|m| m.trim().is_empty()) {
+            errs.push(format!("candidate `{}` has an empty model", c.name));
+        }
+    }
+}
+
+/// Code prefix by question kind and severity: compile errors are CE, compile
+/// warnings CW, runtime errors RE; always followed by five digits.
+fn diag(kind: Kind, d: &Diag, warning: bool, errs: &mut Vec<String>) {
+    let prefix = match (kind, warning) {
+        (Kind::Compile, false) => "CE",
+        (Kind::Compile, true) => "CW",
+        (Kind::Runtime, _) => "RE",
+    };
+    let digits = d.code.strip_prefix(prefix);
+    if !digits.is_some_and(|n| n.len() == 5 && n.bytes().all(|b| b.is_ascii_digit())) {
+        errs.push(format!(
+            "code `{}` must be {prefix} followed by five digits on a {} {}",
+            d.code,
+            kind.as_str(),
+            if warning { "warning" } else { "error" }
+        ));
+    }
+    if d.message.trim().is_empty() {
+        errs.push(format!("{} has an empty message", d.code));
+    }
+    if let Some(span) = &d.span
+        && !super::spec::is_span(span)
+    {
+        errs.push(format!(
+            "{} span `{span}` is not an ordered 1-based line:col-line:col range",
+            d.code
+        ));
+    }
+    for (k, v) in &d.ctx {
+        if k.trim().is_empty() || v.trim().is_empty() {
+            errs.push(format!("{} has an empty ctx key or value", d.code));
+        }
+    }
+}
+
+fn fixture(root: &Path, sha: &str, cx: &Context<'_>, errs: &mut Vec<String>) {
+    if !is_sha256(sha) {
+        errs.push(format!("fixture `{sha}` is not a lowercase sha256"));
+        return;
+    }
+    if cx.pending_fixture == Some(sha) {
+        return;
+    }
+    let path = fixture_path(root, sha);
+    match std::fs::read(&path) {
+        Ok(bytes) => {
+            let actual = sha256_hex(&bytes);
+            if actual != sha {
+                errs.push(format!(
+                    "fixture {} hashes to {actual}, not its name",
+                    path.display()
+                ));
+            }
+        }
+        Err(e) => errs.push(format!("fixture {}: {e}", path.display())),
+    }
+}

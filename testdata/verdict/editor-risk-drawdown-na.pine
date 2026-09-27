@@ -1,0 +1,12 @@
+//@version=6
+// Does TradingView accept strategy.risk.max_drawdown(na) at compile time?
+// Runtime behavior is settled: an na risk argument leaves the limit unarmed.
+// Compile rejection parity is unpinned. Adjudicate with pine-lint --tv
+// first; if translate_light accepts, paste into the editor as well, since
+// only the editor holds context restrictions. Record both verdicts.
+strategy("piners capture-campaign risk drawdown na", "PN_RISK_NA", overlay = true)
+
+int naVal = na
+strategy.risk.max_drawdown(naVal, strategy.cash)
+
+plot(close)

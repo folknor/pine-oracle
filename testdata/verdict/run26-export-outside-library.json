@@ -1,0 +1,28 @@
+{
+  "errors": [
+    {
+      "code": "CE10099",
+      "end": {
+        "column": 5,
+        "line": 10
+      },
+      "message": "Only libraries can contain exported functions.",
+      "start": {
+        "column": 1,
+        "line": 9
+      }
+    }
+  ],
+  "fixture": {
+    "path": "/home/folk/Programs/piners/reference/fieldwork/capture-campaign-2026-09/editor-export-outside-library.pine",
+    "sha256": "520b4a5046d1594580fbf346d728996449c17ee33ee193ea051a4c70826e28b8"
+  },
+  "slot": {
+    "id": "USER;9c7d79677e2049a5822b3432b5d461eb",
+    "name": "tvr-slot-1"
+  },
+  "success": false,
+  "takenAt": "2026-09-27T07:21:25.313Z",
+  "version": "12.0",
+  "warnings": []
+}

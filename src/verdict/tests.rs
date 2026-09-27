@@ -1,0 +1,1034 @@
+// End-to-end verdict tests: write through `add` / `observe` into a scratch
+// records directory under `target/`, read back through the strict `load`.
+// Runs 24 and 26 use the real capture-campaign fixtures and editor-probe
+// evidence from piners (copied into `testdata/verdict/`); their sha256s are
+// the ones TradingView's editor probe recorded.
+
+use std::path::{Path, PathBuf};
+
+use super::*;
+
+const RUN26_SHA: &str = "520b4a5046d1594580fbf346d728996449c17ee33ee193ea051a4c70826e28b8";
+const RUN24_SHA: &str = "193ed148bfdbd3b0a0ddef8066a5ba29c57d981dc203a56f75caed60ef6e580a";
+
+fn testdata(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("testdata/verdict")
+        .join(name)
+}
+
+/// A fresh, empty records directory unique to one test.
+fn scratch(test: &str) -> PathBuf {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("target/verdict-tests")
+        .join(test);
+    if dir.exists() {
+        std::fs::remove_dir_all(&dir).expect("clear scratch dir");
+    }
+    std::fs::create_dir_all(&dir).expect("create scratch dir");
+    dir
+}
+
+fn question(kind: Kind, identifiers: &[&str]) -> NewQuestion {
+    NewQuestion {
+        kind,
+        question: "Q?".to_string(),
+        answer: "A.".to_string(),
+        identifiers: identifiers.iter().map(ToString::to_string).collect(),
+        derived_from: Vec::new(),
+    }
+}
+
+fn obs(source: Source, date: &str) -> NewObservation {
+    NewObservation {
+        source,
+        date: date.to_string(),
+        fixture: None,
+        outcome: None,
+        crash: None,
+        errors: Vec::new(),
+        warnings: Vec::new(),
+        result: None,
+        settings: None,
+        candidates: Vec::new(),
+        selected: Vec::new(),
+        refuted: Vec::new(),
+        evidence: Vec::new(),
+        environment: None,
+        note: None,
+        inconclusive: None,
+    }
+}
+
+fn compile(source: Source, date: &str, outcome: Outcome) -> NewObservation {
+    NewObservation {
+        outcome: Some(outcome),
+        ..obs(source, date)
+    }
+}
+
+fn runtime(date: &str) -> NewObservation {
+    NewObservation {
+        result: Some("TV did X.".to_string()),
+        settings: Some("NASDAQ:AAPL 1D, defaults".to_string()),
+        ..obs(Source::Chart, date)
+    }
+}
+
+fn reload(root: &Path, id: &str) -> Question {
+    load(&[root.to_path_buf()])
+        .expect("store loads")
+        .get(id)
+        .expect("question present")
+        .clone()
+}
+
+#[test]
+fn run26_editor_reject_outranks_endpoint_accept() {
+    let root = scratch("run26");
+    let added = add(
+        &root,
+        &NewQuestion {
+            question: "Can an indicator script declare an exported function?".to_string(),
+            answer: "No. Only libraries can contain exported functions (CE10099).".to_string(),
+            ..question(Kind::Compile, &["export"])
+        },
+    )
+    .expect("add");
+    assert!(added.warnings.is_empty(), "{:?}", added.warnings);
+
+    let editor = NewObservation {
+        fixture: Some(testdata("editor-export-outside-library.pine")),
+        errors: vec![
+            parse_diag("CE10099|Only libraries can contain exported functions.|9:1-10:5")
+                .expect("diag"),
+        ],
+        environment: Some("TradingView Desktop 3.4.1".to_string()),
+        evidence: vec![testdata("run26-export-outside-library.json")],
+        ..compile(Source::Editor, "2026-09-27", Outcome::Rejected)
+    };
+    observe(&root, &added.id, &editor).expect("editor observation");
+    let endpoint = NewObservation {
+        note: Some("Taken on inline `export f() => 1` before the fixture file existed.".into()),
+        ..compile(Source::Endpoint, "2026-09-06", Outcome::Accepted)
+    };
+    observe(&root, &added.id, &endpoint).expect("endpoint observation");
+
+    let q = reload(&root, &added.id);
+    assert_eq!(q.own_status(), Status::Settled);
+    let ranked = q.ranked();
+    assert_eq!(ranked.len(), 2);
+    assert_eq!(ranked[0].observation.source, Source::Editor);
+    assert_eq!(ranked[0].annotation, None);
+    assert_eq!(ranked[1].observation.source, Source::Endpoint);
+    assert_eq!(
+        ranked[1].annotation.as_deref(),
+        Some("weaker source; editor disagrees")
+    );
+
+    // po hashed the stored bytes itself, and they match TV's probe record.
+    let editor_obs = ranked[0].observation;
+    assert_eq!(editor_obs.fixture.as_deref(), Some(RUN26_SHA));
+    assert_eq!(
+        editor_obs.fixture_name.as_deref(),
+        Some("editor-export-outside-library.pine")
+    );
+    assert!(
+        root.join("fixtures")
+            .join(format!("{RUN26_SHA}.pine"))
+            .is_file()
+    );
+    assert_eq!(ranked[1].observation.fixture, None);
+    // Evidence is stored relative to the records directory.
+    assert!(editor_obs.evidence[0].starts_with("../"));
+    assert!(root.join(&editor_obs.evidence[0]).is_file());
+    assert_eq!(q.codes().into_iter().collect::<Vec<_>>(), vec!["CE10099"]);
+}
+
+#[test]
+fn run24_editor_confirms_endpoint() {
+    let root = scratch("run24");
+    let id = add(
+        &root,
+        &question(Kind::Compile, &["strategy.risk.max_drawdown"]),
+    )
+    .expect("add")
+    .id;
+    let endpoint = NewObservation {
+        note: Some("Both spellings: bare na literal and through an int na binding.".into()),
+        ..compile(Source::Endpoint, "2026-09-10", Outcome::Accepted)
+    };
+    observe(&root, &id, &endpoint).expect("endpoint");
+    assert_eq!(
+        reload(&root, &id).own_status(),
+        Status::Open,
+        "endpoint alone settles nothing"
+    );
+
+    let editor = NewObservation {
+        fixture: Some(testdata("editor-risk-drawdown-na.pine")),
+        evidence: vec![testdata("run24-risk-drawdown-na.json")],
+        ..compile(Source::Editor, "2026-09-27", Outcome::Accepted)
+    };
+    observe(&root, &id, &editor).expect("editor");
+    let q = reload(&root, &id);
+    assert_eq!(q.own_status(), Status::Settled);
+    let ranked = q.ranked();
+    assert_eq!(ranked[0].observation.fixture.as_deref(), Some(RUN24_SHA));
+    assert_eq!(
+        ranked[1].annotation.as_deref(),
+        Some("weaker source; confirmed by editor")
+    );
+}
+
+#[test]
+fn crashes_and_inconclusive_runs_never_count() {
+    let root = scratch("not-counting");
+    let id = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    let crash = NewObservation {
+        crash: Some("Cannot read properties of undefined (reading 'line')".into()),
+        ..compile(Source::Endpoint, "2026-09-10", Outcome::Crashed)
+    };
+    observe(&root, &id, &crash).expect("crash");
+    let q = reload(&root, &id);
+    assert_eq!(q.own_status(), Status::Open);
+    assert_eq!(
+        q.ranked()[0].annotation.as_deref(),
+        Some("oracle crashed, does not count")
+    );
+
+    let rt = add(&root, &question(Kind::Runtime, &[])).expect("add").id;
+    let misfire = NewObservation {
+        inconclusive: Some("the rule never armed".into()),
+        ..runtime("2026-09-20")
+    };
+    observe(&root, &rt, &misfire).expect("inconclusive");
+    assert_eq!(
+        reload(&root, &rt).own_status(),
+        Status::Open,
+        "an inconclusive chart run must not settle a question"
+    );
+}
+
+#[test]
+fn runtime_candidates_select_refute_and_conflict() {
+    let root = scratch("candidates");
+    let id = add(&root, &question(Kind::Runtime, &[])).expect("add").id;
+    let candidates = vec![
+        parse_candidate("A|gross").expect("A"),
+        parse_candidate("B|net").expect("B"),
+        parse_candidate("C").expect("C"),
+    ];
+    let first = NewObservation {
+        candidates: candidates.clone(),
+        refuted: vec!["A".into()],
+        ..runtime("2026-09-20")
+    };
+    observe(&root, &id, &first).expect("first");
+    let q = reload(&root, &id);
+    assert_eq!(q.own_status(), Status::Settled);
+    let states: Vec<_> = q.observations[0]
+        .candidates
+        .iter()
+        .map(|c| (c.name.as_str(), c.state))
+        .collect();
+    assert_eq!(
+        states,
+        vec![
+            ("A", CandidateState::Refuted),
+            ("B", CandidateState::Undecided),
+            ("C", CandidateState::Undecided),
+        ]
+    );
+
+    let second = NewObservation {
+        candidates,
+        selected: vec!["A".into()],
+        ..runtime("2026-09-21")
+    };
+    observe(&root, &id, &second).expect("second");
+    assert_eq!(reload(&root, &id).own_status(), Status::Conflict);
+}
+
+#[test]
+fn runtime_errors_take_re_codes_and_bars() {
+    let root = scratch("runtime-errors");
+    let id = add(&root, &question(Kind::Runtime, &[])).expect("add").id;
+    let halt = NewObservation {
+        errors: vec![parse_diag("RE10044|Loop takes too long|bar=100").expect("diag")],
+        ..runtime("2026-09-20")
+    };
+    observe(&root, &id, &halt).expect("RE code on runtime");
+    let q = reload(&root, &id);
+    assert_eq!(q.observations[0].errors[0].bar, Some(100));
+    assert!(q.codes().contains("RE10044"));
+}
+
+#[test]
+fn invalid_observations_are_refused_and_nothing_is_written() {
+    let root = scratch("refusals");
+    let c = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    let r = add(&root, &question(Kind::Runtime, &[])).expect("add").id;
+    let before_c = std::fs::read(root.join(format!("{c}.toml"))).expect("read");
+
+    let re_on_compile = NewObservation {
+        errors: vec![parse_diag("RE10044|m").expect("diag")],
+        ..compile(Source::Editor, "2026-09-27", Outcome::Rejected)
+    };
+    let accepted_with_error = NewObservation {
+        errors: vec![parse_diag("CE10099|m").expect("diag")],
+        ..compile(Source::Editor, "2026-09-27", Outcome::Accepted)
+    };
+    let crash_without_message = compile(Source::Endpoint, "2026-09-27", Outcome::Crashed);
+    let runtime_fields_on_compile = NewObservation {
+        result: Some("x".into()),
+        ..compile(Source::Editor, "2026-09-27", Outcome::Accepted)
+    };
+    let bad_date = compile(Source::Editor, "2026-09-27T10:00:00", Outcome::Accepted);
+    let fixture_to_store = NewObservation {
+        fixture: Some(testdata("editor-export-outside-library.pine")),
+        ..re_on_compile.clone()
+    };
+    for (o, needle) in [
+        (&re_on_compile, "must be CE followed by five digits"),
+        (&accepted_with_error, "accepted but carries errors"),
+        (&crash_without_message, "crashed without a `crash` message"),
+        (
+            &runtime_fields_on_compile,
+            "`result` belongs to runtime observations",
+        ),
+        (&bad_date, "must be a plain YYYY-MM-DD date"),
+        (&fixture_to_store, "must be CE followed by five digits"),
+    ] {
+        refused(observe(&root, &c, o), needle);
+    }
+    assert_eq!(
+        std::fs::read(root.join(format!("{c}.toml"))).expect("read"),
+        before_c
+    );
+    assert!(
+        !root.join("fixtures").exists(),
+        "a refused observation must not store its fixture"
+    );
+
+    let ce_on_runtime = NewObservation {
+        errors: vec![parse_diag("CE10099|m").expect("diag")],
+        ..runtime("2026-09-20")
+    };
+    let runtime_from_endpoint = NewObservation {
+        source: Source::Endpoint,
+        ..runtime("2026-09-20")
+    };
+    let no_settings = NewObservation {
+        settings: None,
+        ..runtime("2026-09-20")
+    };
+    let undeclared_candidate = NewObservation {
+        selected: vec!["A".into()],
+        ..runtime("2026-09-20")
+    };
+    let both_states = NewObservation {
+        candidates: vec![parse_candidate("A").expect("A")],
+        selected: vec!["A".into()],
+        refuted: vec!["A".into()],
+        ..runtime("2026-09-20")
+    };
+    let before_r = std::fs::read(root.join(format!("{r}.toml"))).expect("read");
+    for (o, needle) in [
+        (&ce_on_runtime, "must be RE followed by five digits"),
+        (&runtime_from_endpoint, "come from a chart run"),
+        (&no_settings, "needs `settings`"),
+        (&undeclared_candidate, "is not a declared candidate"),
+        (&both_states, "cannot be both selected and refuted"),
+    ] {
+        refused(observe(&root, &r, o), needle);
+    }
+    assert_eq!(
+        std::fs::read(root.join(format!("{r}.toml"))).expect("read"),
+        before_r
+    );
+
+    refused(
+        add(&root, &question(Kind::Compile, &["no.such.function"])),
+        "is not in pine-data",
+    );
+    refused(
+        add(&root, &question(Kind::Compile, &["export", "EXPORT"])),
+        "listed twice",
+    );
+    refused(
+        add(
+            &root,
+            &NewQuestion {
+                derived_from: vec!["deadbeef".into()],
+                ..question(Kind::Compile, &["export"])
+            },
+        ),
+        "names unknown question",
+    );
+    refused(
+        observe(
+            &root,
+            "00000000",
+            &compile(Source::Editor, "2026-09-27", Outcome::Accepted),
+        ),
+        "no question `00000000`",
+    );
+}
+
+/// Assert `result` failed and its message names the rule that fired.
+fn refused<T: std::fmt::Debug>(result: anyhow::Result<T>, needle: &str) {
+    let err = result.expect_err(needle).to_string();
+    assert!(err.contains(needle), "expected `{needle}` in: {err}");
+}
+
+#[test]
+fn piners_identifiers_resolve() {
+    let root = scratch("identifiers");
+    add(
+        &root,
+        &question(Kind::Compile, &["?:", ":=", "for", "and", "var", "export"]),
+    )
+    .expect("operator and keyword identifiers resolve in pine-data");
+}
+
+#[test]
+fn empty_identifiers_warn_but_write() {
+    let root = scratch("empty-identifiers");
+    let added = add(&root, &question(Kind::Runtime, &[])).expect("add");
+    assert!(added.warnings.iter().any(|w| w.contains("no identifiers")));
+}
+
+#[test]
+fn derived_questions() {
+    let root = scratch("derived");
+    let base = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    let other = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    let derived = add(
+        &root,
+        &NewQuestion {
+            derived_from: vec![base.clone(), other.clone()],
+            ..question(Kind::Compile, &["export"])
+        },
+    )
+    .expect("add derived")
+    .id;
+    let resolved = |id: &str| {
+        let store = load(std::slice::from_ref(&root)).expect("load");
+        let q = store.get(id).expect("question").clone();
+        store.resolve(&q)
+    };
+
+    // Both sources open: the first is named.
+    let r = resolved(&derived);
+    assert_eq!(r.status, Status::Open);
+    assert_eq!(r.to_string(), format!("derived (open via {base})"));
+
+    // One source settled: the other, still open, is named.
+    observe(
+        &root,
+        &base,
+        &compile(Source::Editor, "2026-09-27", Outcome::Accepted),
+    )
+    .expect("settle base");
+    assert_eq!(
+        resolved(&derived).to_string(),
+        format!("derived (open via {other})")
+    );
+
+    // Every source settled.
+    observe(
+        &root,
+        &other,
+        &compile(Source::Editor, "2026-09-27", Outcome::Accepted),
+    )
+    .expect("settle other");
+    assert_eq!(resolved(&derived).to_string(), "derived (settled)");
+
+    // A conflicting source is the worst status and wins.
+    let reject = NewObservation {
+        errors: vec![parse_diag("CE10099|m").expect("d")],
+        ..compile(Source::Editor, "2026-09-27", Outcome::Rejected)
+    };
+    observe(&root, &base, &reject).expect("conflict base");
+    assert_eq!(
+        resolved(&derived).to_string(),
+        format!("derived (conflict via {base})")
+    );
+
+    // Derivation chains resolve through derived sources.
+    let chained = add(
+        &root,
+        &NewQuestion {
+            derived_from: vec![derived.clone()],
+            ..question(Kind::Compile, &["export"])
+        },
+    )
+    .expect("add chained")
+    .id;
+    assert_eq!(
+        resolved(&chained).to_string(),
+        format!("derived (conflict via {derived})")
+    );
+
+    // A non-counting observation does not end a derivation.
+    let misfire = NewObservation {
+        inconclusive: Some("fixture bug".into()),
+        ..compile(Source::Editor, "2026-09-27", Outcome::Rejected)
+    };
+    observe(&root, &derived, &misfire).expect("inconclusive");
+    assert!(resolved(&derived).derived);
+
+    // Filtering matches the resolved status.
+    let store = load(std::slice::from_ref(&root)).expect("load");
+    let conflicted: Vec<&str> = store
+        .list(&ListFilter {
+            status: Some(Status::Conflict),
+            ..Default::default()
+        })
+        .into_iter()
+        .map(|q| q.id.as_str())
+        .collect();
+    assert_eq!(conflicted.len(), 3, "base, derived and chained");
+    assert_eq!(
+        store
+            .list(&ListFilter {
+                derived: true,
+                ..Default::default()
+            })
+            .len(),
+        2
+    );
+}
+
+#[test]
+fn compile_agreement_includes_error_and_warning_codes() {
+    let root = scratch("compile-codes");
+    let id = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    let with_warning = NewObservation {
+        warnings: vec![parse_diag("CW10001|wrapped string").expect("d")],
+        ..compile(Source::Editor, "2026-09-20", Outcome::Accepted)
+    };
+    observe(&root, &id, &with_warning).expect("warned accept");
+    // A reworded message for the same code still agrees.
+    let reworded = NewObservation {
+        warnings: vec![parse_diag("CW10001|string is wrapped").expect("d")],
+        ..compile(Source::Editor, "2026-09-27", Outcome::Accepted)
+    };
+    observe(&root, &id, &reworded).expect("reworded accept");
+    assert_eq!(reload(&root, &id).own_status(), Status::Settled);
+
+    // An endpoint accept without the warning: same outcome, different codes.
+    observe(
+        &root,
+        &id,
+        &compile(Source::Endpoint, "2026-09-10", Outcome::Accepted),
+    )
+    .expect("endpoint");
+    let q = reload(&root, &id);
+    assert_eq!(
+        q.ranked()[2].annotation.as_deref(),
+        Some("weaker source; same outcome as editor, different codes")
+    );
+
+    // An editor accept without the warning conflicts.
+    observe(
+        &root,
+        &id,
+        &compile(Source::Editor, "2026-09-28", Outcome::Accepted),
+    )
+    .expect("clean accept");
+    assert_eq!(reload(&root, &id).own_status(), Status::Conflict);
+
+    // Two editor rejects with different error codes conflict.
+    let rejects = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    for spec in ["CE10099|m", "CE10129|m"] {
+        let o = NewObservation {
+            errors: vec![parse_diag(spec).expect("d")],
+            ..compile(Source::Editor, "2026-09-27", Outcome::Rejected)
+        };
+        observe(&root, &rejects, &o).expect("reject");
+    }
+    assert_eq!(reload(&root, &rejects).own_status(), Status::Conflict);
+}
+
+#[test]
+fn runtime_undecided_runs_stay_open_and_halts_must_agree() {
+    let root = scratch("runtime-rules");
+    let id = add(&root, &question(Kind::Runtime, &[])).expect("add").id;
+    let undecided = NewObservation {
+        candidates: vec![
+            parse_candidate("A").expect("A"),
+            parse_candidate("B").expect("B"),
+        ],
+        ..runtime("2026-09-20")
+    };
+    observe(&root, &id, &undecided).expect("undecided");
+    assert_eq!(
+        reload(&root, &id).own_status(),
+        Status::Open,
+        "a run that decides no candidate settles nothing"
+    );
+
+    let halts = add(&root, &question(Kind::Runtime, &[])).expect("add").id;
+    observe(&root, &halts, &runtime("2026-09-20")).expect("clean run");
+    assert_eq!(reload(&root, &halts).own_status(), Status::Settled);
+    let halted = NewObservation {
+        errors: vec![parse_diag("RE10001|halted|bar=0").expect("d")],
+        ..runtime("2026-09-21")
+    };
+    observe(&root, &halts, &halted).expect("halted run");
+    assert_eq!(
+        reload(&root, &halts).own_status(),
+        Status::Conflict,
+        "one run halts and one runs clean"
+    );
+}
+
+#[test]
+fn a_candidate_name_means_one_model_per_question() {
+    let root = scratch("candidate-models");
+    let id = add(&root, &question(Kind::Runtime, &[])).expect("add").id;
+    let first = NewObservation {
+        candidates: vec![parse_candidate("A|gross").expect("A")],
+        selected: vec!["A".into()],
+        ..runtime("2026-09-20")
+    };
+    observe(&root, &id, &first).expect("first");
+    let different_model = NewObservation {
+        candidates: vec![parse_candidate("A|net").expect("A")],
+        refuted: vec!["A".into()],
+        ..runtime("2026-09-21")
+    };
+    refused(
+        observe(&root, &id, &different_model),
+        "names different models",
+    );
+}
+
+#[test]
+fn evidence_must_be_a_file() {
+    let root = scratch("evidence-dir");
+    let id = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    let dir_evidence = NewObservation {
+        evidence: vec![testdata("")],
+        ..compile(Source::Editor, "2026-09-27", Outcome::Accepted)
+    };
+    refused(
+        observe(&root, &id, &dir_evidence),
+        "is not an existing file",
+    );
+}
+
+#[test]
+fn search_treats_query_syntax_as_plain_text() {
+    let root = scratch("search-syntax");
+    let id = add(&root, &question(Kind::Runtime, &[])).expect("add").id;
+    let run = NewObservation {
+        settings: Some("NASDAQ:AAPL 1D, defaults".into()),
+        ..runtime("2026-09-20")
+    };
+    observe(&root, &id, &run).expect("observe");
+    let store = load(&[root]).expect("load");
+    for q in ["NASDAQ:AAPL", "strategy.exit( NASDAQ", "?: NASDAQ"] {
+        let hits = store.search(q, 5).expect("search");
+        assert_eq!(
+            hits.first().map(|h| h.id.as_str()),
+            Some(id.as_str()),
+            "{q}"
+        );
+    }
+    assert!(store.search("?:", 5).expect("search").is_empty());
+}
+
+#[test]
+fn qualified_parameter_identifiers() {
+    let root = scratch("param-identifiers");
+    add(
+        &root,
+        &question(Kind::Runtime, &["strategy(process_orders_on_close)"]),
+    )
+    .expect("a real strategy() parameter");
+    refused(
+        add(
+            &root,
+            &question(Kind::Runtime, &["process_orders_on_close"]),
+        ),
+        "qualify a parameter",
+    );
+    refused(
+        add(
+            &root,
+            &question(Kind::Runtime, &["strategy(no_such_param)"]),
+        ),
+        "is not a parameter of `strategy`",
+    );
+    refused(
+        add(&root, &question(Kind::Runtime, &["close(length)"])),
+        "is not a pine-data function",
+    );
+}
+
+#[test]
+fn non_counting_top_observations_do_not_cause_conflict() {
+    let root = scratch("top-not-counting");
+    let id = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    observe(
+        &root,
+        &id,
+        &compile(Source::Editor, "2026-09-27", Outcome::Accepted),
+    )
+    .expect("accept");
+    let crash = NewObservation {
+        crash: Some("editor threw".into()),
+        ..compile(Source::Editor, "2026-09-27", Outcome::Crashed)
+    };
+    observe(&root, &id, &crash).expect("crash");
+    let confounded = NewObservation {
+        inconclusive: Some("confounded".into()),
+        errors: vec![parse_diag("CE10099|m").expect("d")],
+        ..compile(Source::Editor, "2026-09-27", Outcome::Rejected)
+    };
+    observe(&root, &id, &confounded).expect("inconclusive reject");
+    assert_eq!(
+        reload(&root, &id).own_status(),
+        Status::Settled,
+        "an editor crash and an inconclusive editor reject must not contradict an editor accept"
+    );
+}
+
+#[test]
+fn conflict_leaves_weaker_rows_unannotated_and_same_day_is_newest_first() {
+    let root = scratch("conflict-annotations");
+    let id = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    observe(
+        &root,
+        &id,
+        &compile(Source::Endpoint, "2026-09-01", Outcome::Accepted),
+    )
+    .expect("endpoint");
+    observe(
+        &root,
+        &id,
+        &compile(Source::Editor, "2026-09-27", Outcome::Accepted),
+    )
+    .expect("first editor");
+    let reject = NewObservation {
+        errors: vec![parse_diag("CE10099|m").expect("d")],
+        ..compile(Source::Editor, "2026-09-27", Outcome::Rejected)
+    };
+    observe(&root, &id, &reject).expect("second editor");
+
+    let q = reload(&root, &id);
+    assert_eq!(q.own_status(), Status::Conflict);
+    let ranked = q.ranked();
+    // Same source strength and date: the later-recorded observation first.
+    assert_eq!(ranked[0].observation.outcome, Some(Outcome::Rejected));
+    assert_eq!(ranked[1].observation.outcome, Some(Outcome::Accepted));
+    assert_eq!(ranked[2].observation.source, Source::Endpoint);
+    assert_eq!(
+        ranked[2].annotation, None,
+        "no 'confirmed by editor' when editors disagree"
+    );
+}
+
+#[test]
+fn derivation_cycles_are_rejected() {
+    let root = scratch("derive-cycle");
+    let a = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    let b = add(
+        &root,
+        &NewQuestion {
+            derived_from: vec![a.clone()],
+            ..question(Kind::Compile, &["export"])
+        },
+    )
+    .expect("add")
+    .id;
+    let path = root.join(format!("{a}.toml"));
+    let text = std::fs::read_to_string(&path).expect("read");
+    std::fs::write(
+        &path,
+        text.replace("derived_from = []", &format!("derived_from = [\"{b}\"]")),
+    )
+    .expect("write");
+    refused(load(&[root]), "derived from itself");
+}
+
+#[test]
+fn derived_from_resolves_within_its_own_directory() {
+    let a = scratch("cross-root-a");
+    let b = scratch("cross-root-b");
+    let in_a = add(&a, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    let in_b = add(&b, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    // Hand-edit a cross-directory derived_from into b's question.
+    let path = b.join(format!("{in_b}.toml"));
+    let text = std::fs::read_to_string(&path).expect("read");
+    std::fs::write(
+        &path,
+        text.replace("derived_from = []", &format!("derived_from = [\"{in_a}\"]")),
+    )
+    .expect("write");
+    refused(load(&[a, b]), "names unknown question");
+}
+
+#[test]
+fn truncated_orphan_fixture_blocks_until_removed() {
+    let root = scratch("corrupt-fixture");
+    let id = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    // An interrupted earlier write: a truncated file under the right name
+    // that no observation references. The strict load hashes every stored
+    // fixture, so it is caught before a write could build on it.
+    std::fs::create_dir_all(root.join("fixtures")).expect("mkdir");
+    let path = root.join("fixtures").join(format!("{RUN26_SHA}.pine"));
+    std::fs::write(&path, "//@vers").expect("truncated");
+    refused(load(std::slice::from_ref(&root)), "hashes to");
+    let editor = NewObservation {
+        fixture: Some(testdata("editor-export-outside-library.pine")),
+        ..compile(Source::Editor, "2026-09-27", Outcome::Accepted)
+    };
+    refused(observe(&root, &id, &editor), "hashes to");
+
+    std::fs::remove_file(&path).expect("remove");
+    observe(&root, &id, &editor).expect("observe");
+    let stored = std::fs::read(&path).expect("stored fixture");
+    assert_eq!(
+        stored,
+        std::fs::read(testdata("editor-export-outside-library.pine")).expect("source")
+    );
+}
+
+#[test]
+fn strict_load_rejects_every_documented_problem() {
+    let root = scratch("load-problems");
+    let id = add(&root, &question(Kind::Runtime, &[])).expect("add").id;
+    observe(&root, &id, &runtime("2026-09-20")).expect("observe");
+    let path = root.join(format!("{id}.toml"));
+    let good = std::fs::read_to_string(&path).expect("read");
+    let roots = [root.clone()];
+
+    for (edit, needle) in [
+        (
+            good.replace("date = 2026-09-20", "date = \"2026-09-20\""),
+            "date",
+        ),
+        (
+            good.replace("result = \"TV did X.\"", "result = \"  \""),
+            "`result` is empty",
+        ),
+        (format!("{good}evidence_typo = 1\n"), "unknown field"),
+        (
+            good.replace("settings = ", "evidence = [\"missing.json\"]\nsettings = "),
+            "evidence `missing.json` is not an existing file",
+        ),
+        (
+            good.replace("settings = ", "evidence = [\"\"]\nsettings = "),
+            "empty evidence path",
+        ),
+        (
+            format!("{good}\n[[observation.warning]]\ncode = \"CW10001\"\nmessage = \"m\"\n"),
+            "carry errors only",
+        ),
+        (
+            format!(
+                "{good}\n[[observation.error]]\ncode = \"RE10044\"\nmessage = \"m\"\nspan = \"0:0-0:0\"\n"
+            ),
+            "ordered 1-based",
+        ),
+        (
+            format!(
+                "{good}\n[[observation.candidate]]\nname = \"A\"\nstate = \"selected\"\n\n[[observation.candidate]]\nname = \"A\"\nstate = \"refuted\"\n"
+            ),
+            "listed twice",
+        ),
+    ] {
+        std::fs::write(&path, &edit).expect("write");
+        refused(load(&roots), needle);
+    }
+    std::fs::write(&path, &good).expect("restore");
+    assert!(load(&roots).is_ok());
+
+    // Nothing in a records directory may be silently skipped.
+    for stray in ["ABCD1234.TOML", "notes.txt", "12345678.toml.bak"] {
+        std::fs::write(root.join(stray), "").expect("stray");
+        refused(load(&roots), "not a question file");
+        std::fs::remove_file(root.join(stray)).expect("remove");
+    }
+    std::fs::create_dir(root.join("sub")).expect("subdir");
+    refused(load(&roots), "not a question file");
+    std::fs::remove_dir(root.join("sub")).expect("rmdir");
+    // Markdown notes and dot-files (in-flight temp files) are allowed.
+    std::fs::write(root.join("README.md"), "notes").expect("readme");
+    std::fs::write(root.join(".x.toml.1.tmp"), "junk").expect("tmp");
+    assert!(load(&roots).is_ok());
+
+    // The same id in two directories.
+    let other = scratch("load-problems-other");
+    std::fs::copy(&path, other.join(format!("{id}.toml"))).expect("copy");
+    refused(load(&[root, other]), "more than one records directory");
+}
+
+#[test]
+fn docs_example_matches_the_on_disk_shape() {
+    let docs =
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/verdict.md"))
+            .expect("docs/verdict.md");
+    let start = docs.find("```toml\n").expect("toml example") + "```toml\n".len();
+    let len = docs[start..].find("```").expect("fence end");
+    let q: Question = toml::from_str(&docs[start..start + len]).expect("example parses");
+    assert_eq!(q.kind, Kind::Compile);
+    assert_eq!(q.observations.len(), 2);
+    assert_eq!(
+        q.observations[0].errors[0].span.as_deref(),
+        Some("9:1-10:5")
+    );
+    assert_eq!(q.observations[1].outcome, Some(Outcome::Accepted));
+}
+
+#[test]
+fn strict_load_catches_tampering_and_unknown_fields() {
+    let root = scratch("tamper");
+    let id = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    let editor = NewObservation {
+        fixture: Some(testdata("editor-export-outside-library.pine")),
+        ..compile(Source::Editor, "2026-09-27", Outcome::Accepted)
+    };
+    observe(&root, &id, &editor).expect("observe");
+    let roots = [root.clone()];
+    assert!(load(&roots).is_ok());
+
+    let fixture = root.join("fixtures").join(format!("{RUN26_SHA}.pine"));
+    std::fs::write(&fixture, "//@version=6\n").expect("tamper");
+    let err = load(&roots).expect_err("tampered fixture must fail the load");
+    assert!(err.to_string().contains("hashes to"), "{err}");
+    std::fs::copy(testdata("editor-export-outside-library.pine"), &fixture).expect("restore");
+
+    let path = root.join(format!("{id}.toml"));
+    let text = std::fs::read_to_string(&path).expect("read");
+    std::fs::write(&path, format!("sources = \"typo\"\n{text}")).expect("write");
+    assert!(load(&roots).is_err(), "unknown field must fail the load");
+}
+
+#[test]
+fn load_requires_an_existing_named_directory() {
+    assert!(load(&[]).is_err());
+    let root = scratch("same-root-twice");
+    add(&root, &question(Kind::Compile, &["export"])).expect("add");
+    let twice = [root.clone(), root.join(".")];
+    assert_eq!(
+        load(&twice)
+            .expect("one root named twice")
+            .questions()
+            .len(),
+        1
+    );
+    let missing = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/verdict-tests/missing");
+    assert!(load(&[missing]).is_err());
+}
+
+#[test]
+fn search_finds_questions_by_prose_code_and_fixture_source() {
+    let root = scratch("search");
+    let id = add(
+        &root,
+        &NewQuestion {
+            question: "Can an indicator script declare an exported function?".to_string(),
+            answer: "No. Only libraries can contain exported functions.".to_string(),
+            ..question(Kind::Compile, &["export"])
+        },
+    )
+    .expect("add")
+    .id;
+    let editor = NewObservation {
+        fixture: Some(testdata("editor-export-outside-library.pine")),
+        errors: vec![
+            parse_diag("CE10099|Only libraries can contain exported functions.").expect("d"),
+        ],
+        ..compile(Source::Editor, "2026-09-27", Outcome::Rejected)
+    };
+    observe(&root, &id, &editor).expect("observe");
+    let store = load(&[root]).expect("load");
+    for q in ["indicator exported function", "CE10099", "plot"] {
+        let hits = store.search(q, 5).expect("search");
+        assert_eq!(
+            hits.first().map(|h| h.id.as_str()),
+            Some(id.as_str()),
+            "{q}"
+        );
+    }
+    assert!(store.search("   ", 5).expect("search").is_empty());
+}
+
+#[test]
+fn list_filters() {
+    let root = scratch("list");
+    let a = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    let b = add(&root, &question(Kind::Runtime, &[])).expect("add").id;
+    let rejected = NewObservation {
+        errors: vec![parse_diag("CE10099|m").expect("d")],
+        ..compile(Source::Editor, "2026-09-27", Outcome::Rejected)
+    };
+    observe(&root, &a, &rejected).expect("observe");
+    let store = load(&[root]).expect("load");
+    let ids = |f: ListFilter<'_>| -> Vec<String> {
+        store.list(&f).into_iter().map(|q| q.id.clone()).collect()
+    };
+    assert_eq!(
+        ids(ListFilter {
+            identifier: Some("EXPORT"),
+            ..Default::default()
+        }),
+        vec![a.clone()]
+    );
+    assert_eq!(
+        ids(ListFilter {
+            code: Some("ce10099"),
+            ..Default::default()
+        }),
+        vec![a.clone()]
+    );
+    assert_eq!(
+        ids(ListFilter {
+            status: Some(Status::Open),
+            ..Default::default()
+        }),
+        vec![b.clone()]
+    );
+    assert_eq!(
+        ids(ListFilter {
+            kind: Some(Kind::Compile),
+            ..Default::default()
+        }),
+        vec![a]
+    );
+}

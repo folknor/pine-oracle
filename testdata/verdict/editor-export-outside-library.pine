@@ -1,0 +1,12 @@
+//@version=6
+// Cell (todo.md "Grammar acceptance parity", measured no-defect record):
+// `export f() => 1` under an indicator header is clean at the local
+// validator AND translate_light, so whether the EDITOR rejects export
+// outside a library is the open half. Paste into the editor; record
+// accept/reject and the exact message.
+indicator("piners capture-campaign export outside library")
+
+export f() =>
+    1
+
+plot(f())

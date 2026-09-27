@@ -7,3 +7,4 @@ pub(crate) mod lookup;
 pub(crate) mod recipe;
 pub(crate) mod search;
 pub(crate) mod show;
+pub(crate) mod verdict;

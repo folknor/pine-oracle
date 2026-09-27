@@ -1,0 +1,377 @@
+use anyhow::{Result, bail};
+use clap::{ArgGroup, Subcommand};
+use pine_oracle::verdict::{
+    self, Kind, ListFilter, NewObservation, NewQuestion, Outcome, Question, Ranked, Source, Status,
+    Store,
+};
+use std::path::PathBuf;
+
+use crate::output::Style;
+
+/// `po verdict` records and answers what TradingView measurably did, per
+/// oracle source. It is deliberately separate from `lookup` / `search`:
+/// verdicts are not baked into the binary, every verb names its records
+/// directory with `--records`, and nothing is ever read from a default
+/// location.
+#[derive(Subcommand)]
+pub(crate) enum VerdictCommand {
+    /// Create a question. Prints its generated 8-hex id.
+    Add {
+        /// Records directory to write into (must already exist).
+        #[arg(long)]
+        records: PathBuf,
+        #[arg(long, value_parser = ["compile", "runtime"])]
+        kind: String,
+        /// The question, in one sentence.
+        #[arg(long)]
+        question: String,
+        /// The answer, in one sentence.
+        #[arg(long)]
+        answer: String,
+        /// A pine-data identifier the question concerns. Repeatable.
+        #[arg(long = "identifier")]
+        identifiers: Vec<String>,
+        /// Id of a question this one is concluded from. Repeatable.
+        #[arg(long = "derived-from")]
+        derived_from: Vec<String>,
+    },
+
+    /// Append one observation to a question.
+    Observe(Box<ObserveArgs>),
+
+    /// BM25 search over questions, answers, results, messages and fixture
+    /// source. Prints `<id>  <status>  <kind>  <question>` rows.
+    Search {
+        query: String,
+        /// Records directory to read. Repeatable.
+        #[arg(long, required = true)]
+        records: Vec<PathBuf>,
+        #[arg(long, default_value_t = 8)]
+        limit: usize,
+    },
+
+    /// Print question(s) in full, strongest observation first.
+    Show {
+        #[arg(required = true)]
+        ids: Vec<String>,
+        /// Records directory to read. Repeatable.
+        #[arg(long, required = true)]
+        records: Vec<PathBuf>,
+    },
+
+    /// List questions, optionally filtered. A successful run means every
+    /// record under the given directories is valid.
+    List {
+        /// Records directory to read. Repeatable.
+        #[arg(long, required = true)]
+        records: Vec<PathBuf>,
+        /// Only questions concerning this identifier.
+        #[arg(long)]
+        identifier: Option<String>,
+        /// Only questions whose observations carry this diagnostic code.
+        #[arg(long)]
+        code: Option<String>,
+        #[arg(long, value_parser = ["settled", "conflict", "open", "derived"])]
+        status: Option<String>,
+        #[arg(long, value_parser = ["compile", "runtime"])]
+        kind: Option<String>,
+    },
+}
+
+#[derive(clap::Args)]
+#[command(group(ArgGroup::new("fixture_choice").required(true).args(["fixture", "no_fixture"])))]
+#[command(group(ArgGroup::new("outcome").args(["accepted", "rejected", "crashed"])))]
+pub(crate) struct ObserveArgs {
+    /// Question id from `po verdict add`.
+    id: String,
+    /// Records directory holding the question.
+    #[arg(long)]
+    records: PathBuf,
+    #[arg(long, value_parser = ["editor", "endpoint", "chart"])]
+    source: String,
+    /// When the observation was taken, YYYY-MM-DD.
+    #[arg(long)]
+    date: String,
+    /// The exact file measured. po copies it into the store, named by sha256.
+    #[arg(long)]
+    fixture: Option<PathBuf>,
+    /// State that no byte-exact fixture was measured (e.g. inline code).
+    #[arg(long)]
+    no_fixture: bool,
+    /// Compile: TradingView accepted the script.
+    #[arg(long)]
+    accepted: bool,
+    /// Compile: TradingView rejected the script.
+    #[arg(long)]
+    rejected: bool,
+    /// Compile: the oracle itself crashed, with this message.
+    #[arg(long, value_name = "MESSAGE")]
+    crashed: Option<String>,
+    /// `CODE|message|detail`. Detail: a `line:col-line:col` span, `bar=N`,
+    /// or `key=value` template context, comma-separated. Repeatable.
+    #[arg(long = "error", value_name = "SPEC")]
+    errors: Vec<String>,
+    /// Compile warning, same spec as `--error`. Repeatable.
+    #[arg(long = "warning", value_name = "SPEC")]
+    warnings: Vec<String>,
+    /// Runtime: one sentence saying what TradingView did.
+    #[arg(long)]
+    result: Option<String>,
+    /// Runtime: chart type, symbol, timeframe and Strategy Properties.
+    #[arg(long)]
+    settings: Option<String>,
+    /// Runtime: `name|model`, a competing model the fixture separates.
+    /// Repeatable.
+    #[arg(long = "candidate", value_name = "SPEC")]
+    candidates: Vec<String>,
+    /// Runtime: a candidate the evidence selected. Repeatable.
+    #[arg(long = "selected", value_name = "NAME")]
+    selected: Vec<String>,
+    /// Runtime: a candidate the evidence refuted. Repeatable.
+    #[arg(long = "refuted", value_name = "NAME")]
+    refuted: Vec<String>,
+    /// Why this observation adjudicates nothing. Shown, never counted.
+    #[arg(long, value_name = "REASON")]
+    inconclusive: Option<String>,
+    /// Evidence file (export, probe JSON). Must exist. Repeatable.
+    #[arg(long = "evidence", value_name = "PATH")]
+    evidence: Vec<PathBuf>,
+    /// Free text, e.g. `TradingView Desktop 3.4.1`.
+    #[arg(long)]
+    environment: Option<String>,
+    #[arg(long)]
+    note: Option<String>,
+}
+
+pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<()> {
+    match command {
+        VerdictCommand::Add {
+            records,
+            kind,
+            question,
+            answer,
+            identifiers,
+            derived_from,
+        } => {
+            let added = verdict::add(
+                &records,
+                &NewQuestion {
+                    kind: kind.parse()?,
+                    question,
+                    answer,
+                    identifiers,
+                    derived_from,
+                },
+            )?;
+            print_warnings(&added.warnings, quiet);
+            println!("{}", added.id);
+            Ok(())
+        }
+        VerdictCommand::Observe(args) => {
+            let warnings = verdict::observe(&args.records, &args.id, &new_observation(&args)?)?;
+            print_warnings(&warnings, quiet);
+            Ok(())
+        }
+        VerdictCommand::Search {
+            query,
+            records,
+            limit,
+        } => {
+            let store = verdict::load(&records)?;
+            let hits = store.search(&query, limit)?;
+            if hits.is_empty() {
+                bail!("no verdict matches `{query}`");
+            }
+            let rows: Vec<&Question> = hits.iter().filter_map(|h| store.get(&h.id)).collect();
+            print_rows(&store, &rows, style);
+            Ok(())
+        }
+        VerdictCommand::Show { ids, records } => {
+            let store = verdict::load(&records)?;
+            for (i, id) in ids.iter().enumerate() {
+                let Some(q) = store.get(id) else {
+                    bail!("no question `{id}` under the given --records");
+                };
+                if i > 0 {
+                    println!();
+                }
+                print_question(&store, q, style);
+            }
+            Ok(())
+        }
+        VerdictCommand::List {
+            records,
+            identifier,
+            code,
+            status,
+            kind,
+        } => {
+            let store = verdict::load(&records)?;
+            let derived = status.as_deref() == Some("derived");
+            let filter = ListFilter {
+                identifier: identifier.as_deref(),
+                code: code.as_deref(),
+                status: status
+                    .as_deref()
+                    .filter(|_| !derived)
+                    .map(str::parse::<Status>)
+                    .transpose()?,
+                derived,
+                kind: kind.as_deref().map(str::parse::<Kind>).transpose()?,
+            };
+            let rows = store.list(&filter);
+            if rows.is_empty() && !quiet {
+                eprintln!("no questions");
+            }
+            print_rows(&store, &rows, style);
+            Ok(())
+        }
+    }
+}
+
+fn new_observation(a: &ObserveArgs) -> Result<NewObservation> {
+    let outcome = match (a.accepted, a.rejected, a.crashed.is_some()) {
+        (true, _, _) => Some(Outcome::Accepted),
+        (_, true, _) => Some(Outcome::Rejected),
+        (_, _, true) => Some(Outcome::Crashed),
+        _ => None,
+    };
+    Ok(NewObservation {
+        source: a.source.parse::<Source>()?,
+        date: a.date.clone(),
+        fixture: a.fixture.clone(),
+        outcome,
+        crash: a.crashed.clone(),
+        errors: parse_all(&a.errors, verdict::parse_diag)?,
+        warnings: parse_all(&a.warnings, verdict::parse_diag)?,
+        result: a.result.clone(),
+        settings: a.settings.clone(),
+        candidates: parse_all(&a.candidates, verdict::parse_candidate)?,
+        selected: a.selected.clone(),
+        refuted: a.refuted.clone(),
+        evidence: a.evidence.clone(),
+        environment: a.environment.clone(),
+        note: a.note.clone(),
+        inconclusive: a.inconclusive.clone(),
+    })
+}
+
+fn parse_all<T>(specs: &[String], parse: impl Fn(&str) -> Result<T>) -> Result<Vec<T>> {
+    specs.iter().map(|s| parse(s)).collect()
+}
+
+fn print_warnings(warnings: &[String], quiet: bool) {
+    if quiet {
+        return;
+    }
+    for w in warnings {
+        eprintln!("warning: {w}");
+    }
+}
+
+/// `<id>  <status>  <kind>  <question>` rows. The status column is padded to
+/// the widest status in the batch, since a derived status names its source
+/// (`derived (open via 3fa91c02)`).
+fn print_rows(store: &Store, questions: &[&Question], style: Style) {
+    let statuses: Vec<String> = questions
+        .iter()
+        .map(|q| store.resolve(q).to_string())
+        .collect();
+    let width = statuses.iter().map(String::len).max().unwrap_or(0);
+    for (q, status) in questions.iter().zip(&statuses) {
+        println!(
+            "{}  {status:<width$}  {:<7}  {}",
+            style.bold(&q.id),
+            q.kind.as_str(),
+            q.question
+        );
+    }
+}
+
+fn print_question(store: &Store, q: &Question, style: Style) {
+    println!(
+        "{}  {}  {}",
+        style.bold(&q.id),
+        q.kind.as_str(),
+        style.bold(&store.resolve(q).to_string())
+    );
+    println!("  {}", q.question);
+    println!("  {}", q.answer);
+    if q.identifiers.is_empty() {
+        println!("  identifiers: none");
+    } else {
+        println!("  identifiers: {}", q.identifiers.join(", "));
+    }
+    if !q.derived_from.is_empty() {
+        println!("  derived from: {}", q.derived_from.join(", "));
+    }
+    if q.observations.is_empty() {
+        println!("  observations: none");
+        return;
+    }
+    for r in q.ranked() {
+        println!();
+        print_observation(&r, style);
+    }
+}
+
+fn print_observation(r: &Ranked<'_>, style: Style) {
+    let o = r.observation;
+    let verdict = o.outcome.map_or("run", Outcome::as_str);
+    let mut head = format!("  {:<8}  {}  {verdict}", o.source.as_str(), o.date_string());
+    if let Some(note) = &r.annotation {
+        head.push_str(&format!("  ({note})"));
+    }
+    if o.counts() {
+        println!("{head}");
+    } else {
+        println!("{}", style.dim(&head));
+    }
+    let detail = |label: &str, value: &str| println!("            {label}: {value}");
+    if let Some(crash) = &o.crash {
+        detail("crash", crash);
+    }
+    for (label, diags) in [("error", &o.errors), ("warning", &o.warnings)] {
+        for d in diags {
+            let mut line = format!("{} {}", d.code, d.message);
+            if let Some(span) = &d.span {
+                line.push_str(&format!(" ({span})"));
+            }
+            if let Some(bar) = d.bar {
+                line.push_str(&format!(" (bar {bar})"));
+            }
+            if !d.ctx.is_empty() {
+                let ctx: Vec<String> = d.ctx.iter().map(|(k, v)| format!("{k}={v}")).collect();
+                line.push_str(&format!(" [{}]", ctx.join(", ")));
+            }
+            detail(label, &line);
+        }
+    }
+    if let Some(result) = &o.result {
+        detail("result", result);
+    }
+    if let Some(settings) = &o.settings {
+        detail("settings", settings);
+    }
+    for c in &o.candidates {
+        let marker = c.state.as_str();
+        match &c.model {
+            Some(model) => detail("candidate", &format!("{} {marker}: {model}", c.name)),
+            None => detail("candidate", &format!("{} {marker}", c.name)),
+        }
+    }
+    match (&o.fixture, &o.fixture_name) {
+        (Some(sha), Some(name)) => detail("fixture", &format!("fixtures/{sha}.pine ({name})")),
+        (Some(sha), None) => detail("fixture", &format!("fixtures/{sha}.pine")),
+        (None, _) => detail("fixture", "none (no byte-exact source measured)"),
+    }
+    if let Some(env) = &o.environment {
+        detail("environment", env);
+    }
+    for e in &o.evidence {
+        detail("evidence", e);
+    }
+    if let Some(note) = &o.note {
+        detail("note", note);
+    }
+}

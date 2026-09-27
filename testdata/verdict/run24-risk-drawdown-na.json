@@ -1,0 +1,15 @@
+{
+  "errors": [],
+  "fixture": {
+    "path": "/home/folk/Programs/piners/reference/fieldwork/capture-campaign-2026-09/editor-risk-drawdown-na.pine",
+    "sha256": "193ed148bfdbd3b0a0ddef8066a5ba29c57d981dc203a56f75caed60ef6e580a"
+  },
+  "slot": {
+    "id": "USER;9c7d79677e2049a5822b3432b5d461eb",
+    "name": "tvr-slot-1"
+  },
+  "success": true,
+  "takenAt": "2026-09-27T07:21:21.794Z",
+  "version": "9.0",
+  "warnings": []
+}

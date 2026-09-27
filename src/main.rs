@@ -83,6 +83,14 @@ enum Command {
         grep: Option<String>,
     },
 
+    /// Measured TradingView behavior: what each oracle (editor, endpoint,
+    /// chart) did, and whether a question is settled. Every verb names its
+    /// records directory with `--records`; nothing is read by default.
+    Verdict {
+        #[command(subcommand)]
+        command: commands::verdict::VerdictCommand,
+    },
+
     /// pine-data snapshot date + behavior bake counts
     Version,
 }
@@ -125,6 +133,7 @@ fn main() -> Result<()> {
             text_style,
             cli.quiet,
         ),
+        Command::Verdict { command } => commands::verdict::run(command, text_style, cli.quiet),
         Command::Version => cmd_version(cli.quiet),
     }
 }

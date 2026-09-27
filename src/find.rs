@@ -47,7 +47,9 @@ pub struct Hit {
 /// Ranked hits across both corpora for `q` (BM25, title 4x boosted). An empty
 /// query returns an empty vec without touching the index.
 pub fn find(q: &str, limit: usize) -> Result<Vec<Hit>> {
-    if q.trim().is_empty() {
+    // tantivy's TopDocs panics on a zero limit.
+    let q = &crate::query::plain_terms(q);
+    if q.trim().is_empty() || limit == 0 {
         return Ok(Vec::new());
     }
     let e = engine();
@@ -55,8 +57,10 @@ pub fn find(q: &str, limit: usize) -> Result<Vec<Hit>> {
 
     let title_parser = QueryParser::for_index(&e.index, vec![e.title_field]);
     let content_parser = QueryParser::for_index(&e.index, vec![e.content_field]);
-    let title_q = title_parser.parse_query(q)?;
-    let content_q = content_parser.parse_query(q)?;
+    // Lenient: Pine syntax in a query (`strategy.exit(`, `?:`, `a:b`) must
+    // not be a parse error.
+    let (title_q, _) = title_parser.parse_query_lenient(q);
+    let (content_q, _) = content_parser.parse_query_lenient(q);
     let boosted: Box<dyn Query> = Box::new(BoostQuery::new(title_q, TITLE_BOOST));
     let query: Box<dyn Query> = Box::new(BooleanQuery::union(vec![boosted, content_q]));
 

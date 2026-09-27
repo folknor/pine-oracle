@@ -68,11 +68,15 @@ anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-chrono = { version = "0.4.45", default-features = false, features = ["std", "clock"] }
 include_dir = { version = "0.7", features = ["glob"] }
 owo-colors = "4"
 pulldown-cmark = "0.13"
 tantivy = "0.26"
+sha2 = "0.11"
+toml = "1"
+
+[dev-dependencies]
+chrono = { version = "0.4.45", default-features = false, features = ["std", "clock"] }
 
 [profile.release]
 lto = "thin"

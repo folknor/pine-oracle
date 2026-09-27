@@ -4,6 +4,8 @@ A single-binary CLI that answers Pine Script v6 semantic questions.
 Structured-signature lookups (with BM25 "did you mean ...?" recovery), Pine
 User Manual prose search, and an authored Pine cookbook - all baked into one
 Rust binary with no on-disk state, no network calls, no runtime configuration.
+The one exception is `po verdict`, a record of measured TradingView behavior
+that lives in a directory the caller names explicitly on every command.
 It answers questions *about* Pine; it never executes user strategies.
 
 ## What it does
@@ -15,6 +17,7 @@ It answers questions *about* Pine; it never executes user strategies.
 | `po search <query>` | **Find** across **both** the Pine User Manual and the authored TA recipes at once (one BM25 index). Prints a menu, no prose: a manual row is `<8-hex id>  page / H2 / H3` (feed the id to `po show`), a recipe row is `recipe <name>  recipe / category / Title` (run it directly). `--limit` defaults to 8. `-1` / `--top` renders the top hit directly (manual section or recipe body) |
 | `po show <id> [<id>...]` | Print Manual section(s) by the id `po search` prints. Renders the section **plus all its subsections** to the terminal with its canonical TradingView URL; multiple ids render in order. Hash-only addressing |
 | `po recipe <name>` | A Pine cookbook: how to build something that has **no** TradingView builtin and no Manual page - prose + a self-contained Pine v6 recipe. Covers indicators (custom moving averages, oscillators, candlestick patterns, volatility/volume/trend tools) and general helpers (easing/animation curves, risk metrics). Match by name or alias; `--list` / `--category` / `--grep` browse (`--category ?` lists the catalog); a miss offers fuzzy "did you mean ...?" suggestions |
+| `po verdict add\|observe\|search\|show\|list --records <DIR>` | Record and query what TradingView measurably did, per oracle source (editor, `translate_light` endpoint, chart run), and whether each question is settled. Records are TOML plus content-addressed fixtures in a caller-named directory; `--records` is required on every verb and never defaulted. See [docs/verdict.md](docs/verdict.md) |
 | `po version` | Binary version + pine-data bake counts (functions, variables, constants, keywords, types, annotations, operators), manual page/section counts, recipe entry/category counts, and the pinned snapshot date |
 
 Output is text-only across the board. Text output accepts `--quiet` to suppress
@@ -50,6 +53,11 @@ reimplemented in Pine v6, not copied, with each recipe's Pine checked clean by
 Because the data is a point-in-time snapshot, it tracks Pine v6 as of the
 vendored scrape - `po version` prints the pinned snapshot date. Refreshing the
 data means re-vendoring and rebuilding; there is nothing to update at runtime.
+
+**Verdicts** behind `po verdict` are the exception: they are neither baked in
+nor found automatically. Each command reads (or writes) only the records
+directories passed with `--records`, which in practice live in the git repo of
+the project that took the measurements.
 
 ## Install
 
