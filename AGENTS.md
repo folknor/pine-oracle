@@ -57,18 +57,8 @@ Current vendors:
 
 ### Bash rules
 
-This is the single source of truth for Bash rules in this project. The project CLAUDE.md imports these via `@AGENTS.md`.
-
-- Never chain commands with `&&`.
-- Never chain commands with `;`.
-- Never chain/pipe commands with `|`. Exception: piping into `review` is allowed.
-- Never capture stdout into env vars (`UUID=$(...)`).
 - Never read or write from `/tmp`. All data lives in the project.
 - Never run raw `cargo`, `curl`, `pkill`. Use `brokkr`.
-- Never use `sed`, `find`, `awk`, `head`, `tail`, or complex bash commands.
-- Never run `find /` (scans the full filesystem).
-- Never run `git` with `-C <path>`.
-- One Bash() invocation === one command.
 
 ### Vendoring rules
 
@@ -85,10 +75,9 @@ This is the single source of truth for Bash rules in this project. The project C
 
 ## Commands
 
-Use `brokkr` (not `cargo`) for check/test. Output is filtered by default.
+Use `brokkr` (not `cargo`) for check/test. Output is never capped or scoped: every diagnostic prints every time, and errors in files with unstaged changes are listed first.
 
 - `brokkr check` - gremlins + clippy + all tests
-- `brokkr check --all` - show every diagnostic, no cap
 - `brokkr test <NAME>` - release-mode focused single-test runner. `<NAME>` is a case-sensitive substring filter. Streams the test's own stdout/stderr live.
   - `-N, --repeat <N>` - run the test N times (flaky-test hunting).
   - `--raw` - bypass output filtering.
