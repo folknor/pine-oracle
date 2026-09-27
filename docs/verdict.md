@@ -106,7 +106,12 @@ Status is decided by the counting editor/chart observations (the top tier):
 | `conflict` | Top observations differ on the outcome, the error codes or the warning codes | A candidate selected by one run and refuted by another, or runs whose error codes differ (one halts, one runs clean) |
 | `open` | No top observation (endpoint only, only crashes, or nothing yet) | No top run, or only runs whose candidates are all undecided |
 
-Messages never matter for agreement, because TradingView rewords them. Two
+Messages never matter for agreement, because TradingView rewords them. A
+reject that recorded no codes at all means "not recorded", not "different":
+it is compared on the outcome alone, so it neither conflicts with nor
+confirms a coded reject's codes (a weaker one reads `same outcome as editor;
+codes not recorded`). A clean accept is different: no codes there means no
+warning, and it does compare. Two
 editor rejects with different codes are a conflict on purpose: TradingView
 changed between the observations or the fixtures differ, and someone should
 look. Two runs that differ in how they halt are a conflict for the same
@@ -143,7 +148,9 @@ candidates are shown as selected, refuted or undecided.
 
 po writes both. `observe --fixture` copies the file into `fixtures/`, named by
 the sha256 po computes from the stored bytes, so a recorded hash always
-matches its file and observations sharing a fixture share one copy. Evidence
+matches its file and observations sharing a fixture share one copy. Passing a
+stored fixture again by its store path (`fixtures/<sha256>.pine`) keeps the
+original file name the store already recorded for it. Evidence
 is not copied: each `--evidence` path must be an existing file (pass each
 export separately, not a directory) and is stored relative to the
 records directory (`../fieldwork/...`). Keep evidence inside the same git

@@ -106,11 +106,20 @@ pub fn observe(root: &Path, id: &str, new: &NewObservation) -> Result<Vec<String
         None => None,
     };
     let fixture_sha = fixture_bytes.as_deref().map(sha256_hex);
-    let fixture_name = new
+    let passed_name = new
         .fixture
         .as_ref()
         .and_then(|p| p.file_name())
         .map(|n| n.to_string_lossy().into_owned());
+    // Re-observing a fixture by its store path (`fixtures/<sha>.pine`) must
+    // not record the hash file name as the human name: keep the name the
+    // store already knows for that hash, if any.
+    let fixture_name = match (&fixture_sha, passed_name) {
+        (Some(sha), Some(name)) if name == format!("{sha}.pine") => {
+            known_fixture_name(store.questions(), sha)
+        }
+        (_, name) => name,
+    };
 
     let observation = Observation {
         source: new.source,
@@ -186,6 +195,15 @@ fn check(
         bail!("refusing to write:\n  {}", report.errors.join("\n  "));
     }
     Ok(report.warnings)
+}
+
+/// The human name some earlier observation recorded for fixture `sha`.
+fn known_fixture_name(questions: &[Question], sha: &str) -> Option<String> {
+    questions
+        .iter()
+        .flat_map(|q| &q.observations)
+        .filter(|o| o.fixture.as_deref() == Some(sha))
+        .find_map(|o| o.fixture_name.clone())
 }
 
 /// Parse an optional `YYYY-MM-DD`; validation then checks it is date-only and

@@ -599,6 +599,90 @@ fn runtime_undecided_runs_stay_open_and_halts_must_agree() {
 }
 
 #[test]
+fn code_less_rejects_are_compared_on_outcome_only() {
+    let root = scratch("code-less-reject");
+    let id = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    // A reject whose code was never recorded, then one carrying CE10147.
+    observe(
+        &root,
+        &id,
+        &compile(Source::Editor, "2026-09-20", Outcome::Rejected),
+    )
+    .expect("code-less reject");
+    let coded = NewObservation {
+        errors: vec![parse_diag("CE10147").expect("d")],
+        ..compile(Source::Editor, "2026-09-27", Outcome::Rejected)
+    };
+    observe(&root, &id, &coded).expect("coded reject");
+    assert_eq!(reload(&root, &id).own_status(), Status::Settled);
+
+    // A weaker code-less reject says its codes were not recorded.
+    observe(
+        &root,
+        &id,
+        &compile(Source::Endpoint, "2026-09-10", Outcome::Rejected),
+    )
+    .expect("endpoint reject");
+    let q = reload(&root, &id);
+    assert_eq!(
+        q.ranked()[2].annotation.as_deref(),
+        Some("weaker source; same outcome as editor; codes not recorded")
+    );
+
+    // Two coded rejects that differ still conflict, code-less one or not.
+    let other = NewObservation {
+        errors: vec![parse_diag("CE10099").expect("d")],
+        ..compile(Source::Editor, "2026-09-28", Outcome::Rejected)
+    };
+    observe(&root, &id, &other).expect("other coded reject");
+    assert_eq!(reload(&root, &id).own_status(), Status::Conflict);
+
+    // A clean accept still compares: it means no warning, not unrecorded.
+    let warned = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    let with_warning = NewObservation {
+        warnings: vec![parse_diag("CW10001").expect("d")],
+        ..compile(Source::Editor, "2026-09-20", Outcome::Accepted)
+    };
+    observe(&root, &warned, &with_warning).expect("warned");
+    observe(
+        &root,
+        &warned,
+        &compile(Source::Editor, "2026-09-21", Outcome::Accepted),
+    )
+    .expect("clean");
+    assert_eq!(reload(&root, &warned).own_status(), Status::Conflict);
+}
+
+#[test]
+fn re_observing_a_stored_fixture_keeps_its_name() {
+    let root = scratch("fixture-name");
+    let id = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    let first = NewObservation {
+        fixture: Some(testdata("editor-export-outside-library.pine")),
+        ..compile(Source::Editor, "2026-09-27", Outcome::Accepted)
+    };
+    observe(&root, &id, &first).expect("first");
+    let again = NewObservation {
+        fixture: Some(root.join("fixtures").join(format!("{RUN26_SHA}.pine"))),
+        ..compile(Source::Endpoint, "2026-09-06", Outcome::Accepted)
+    };
+    observe(&root, &id, &again).expect("by store path");
+    let q = reload(&root, &id);
+    for o in &q.observations {
+        assert_eq!(
+            o.fixture_name.as_deref(),
+            Some("editor-export-outside-library.pine")
+        );
+    }
+}
+
+#[test]
 fn undated_observations_take_an_upper_bound() {
     let root = scratch("date-before");
     let id = add(&root, &question(Kind::Runtime, &[])).expect("add").id;

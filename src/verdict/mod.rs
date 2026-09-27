@@ -410,7 +410,14 @@ impl Question {
         }
         match self.kind {
             Kind::Compile => {
-                if top.iter().all(|o| signature(o) == signature(top[0])) {
+                // Pairwise, not against one reference: a code-less reject
+                // agrees with rejects carrying CE10147 and CE10099 alike, but
+                // those two still conflict with each other.
+                let all_agree = top
+                    .iter()
+                    .enumerate()
+                    .all(|(i, a)| top[i + 1..].iter().all(|b| compile_agree(a, b)));
+                if all_agree {
                     Status::Settled
                 } else {
                     Status::Conflict
@@ -446,9 +453,17 @@ impl Question {
             )
         });
         let anchor = if self.own_status() == Status::Settled {
-            obs.iter()
+            // Prefer a top observation that recorded its codes, so weaker
+            // rows are compared against the most informative verdict.
+            let top: Vec<&Observation> = obs
+                .iter()
                 .map(|(_, o)| *o)
-                .find(|o| o.counts() && o.source.strength() == TOP_STRENGTH)
+                .filter(|o| o.counts() && o.source.strength() == TOP_STRENGTH)
+                .collect();
+            top.iter()
+                .find(|o| !codes_unrecorded(o))
+                .or(top.first())
+                .copied()
         } else {
             None
         };
@@ -474,21 +489,36 @@ fn annotate(kind: Kind, o: &Observation, anchor: Option<&Observation>) -> Option
         return None;
     }
     let top = anchor.source.as_str();
-    let verb = if signature(o) == signature(anchor) {
-        format!("confirmed by {top}")
-    } else if o.outcome == anchor.outcome {
-        format!("same outcome as {top}, different codes")
-    } else {
+    let verb = if o.outcome != anchor.outcome {
         format!("{top} disagrees")
+    } else if codes_unrecorded(o) && !codes_unrecorded(anchor) {
+        format!("same outcome as {top}; codes not recorded")
+    } else if compile_agree(o, anchor) {
+        format!("confirmed by {top}")
+    } else {
+        format!("same outcome as {top}, different codes")
     };
     Some(format!("weaker source; {verb}"))
 }
 
-/// What two compile observations must share to agree: the outcome and the
+/// Whether two compile observations agree: the same outcome and the same
 /// sets of error and warning codes. Messages may differ (TradingView rewords
-/// them between releases).
-fn signature(o: &Observation) -> (Option<Outcome>, BTreeSet<&str>, BTreeSet<&str>) {
-    (o.outcome, codes(&o.errors), codes(&o.warnings))
+/// them between releases). A reject that recorded no codes at all means "not
+/// recorded", not "different", so it is compared on the outcome alone.
+fn compile_agree(a: &Observation, b: &Observation) -> bool {
+    if a.outcome != b.outcome {
+        return false;
+    }
+    if codes_unrecorded(a) || codes_unrecorded(b) {
+        return true;
+    }
+    codes(&a.errors) == codes(&b.errors) && codes(&a.warnings) == codes(&b.warnings)
+}
+
+/// A reject with no diagnostics: the codes were not recorded. (An accept
+/// with no diagnostics is a clean accept, which does compare.)
+fn codes_unrecorded(o: &Observation) -> bool {
+    o.outcome == Some(Outcome::Rejected) && o.errors.is_empty() && o.warnings.is_empty()
 }
 
 fn codes(diags: &[Diag]) -> BTreeSet<&str> {
