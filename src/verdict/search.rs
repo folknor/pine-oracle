@@ -95,7 +95,7 @@ fn content_text(q: &Question) -> String {
             .cloned(),
         );
         for d in o.errors.iter().chain(&o.warnings) {
-            parts.push(d.message.clone());
+            parts.extend(d.message.clone());
             parts.extend(d.ctx.values().cloned());
         }
         for c in &o.candidates {

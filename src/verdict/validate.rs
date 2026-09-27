@@ -97,7 +97,12 @@ pub(super) fn question(q: &Question, cx: &Context<'_>, out: &mut Report) {
         }
     }
     for (i, o) in q.observations.iter().enumerate() {
-        let label = format!("observation {} ({} {})", i + 1, o.source.as_str(), o.date);
+        let label = format!(
+            "observation {} ({} {})",
+            i + 1,
+            o.source.as_str(),
+            o.date_string()
+        );
         for msg in observation(q.kind, o, &q.root, cx) {
             errs.push(format!("{label}: {msg}"));
         }
@@ -163,8 +168,17 @@ fn identifier(ident: &str) -> Result<(), String> {
 fn observation(kind: Kind, o: &Observation, root: &Path, cx: &Context<'_>) -> Vec<String> {
     let mut errs = Vec::new();
 
-    if o.date.date.is_none() || o.date.time.is_some() || o.date.offset.is_some() {
-        errs.push(format!("date `{}` must be a plain YYYY-MM-DD date", o.date));
+    match (&o.date, &o.date_before) {
+        (Some(_), Some(_)) => errs.push("both `date` and `date_before` are set".to_string()),
+        (None, None) => errs.push("needs a `date` or a `date_before` bound".to_string()),
+        _ => {}
+    }
+    for (field, value) in [("date", &o.date), ("date_before", &o.date_before)] {
+        if let Some(d) = value
+            && (d.date.is_none() || d.time.is_some() || d.offset.is_some())
+        {
+            errs.push(format!("{field} `{d}` must be a plain YYYY-MM-DD date"));
+        }
     }
     for (field, value) in [
         ("crash", &o.crash),
@@ -287,7 +301,9 @@ fn diag(kind: Kind, d: &Diag, warning: bool, errs: &mut Vec<String>) {
             if warning { "warning" } else { "error" }
         ));
     }
-    if d.message.trim().is_empty() {
+    // An absent message is honest (the source never recorded it); an empty
+    // one is a mistake.
+    if d.message.as_deref().is_some_and(|m| m.trim().is_empty()) {
         errs.push(format!("{} has an empty message", d.code));
     }
     if let Some(span) = &d.span

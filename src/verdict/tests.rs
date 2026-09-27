@@ -42,7 +42,8 @@ fn question(kind: Kind, identifiers: &[&str]) -> NewQuestion {
 fn obs(source: Source, date: &str) -> NewObservation {
     NewObservation {
         source,
-        date: date.to_string(),
+        date: Some(date.to_string()),
+        date_before: None,
         fixture: None,
         outcome: None,
         crash: None,
@@ -594,6 +595,84 @@ fn runtime_undecided_runs_stay_open_and_halts_must_agree() {
         reload(&root, &halts).own_status(),
         Status::Conflict,
         "one run halts and one runs clean"
+    );
+}
+
+#[test]
+fn undated_observations_take_an_upper_bound() {
+    let root = scratch("date-before");
+    let id = add(&root, &question(Kind::Runtime, &[])).expect("add").id;
+    let bench = NewObservation {
+        date: None,
+        date_before: Some("2026-09-10".into()),
+        ..runtime("")
+    };
+    observe(&root, &id, &bench).expect("bounded");
+    observe(&root, &id, &runtime("2026-09-05")).expect("dated");
+    let q = reload(&root, &id);
+    let ranked = q.ranked();
+    // The bound orders like a date: 2026-09-10 is newer than 2026-09-05.
+    assert_eq!(ranked[0].observation.date_string(), "before 2026-09-10");
+    assert_eq!(ranked[1].observation.date_string(), "2026-09-05");
+
+    let both = NewObservation {
+        date_before: Some("2026-09-10".into()),
+        ..runtime("2026-09-05")
+    };
+    refused(observe(&root, &id, &both), "both `date` and `date_before`");
+    let neither = NewObservation {
+        date: None,
+        ..runtime("")
+    };
+    refused(
+        observe(&root, &id, &neither),
+        "needs a `date` or a `date_before`",
+    );
+}
+
+#[test]
+fn diagnostics_without_message_text() {
+    let root = scratch("no-message");
+    let id = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    let reject = NewObservation {
+        errors: vec![parse_diag("CE10271").expect("code only")],
+        ..compile(Source::Editor, "2026-09-27", Outcome::Rejected)
+    };
+    observe(&root, &id, &reject).expect("observe");
+    let q = reload(&root, &id);
+    assert_eq!(q.observations[0].errors[0].message, None);
+
+    // An explicitly empty message in a hand-edited file is still an error.
+    let path = root.join(format!("{id}.toml"));
+    let text = std::fs::read_to_string(&path).expect("read");
+    std::fs::write(
+        &path,
+        text.replace("code = \"CE10271\"", "code = \"CE10271\"\nmessage = \"\""),
+    )
+    .expect("write");
+    refused(load(&[root]), "has an empty message");
+}
+
+#[test]
+fn quoted_ctx_values_round_trip() {
+    let root = scratch("quoted-ctx");
+    let id = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    let reject = NewObservation {
+        errors: vec![parse_diag(r#"CE10079|m|possibleValues="a, b""#).expect("quoted")],
+        ..compile(Source::Editor, "2026-09-27", Outcome::Rejected)
+    };
+    observe(&root, &id, &reject).expect("observe");
+    let q = reload(&root, &id);
+    assert_eq!(
+        q.observations[0].errors[0]
+            .ctx
+            .get("possibleValues")
+            .map(String::as_str),
+        Some("a, b")
     );
 }
 

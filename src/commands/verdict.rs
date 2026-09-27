@@ -81,6 +81,7 @@ pub(crate) enum VerdictCommand {
 #[derive(clap::Args)]
 #[command(group(ArgGroup::new("fixture_choice").required(true).args(["fixture", "no_fixture"])))]
 #[command(group(ArgGroup::new("outcome").args(["accepted", "rejected", "crashed"])))]
+#[command(group(ArgGroup::new("when").required(true).args(["date", "date_before"])))]
 pub(crate) struct ObserveArgs {
     /// Question id from `po verdict add`.
     id: String,
@@ -91,7 +92,11 @@ pub(crate) struct ObserveArgs {
     source: String,
     /// When the observation was taken, YYYY-MM-DD.
     #[arg(long)]
-    date: String,
+    date: Option<String>,
+    /// For a capture whose date was never recorded: a YYYY-MM-DD upper bound
+    /// (e.g. the date of the commit that added the export).
+    #[arg(long, value_name = "DATE")]
+    date_before: Option<String>,
     /// The exact file measured. po copies it into the store, named by sha256.
     #[arg(long)]
     fixture: Option<PathBuf>,
@@ -239,6 +244,7 @@ fn new_observation(a: &ObserveArgs) -> Result<NewObservation> {
     Ok(NewObservation {
         source: a.source.parse::<Source>()?,
         date: a.date.clone(),
+        date_before: a.date_before.clone(),
         fixture: a.fixture.clone(),
         outcome,
         crash: a.crashed.clone(),
@@ -333,7 +339,10 @@ fn print_observation(r: &Ranked<'_>, style: Style) {
     }
     for (label, diags) in [("error", &o.errors), ("warning", &o.warnings)] {
         for d in diags {
-            let mut line = format!("{} {}", d.code, d.message);
+            let mut line = match &d.message {
+                Some(message) => format!("{} {message}", d.code),
+                None => format!("{} (message not recorded)", d.code),
+            };
             if let Some(span) = &d.span {
                 line.push_str(&format!(" ({span})"));
             }
@@ -341,7 +350,18 @@ fn print_observation(r: &Ranked<'_>, style: Style) {
                 line.push_str(&format!(" (bar {bar})"));
             }
             if !d.ctx.is_empty() {
-                let ctx: Vec<String> = d.ctx.iter().map(|(k, v)| format!("{k}={v}")).collect();
+                // Quote values holding commas, as they are spelled on input.
+                let ctx: Vec<String> = d
+                    .ctx
+                    .iter()
+                    .map(|(k, v)| {
+                        if v.contains(',') {
+                            format!("{k}=\"{v}\"")
+                        } else {
+                            format!("{k}={v}")
+                        }
+                    })
+                    .collect();
                 line.push_str(&format!(" [{}]", ctx.join(", ")));
             }
             detail(label, &line);

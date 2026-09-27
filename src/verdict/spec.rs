@@ -1,8 +1,11 @@
 // Command-line spellings of structured observation parts:
-//   diagnostic: `CODE|message|detail`, detail optional. Detail is a
-//               comma-separated list of items: a `line:col-line:col` span,
-//               `bar=N` (the bar a runtime error fired on), or any other
-//               `key=value` pair, kept as template context (`ctx`).
+//   diagnostic: `CODE`, `CODE|message` or `CODE|message|detail`. The message
+//               may be empty (`CODE||detail`) when the source recorded only
+//               the code. Detail is a comma-separated list of items: a
+//               `line:col-line:col` span, `bar=N` (the bar a runtime error
+//               fired on), or any other `key=value` pair, kept as template
+//               context (`ctx`). A value may be double-quoted to hold commas
+//               (`possibleValues="a, b"`); inside quotes `\"` and `\\` escape.
 //   candidate:  `name|model`, model optional.
 
 use anyhow::{Result, bail};
@@ -10,26 +13,28 @@ use std::collections::BTreeMap;
 
 use super::{Candidate, CandidateState, Diag};
 
-/// Parse a `CODE|message|detail` diagnostic spec. Code format is checked by
-/// validation (it depends on the question kind), not here.
+/// Parse a diagnostic spec. Code format is checked by validation (it depends
+/// on the question kind), not here.
 pub fn parse_diag(spec: &str) -> Result<Diag> {
     let mut parts = spec.splitn(3, '|');
     let code = parts.next().unwrap_or_default().trim();
-    let Some(message) = parts.next().map(str::trim) else {
-        bail!("diagnostic `{spec}` must be CODE|message or CODE|message|detail");
-    };
-    if code.is_empty() || message.is_empty() {
-        bail!("diagnostic `{spec}` needs both a code and a message");
+    if code.is_empty() {
+        bail!("diagnostic `{spec}` needs a code");
     }
+    let message = parts.next().map(str::trim).filter(|m| !m.is_empty());
     let mut diag = Diag {
         code: code.to_string(),
-        message: message.to_string(),
+        message: message.map(str::to_string),
         span: None,
         bar: None,
         ctx: BTreeMap::new(),
     };
     let detail = parts.next().unwrap_or_default();
-    for item in detail.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+    for item in split_detail(detail)? {
+        let item = item.trim();
+        if item.is_empty() {
+            continue;
+        }
         if is_span(item) {
             if diag.span.is_some() {
                 bail!("diagnostic `{spec}` has more than one span");
@@ -40,10 +45,12 @@ pub fn parse_diag(spec: &str) -> Result<Diag> {
         let Some((key, value)) = item.split_once('=') else {
             bail!("diagnostic detail `{item}` is neither a line:col-line:col span nor key=value");
         };
-        let (key, value) = (key.trim(), value.trim());
-        if key.is_empty() || value.is_empty() {
+        let key = key.trim();
+        let value = unquote(value.trim())?;
+        if key.is_empty() || value.trim().is_empty() {
             bail!("diagnostic detail `{item}` needs a key and a value");
         }
+        let value = value.as_str();
         if key == "bar" {
             let Ok(bar) = value.parse::<u64>() else {
                 bail!("diagnostic detail `bar={value}` must be a non-negative integer");
@@ -60,6 +67,60 @@ pub fn parse_diag(spec: &str) -> Result<Diag> {
         }
     }
     Ok(diag)
+}
+
+/// Split detail on commas outside double quotes. Quotes and escapes are kept
+/// in the items; `unquote` strips them from a value.
+fn split_detail(detail: &str) -> Result<Vec<String>> {
+    let mut items = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+    let mut chars = detail.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' if in_quotes => {
+                current.push(c);
+                if let Some(next) = chars.next() {
+                    current.push(next);
+                }
+            }
+            '"' => {
+                in_quotes = !in_quotes;
+                current.push(c);
+            }
+            ',' if !in_quotes => items.push(std::mem::take(&mut current)),
+            _ => current.push(c),
+        }
+    }
+    if in_quotes {
+        bail!("diagnostic detail `{detail}` has an unterminated quote");
+    }
+    items.push(current);
+    Ok(items)
+}
+
+/// A detail value: bare as written, or double-quoted with `\"` / `\\`
+/// escapes.
+fn unquote(value: &str) -> Result<String> {
+    let Some(inner) = value.strip_prefix('"') else {
+        return Ok(value.to_string());
+    };
+    let Some(inner) = inner.strip_suffix('"') else {
+        bail!("detail value `{value}` has text after its closing quote");
+    };
+    let mut out = String::with_capacity(inner.len());
+    let mut chars = inner.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => match chars.next() {
+                Some(e @ ('"' | '\\')) => out.push(e),
+                _ => bail!("detail value `{value}` has an unknown escape"),
+            },
+            '"' => bail!("detail value `{value}` has an unescaped quote"),
+            _ => out.push(c),
+        }
+    }
+    Ok(out)
 }
 
 /// Parse a `name|model` candidate spec into an undecided candidate.
@@ -112,7 +173,10 @@ mod tests {
         let d = parse_diag("CE10099|Only libraries can contain exported functions.|9:1-10:5")
             .expect("valid");
         assert_eq!(d.code, "CE10099");
-        assert_eq!(d.message, "Only libraries can contain exported functions.");
+        assert_eq!(
+            d.message.as_deref(),
+            Some("Only libraries can contain exported functions.")
+        );
         assert_eq!(d.span.as_deref(), Some("9:1-10:5"));
         assert_eq!(d.bar, None);
         assert!(d.ctx.is_empty());
@@ -135,8 +199,41 @@ mod tests {
     }
 
     #[test]
+    fn diag_message_is_optional() {
+        assert_eq!(parse_diag("CE10271").expect("code only").message, None);
+        let d = parse_diag("CE10271||1:1-1:5").expect("detail without message");
+        assert_eq!(d.message, None);
+        assert_eq!(d.span.as_deref(), Some("1:1-1:5"));
+    }
+
+    #[test]
+    fn quoted_ctx_values_keep_commas() {
+        let d =
+            parse_diag(r#"CE10079|Expected one of {possibleValues}|possibleValues="a, b",other=x"#)
+                .expect("quoted value");
+        assert_eq!(
+            d.ctx.get("possibleValues").map(String::as_str),
+            Some("a, b")
+        );
+        assert_eq!(d.ctx.get("other").map(String::as_str), Some("x"));
+        let d = parse_diag(r#"CE10079|m|q="say \"hi\", \\ ok""#).expect("escapes");
+        assert_eq!(
+            d.ctx.get("q").map(String::as_str),
+            Some(r#"say "hi", \ ok"#)
+        );
+        assert!(parse_diag(r#"CE10079|m|q="open"#).is_err(), "unterminated");
+        assert!(
+            parse_diag(r#"CE10079|m|q="a"b"#).is_err(),
+            "text after quote"
+        );
+        assert!(
+            parse_diag(r#"CE10079|m|q="a\nb""#).is_err(),
+            "unknown escape"
+        );
+    }
+
+    #[test]
     fn diag_rejects_malformed() {
-        assert!(parse_diag("CE10099").is_err(), "no message");
         assert!(parse_diag("|msg").is_err(), "no code");
         assert!(parse_diag("RE10044|m|bar=x").is_err(), "non-numeric bar");
         assert!(parse_diag("RE10044|m|bar=1,bar=2").is_err(), "two bars");

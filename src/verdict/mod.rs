@@ -127,7 +127,9 @@ impl fmt::Display for Resolved {
 #[serde(deny_unknown_fields)]
 pub struct Diag {
     pub code: String,
-    pub message: String,
+    /// Absent when the source recorded the code but never its text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -155,7 +157,13 @@ pub struct Candidate {
 #[serde(deny_unknown_fields)]
 pub struct Observation {
     pub source: Source,
-    pub date: Datetime,
+    /// When the observation was taken. Exactly one of `date` and
+    /// `date_before` is set: `date_before` is an upper bound for captures
+    /// whose date was never recorded (e.g. the commit that added an export).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub date: Option<Datetime>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub date_before: Option<Datetime>,
     /// sha256 of the fixture as stored under `fixtures/<sha256>.pine`. Absent
     /// when the observation was not taken on a byte-exact file (inline code).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -355,9 +363,24 @@ impl Observation {
         self.inconclusive.is_none() && self.outcome != Some(Outcome::Crashed)
     }
 
-    /// The date as `YYYY-MM-DD` (validation guarantees date-only values).
+    /// The date for display: `YYYY-MM-DD`, or `before YYYY-MM-DD` for an
+    /// upper bound (validation guarantees exactly one, date-only).
     pub fn date_string(&self) -> String {
-        self.date.to_string()
+        match (&self.date, &self.date_before) {
+            (Some(d), _) => d.to_string(),
+            (None, Some(d)) => format!("before {d}"),
+            (None, None) => "undated".to_string(),
+        }
+    }
+
+    /// The date used for newest-first ordering: the date itself, or the
+    /// upper bound. `YYYY-MM-DD` strings order chronologically.
+    pub(crate) fn sort_date(&self) -> String {
+        self.date
+            .as_ref()
+            .or(self.date_before.as_ref())
+            .map(ToString::to_string)
+            .unwrap_or_default()
     }
 }
 
@@ -418,7 +441,7 @@ impl Question {
         obs.sort_by_key(|(i, o)| {
             (
                 Reverse(o.source.strength()),
-                Reverse(o.date_string()),
+                Reverse(o.sort_date()),
                 Reverse(*i),
             )
         });

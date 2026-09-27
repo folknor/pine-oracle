@@ -14,7 +14,8 @@ produced it.
 ```
 po verdict add      --records <DIR> --kind compile|runtime --question "..." --answer "..."
                     [--identifier X]... [--derived-from <id>]...
-po verdict observe  <id> --records <DIR> --source editor|endpoint|chart --date YYYY-MM-DD
+po verdict observe  <id> --records <DIR> --source editor|endpoint|chart
+                    (--date YYYY-MM-DD | --date-before YYYY-MM-DD)
                     (--fixture <file.pine> | --no-fixture)
                     compile: (--accepted | --rejected | --crashed "<message>")
                              [--error SPEC]... [--warning SPEC]...
@@ -42,6 +43,11 @@ po verdict list     --records <DIR>... [--identifier X] [--code C]
   concurrent `observe` calls on the same question race, and the last writer
   wins.
 
+`--date` or `--date-before` is required. Use `--date-before` for a capture
+whose date was never recorded, bounded by what is known (for example the date
+of the commit that added the export). `show` prints it as `before
+YYYY-MM-DD`, and it orders like a date.
+
 `--fixture` or `--no-fixture` is required, so a missing fixture is always a
 deliberate statement. Use `--no-fixture` when the observation was not taken on
 a byte-exact file (for example inline code that predates the fixture): a
@@ -49,13 +55,19 @@ recorded hash would claim a source nobody measured.
 
 ### Diagnostic spec
 
-`--error` and `--warning` take `CODE|message|detail`, detail optional. Detail
-is a comma-separated list of:
+`--error` and `--warning` take `CODE`, `CODE|message` or
+`CODE|message|detail`. Leave the message out when the source recorded only
+the code (`CE10271`, or `CE10271||9:1-9:4` with detail); `show` then prints
+`(message not recorded)`. Detail is a comma-separated list of:
 
 - a source span, `line:col-line:col` (`9:1-10:5`);
 - `bar=N`, the bar a runtime error fired on;
 - any other `key=value`, kept as the template context some errors carry
   instead of a span (`typeKindName=const`).
+
+A value may be double-quoted to hold commas: `possibleValues="a, b"`. Inside
+quotes, `\"` and `\\` escape a quote and a backslash. A message cannot
+contain `|`.
 
 Codes are checked against the question kind: compile errors are `CE`, compile
 warnings `CW`, runtime errors `RE`, each followed by five digits. Runtime
@@ -65,6 +77,8 @@ observations take errors only.
 --error "CE10099|Only libraries can contain exported functions.|9:1-10:5"
 --error "CE10260|Cannot use the {typeKindName} keyword ...|typeKindName=const"
 --error "RE10044|<banner text>|bar=100"
+--error 'CE10079|<message>|possibleValues="a, b"'
+--error "CE10271"
 ```
 
 ## Sources, strength and status
@@ -193,7 +207,9 @@ Errors:
   derivation chain that leads back to the question itself. `add` cannot
   create a cycle, since sources must exist first; a hand edit that does is
   refused on read;
-- a date that is not a plain `YYYY-MM-DD`;
+- a date or date bound that is not a plain `YYYY-MM-DD`, or an observation
+  with both or neither of `date` and `date_before`;
+- an explicitly empty diagnostic message (leave the field out instead);
 - a runtime observation not from `chart`, or without `result` / `settings`;
 - compile fields on a runtime observation, or runtime fields on a compile one;
 - accepted with errors, crashed with diagnostics or without a message;

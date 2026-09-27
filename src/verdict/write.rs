@@ -37,8 +37,10 @@ pub struct Added {
 #[derive(Debug, Clone)]
 pub struct NewObservation {
     pub source: Source,
-    /// `YYYY-MM-DD`.
-    pub date: String,
+    /// `YYYY-MM-DD`. Exactly one of `date` and `date_before` must be set.
+    pub date: Option<String>,
+    /// `YYYY-MM-DD` upper bound, for a capture whose date was never recorded.
+    pub date_before: Option<String>,
     /// `None` states that no byte-exact fixture was measured.
     pub fixture: Option<PathBuf>,
     pub outcome: Option<Outcome>,
@@ -94,11 +96,8 @@ pub fn observe(root: &Path, id: &str, new: &NewObservation) -> Result<Vec<String
     let mut q = existing.clone();
     let ids: BTreeSet<String> = store.questions().iter().map(|q| q.id.clone()).collect();
 
-    let date: Datetime = new
-        .date
-        .trim()
-        .parse()
-        .map_err(|e| anyhow::anyhow!("date `{}`: {e}", new.date))?;
+    let date = parse_date(new.date.as_deref())?;
+    let date_before = parse_date(new.date_before.as_deref())?;
 
     let fixture_bytes = match &new.fixture {
         Some(path) => Some(
@@ -116,6 +115,7 @@ pub fn observe(root: &Path, id: &str, new: &NewObservation) -> Result<Vec<String
     let observation = Observation {
         source: new.source,
         date,
+        date_before,
         fixture: fixture_sha.clone(),
         fixture_name,
         outcome: new.outcome,
@@ -186,6 +186,17 @@ fn check(
         bail!("refusing to write:\n  {}", report.errors.join("\n  "));
     }
     Ok(report.warnings)
+}
+
+/// Parse an optional `YYYY-MM-DD`; validation then checks it is date-only and
+/// that exactly one of `date` / `date_before` is present.
+fn parse_date(s: Option<&str>) -> Result<Option<Datetime>> {
+    s.map(|d| {
+        d.trim()
+            .parse::<Datetime>()
+            .map_err(|e| anyhow::anyhow!("date `{d}`: {e}"))
+    })
+    .transpose()
 }
 
 fn trimmed(s: Option<&String>) -> Option<String> {
