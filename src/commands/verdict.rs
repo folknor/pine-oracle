@@ -1,8 +1,8 @@
 use anyhow::{Result, bail};
 use clap::{ArgGroup, Subcommand};
 use pine_oracle::verdict::{
-    self, Kind, ListFilter, NewObservation, NewQuestion, Outcome, Question, Ranked, Source, Status,
-    Store,
+    self, Kind, ListFilter, NewObservation, NewQuestion, Outcome, Question, Ranked, Relation,
+    Source, Status, Store,
 };
 use std::path::PathBuf;
 
@@ -31,13 +31,33 @@ pub(crate) enum VerdictCommand {
         /// A pine-data identifier the question concerns. Repeatable.
         #[arg(long = "identifier")]
         identifiers: Vec<String>,
-        /// Id of a question this one is concluded from. Repeatable.
-        #[arg(long = "derived-from")]
-        derived_from: Vec<String>,
+        /// Id of a question this investigation grew out of (lineage; never
+        /// affects status). Repeatable.
+        #[arg(long = "follow-up-to", value_name = "ID")]
+        follow_up_to: Vec<String>,
+        /// Id of a premise the answer is concluded from. Makes the question
+        /// inferred: settled only when every premise is. Repeatable.
+        #[arg(long = "basis", value_name = "ID")]
+        basis: Vec<String>,
     },
 
     /// Append one observation to a question.
     Observe(Box<ObserveArgs>),
+
+    /// Withdraw a question (ill-posed, mis-filed, reworded, abandoned). It
+    /// keeps its observations as history and has no status from then on.
+    Retire {
+        id: String,
+        /// Records directory holding the question.
+        #[arg(long)]
+        records: PathBuf,
+        /// Why the question is withdrawn.
+        #[arg(long)]
+        reason: String,
+        /// Id of a question the investigation continued in. Repeatable.
+        #[arg(long = "replaced-by", value_name = "ID")]
+        replaced_by: Vec<String>,
+    },
 
     /// BM25 search over questions, answers, results, messages and fixture
     /// source. Prints `<id>  <status>  <kind>  <question>` rows.
@@ -71,8 +91,15 @@ pub(crate) enum VerdictCommand {
         /// Only questions whose observations carry this diagnostic code.
         #[arg(long)]
         code: Option<String>,
-        #[arg(long, value_parser = ["settled", "conflict", "open", "derived"])]
+        /// Resolved status; retired questions have none and never match.
+        #[arg(long, value_parser = ["settled", "conflict", "open"])]
         status: Option<String>,
+        /// Only inferred questions (answered from `basis` premises).
+        #[arg(long)]
+        inferred: bool,
+        /// Only retired questions.
+        #[arg(long, conflicts_with_all = ["status", "inferred"])]
+        retired: bool,
         #[arg(long, value_parser = ["compile", "runtime"])]
         kind: Option<String>,
     },
@@ -156,7 +183,8 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
             question,
             answer,
             identifiers,
-            derived_from,
+            follow_up_to,
+            basis,
         } => {
             let added = verdict::add(
                 &records,
@@ -165,13 +193,20 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
                     question,
                     answer,
                     identifiers,
-                    derived_from,
+                    follow_up_to,
+                    basis,
                 },
             )?;
             print_warnings(&added.warnings, quiet);
             println!("{}", added.id);
             Ok(())
         }
+        VerdictCommand::Retire {
+            id,
+            records,
+            reason,
+            replaced_by,
+        } => verdict::retire(&records, &id, &reason, &replaced_by),
         VerdictCommand::Observe(args) => {
             let warnings = verdict::observe(&args.records, &args.id, &new_observation(&args)?)?;
             print_warnings(&warnings, quiet);
@@ -209,19 +244,17 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
             identifier,
             code,
             status,
+            inferred,
+            retired,
             kind,
         } => {
             let store = verdict::load(&records)?;
-            let derived = status.as_deref() == Some("derived");
             let filter = ListFilter {
                 identifier: identifier.as_deref(),
                 code: code.as_deref(),
-                status: status
-                    .as_deref()
-                    .filter(|_| !derived)
-                    .map(str::parse::<Status>)
-                    .transpose()?,
-                derived,
+                status: status.as_deref().map(str::parse::<Status>).transpose()?,
+                inferred,
+                retired,
                 kind: kind.as_deref().map(str::parse::<Kind>).transpose()?,
             };
             let rows = store.list(&filter);
@@ -276,8 +309,8 @@ fn print_warnings(warnings: &[String], quiet: bool) {
 }
 
 /// `<id>  <status>  <kind>  <question>` rows. The status column is padded to
-/// the widest status in the batch, since a derived status names its source
-/// (`derived (open via 3fa91c02)`).
+/// the widest status in the batch, since an inferred or retired disposition
+/// names other questions (`inferred (open via 3fa91c02)`).
 fn print_rows(store: &Store, questions: &[&Question], style: Style) {
     let statuses: Vec<String> = questions
         .iter()
@@ -302,14 +335,64 @@ fn print_question(store: &Store, q: &Question, style: Style) {
         style.bold(&store.resolve(q).to_string())
     );
     println!("  {}", q.question);
-    println!("  {}", q.answer);
+    match &q.retired {
+        // A retired question asserts nothing: its answer is history.
+        Some(r) => {
+            println!("  former answer: {}", q.answer);
+            println!("  retired: {}", r.reason);
+        }
+        None => println!("  {}", q.answer),
+    }
     if q.identifiers.is_empty() {
         println!("  identifiers: none");
     } else {
         println!("  identifiers: {}", q.identifiers.join(", "));
     }
-    if !q.derived_from.is_empty() {
-        println!("  derived from: {}", q.derived_from.join(", "));
+    // Each relation both ways. Linked questions print with their own
+    // disposition (a premise or replacement may itself be retired).
+    let with_disposition = |ids: &[String]| -> String {
+        ids.iter()
+            .map(|id| match store.get(id) {
+                Some(linked) => format!("{id} ({})", store.resolve(linked)),
+                None => id.clone(),
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let referrers = |relation: Relation| -> Vec<String> {
+        store
+            .referrers(&q.id, relation)
+            .into_iter()
+            .map(|x| x.id.clone())
+            .collect()
+    };
+    for (label, ids) in [
+        ("follows up", q.follow_up_to.clone()),
+        ("follow-ups", referrers(Relation::FollowUpTo)),
+        ("basis", q.basis.clone()),
+        ("premise of", referrers(Relation::Basis)),
+        ("replaced by", Relation::ReplacedBy.of(q).to_vec()),
+        ("replaces", referrers(Relation::ReplacedBy)),
+    ] {
+        if !ids.is_empty() {
+            println!("  {label}: {}", with_disposition(&ids));
+        }
+    }
+    // A replacement that was itself retired: say where the work stands now,
+    // so the start of a chain does not need opening link by link.
+    let replaced_by = Relation::ReplacedBy.of(q);
+    if replaced_by
+        .iter()
+        .any(|id| store.get(id).is_some_and(Question::is_retired))
+    {
+        let current: Vec<String> = store
+            .current_successors(q)
+            .into_iter()
+            .map(|s| s.id.clone())
+            .collect();
+        if !current.is_empty() {
+            println!("  now continued in: {}", with_disposition(&current));
+        }
     }
     if q.observations.is_empty() {
         println!("  observations: none");

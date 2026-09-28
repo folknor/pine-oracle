@@ -12,8 +12,16 @@
 //
 // A question records what TradingView did, per oracle source, and never
 // whether any engine matches it. Source strength is editor = chart >
-// endpoint; `Question::status` derives settled / conflict / open / derived
-// from the observations that count (not inconclusive, not crashed).
+// endpoint; `Question::own_status` derives settled / conflict / open from the
+// observations that count (not inconclusive, not crashed).
+//
+// Questions relate to each other in three separate ways, and none of them
+// stands in for another: `follow_up_to` is lineage (this investigation grew
+// out of that one; never affects status), `basis` makes a question inferred
+// (its answer is concluded from premise questions rather than measured), and
+// `retired` withdraws an ill-posed or mis-filed question (`replaced_by` names
+// where the investigation continued). A retired question has no status at
+// all: its successors' statuses are theirs, never its answer.
 
 use serde::{Deserialize, Serialize};
 use std::cmp::Reverse;
@@ -31,10 +39,10 @@ mod tests;
 mod validate;
 mod write;
 
-pub use load::{ListFilter, Store, load};
+pub use load::{ListFilter, Relation, Store, load};
 pub use search::SearchHit;
 pub use spec::{parse_candidate, parse_diag};
-pub use write::{Added, NewObservation, NewQuestion, add, observe};
+pub use write::{Added, NewObservation, NewQuestion, add, observe, retire};
 
 /// Whether a question is about compilation (accept / reject) or about what a
 /// script does when it runs on a chart.
@@ -80,43 +88,82 @@ pub enum CandidateState {
     Undecided,
 }
 
-/// Question status. Only observations that count (not inconclusive, not
-/// crashed) at the top source strength decide it. Ordered worst to best, so
-/// the minimum over a derived question's sources is its status.
+/// Question status. For a measured question only observations that count
+/// (not inconclusive, not crashed) at the top source strength decide it.
+/// Ordered worst to best, so an inferred question's blocking premise is the
+/// minimum over its premises.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Status {
-    /// Counting editor/chart observations disagree. Compile: on the outcome,
-    /// the set of error codes or the set of warning codes. Runtime: a
-    /// candidate selected by one run and refuted by another, or runs whose
-    /// error codes differ (one halts, one runs clean).
+    /// Counting editor/chart observations of this question disagree.
+    /// Compile: on the outcome, the set of error codes or the set of warning
+    /// codes. Runtime: a candidate selected by one run and refuted by
+    /// another, or runs whose error codes differ (one halts, one runs clean).
+    /// Never the status of an inferred question: nobody measured it.
     Conflict,
-    /// Nothing decides it yet: no counting editor/chart observation, or only
-    /// chart runs whose candidates are all undecided.
+    /// Nothing decides it yet: no counting editor/chart observation, only
+    /// chart runs whose candidates are all undecided, or (inferred) a premise
+    /// that is not settled.
     Open,
-    /// Counting editor/chart observations exist, agree, and decide.
+    /// Measured: counting editor/chart observations exist, agree, and
+    /// decide. Inferred: every premise is settled.
     Settled,
 }
 
-/// A question's status as shown: its own, or for a derived question (one with
-/// `derived_from` and no counting observations of its own) the worst status
-/// among its sources, naming the source responsible.
+/// A question's disposition as shown by every read verb.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Resolved {
-    pub status: Status,
-    pub derived: bool,
-    /// For a derived question that is not settled: the source with the worst
-    /// status (first in `derived_from` order on a tie).
-    pub via: Option<String>,
+pub enum Resolved {
+    /// Answered by its own observations.
+    Measured(Status),
+    /// Answered from `basis` premises: settled only when every premise is.
+    /// Otherwise open, naming the worst premise (first in `basis` order on a
+    /// tie); a conflicting premise blocks the inference, it does not make
+    /// the inferred question a conflict.
+    Inferred { status: Status, via: Option<String> },
+    /// Withdrawn. Has no status; `replaced_by` is where the investigation
+    /// continued.
+    Retired { replaced_by: Vec<String> },
+}
+
+impl Resolved {
+    /// The answer status, `None` for a retired question.
+    pub fn status(&self) -> Option<Status> {
+        match self {
+            Resolved::Measured(s) | Resolved::Inferred { status: s, .. } => Some(*s),
+            Resolved::Retired { .. } => None,
+        }
+    }
 }
 
 impl fmt::Display for Resolved {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match (self.derived, &self.via) {
-            (false, _) => f.write_str(self.status.as_str()),
-            (true, None) => write!(f, "derived ({})", self.status),
-            (true, Some(via)) => write!(f, "derived ({} via {via})", self.status),
+        match self {
+            Resolved::Measured(s) => f.write_str(s.as_str()),
+            Resolved::Inferred { status, via: None } => write!(f, "inferred ({status})"),
+            Resolved::Inferred {
+                status,
+                via: Some(via),
+            } => write!(f, "inferred ({status} via {via})"),
+            Resolved::Retired { replaced_by } if replaced_by.is_empty() => f.write_str("retired"),
+            Resolved::Retired { replaced_by } => {
+                write!(f, "retired (replaced by {})", replaced_by.join(", "))
+            }
         }
     }
+}
+
+/// A withdrawn question, with the reason it was withdrawn: for example
+/// ill-posed (no valid form can answer it), mis-filed (observations that
+/// test different claims), reworded, or abandoned. Its observations stay as
+/// history and never count.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Retired {
+    pub reason: String,
+    /// Where the investigation continued - not a claim that these questions
+    /// answer the retired one. May be empty (abandoned) and may name a
+    /// question that was itself retired later (a chain of splits).
+    #[serde(default)]
+    pub replaced_by: Vec<String>,
 }
 
 /// One diagnostic TradingView reported: a compile error / warning or a
@@ -200,6 +247,8 @@ pub struct Observation {
 
 /// One question and every observation of it. `id` (the file stem) and `root`
 /// (the records directory it was loaded from) are not stored in the file.
+/// Field order is the on-disk order: `retired` is a table, so it follows the
+/// plain values and precedes the observation array of tables.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Question {
@@ -209,11 +258,26 @@ pub struct Question {
     pub root: PathBuf,
     pub kind: Kind,
     pub question: String,
+    /// For an inferred question, why the premises jointly establish it. For
+    /// a retired one, the former answer, kept as history.
     pub answer: String,
     #[serde(default)]
     pub identifiers: Vec<String>,
+    /// Lineage: the questions this investigation grew out of.
     #[serde(default)]
-    pub derived_from: Vec<String>,
+    pub follow_up_to: Vec<String>,
+    /// Premises: a non-empty basis makes the question inferred.
+    #[serde(default)]
+    pub basis: Vec<String>,
+    /// The retired field `derived_from`, which meant status inheritance but
+    /// was used as lineage. Never written, so po drops it on the next rewrite.
+    /// The empty list every old record carries is accepted; a populated one
+    /// fails validation with a message naming the split, rather than a bare
+    /// unknown-field error.
+    #[serde(default, rename = "derived_from", skip_serializing)]
+    pub legacy_derived_from: Option<toml::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retired: Option<Retired>,
     #[serde(default, rename = "observation", skip_serializing_if = "Vec::is_empty")]
     pub observations: Vec<Observation>,
 }
@@ -363,6 +427,12 @@ impl Observation {
         self.inconclusive.is_none() && self.outcome != Some(Outcome::Crashed)
     }
 
+    /// Whether this observation may decide a measured question's status: it
+    /// counts and comes from a top-strength source (editor or chart).
+    pub fn decides(&self) -> bool {
+        self.counts() && self.source.strength() == TOP_STRENGTH
+    }
+
     /// The date for display: `YYYY-MM-DD`, or `before YYYY-MM-DD` for an
     /// upper bound (validation guarantees exactly one, date-only).
     pub fn date_string(&self) -> String {
@@ -394,11 +464,14 @@ impl Question {
             .collect()
     }
 
-    /// Whether the question takes its status from `derived_from` sources: it
-    /// has sources and no counting observations of its own. (Inconclusive or
-    /// crashed observations never count, so they do not end a derivation.)
-    pub fn is_derived(&self) -> bool {
-        !self.derived_from.is_empty() && !self.observations.iter().any(Observation::counts)
+    /// Whether the question is answered from `basis` premises. A retired
+    /// question is not inferred: it asserts nothing, and its basis is history.
+    pub fn is_inferred(&self) -> bool {
+        !self.basis.is_empty() && self.retired.is_none()
+    }
+
+    pub fn is_retired(&self) -> bool {
+        self.retired.is_some()
     }
 
     /// Status from this question's own observations, ignoring derivation.
@@ -429,10 +502,7 @@ impl Question {
 
     /// The counting observations at the top source strength.
     fn top_observations(&self) -> Vec<&Observation> {
-        self.observations
-            .iter()
-            .filter(|o| o.counts() && o.source.strength() == TOP_STRENGTH)
-            .collect()
+        self.observations.iter().filter(|o| o.decides()).collect()
     }
 
     /// Observations strongest source first, newest first within a strength,
@@ -452,13 +522,16 @@ impl Question {
                 Reverse(*i),
             )
         });
-        let anchor = if self.own_status() == Status::Settled {
+        // A retired question's observations are history: comparing them is
+        // exactly what retirement withdraws (a mis-filed question's fixtures
+        // test different claims), so none is annotated against another.
+        let anchor = if self.retired.is_none() && self.own_status() == Status::Settled {
             // Prefer a top observation that recorded its codes, so weaker
             // rows are compared against the most informative verdict.
             let top: Vec<&Observation> = obs
                 .iter()
                 .map(|(_, o)| *o)
-                .filter(|o| o.counts() && o.source.strength() == TOP_STRENGTH)
+                .filter(|o| o.decides())
                 .collect();
             top.iter()
                 .find(|o| !codes_unrecorded(o))

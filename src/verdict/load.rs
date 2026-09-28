@@ -26,11 +26,14 @@ pub struct ListFilter<'a> {
     pub identifier: Option<&'a str>,
     /// Exact diagnostic code, case-insensitive.
     pub code: Option<&'a str>,
-    /// Matches the resolved status, so a derived question whose sources are
-    /// all settled matches `Settled`.
+    /// Matches the resolved status of non-retired questions, so an inferred
+    /// question whose premises are all settled matches `Settled`. Retired
+    /// questions have no status and never match.
     pub status: Option<Status>,
-    /// Only derived questions.
-    pub derived: bool,
+    /// Only inferred questions.
+    pub inferred: bool,
+    /// Only retired questions.
+    pub retired: bool,
     pub kind: Option<Kind>,
 }
 
@@ -70,27 +73,25 @@ pub fn load(roots: &[PathBuf]) -> Result<Store> {
         }
     }
 
-    // `derived_from` resolves within the question's own directory only, so a
-    // record validates the same whether its directory is loaded alone (as
-    // the write path does) or alongside others.
-    let mut ids_by_root: BTreeMap<&Path, BTreeSet<String>> = BTreeMap::new();
+    // Question relations resolve within the question's own directory only,
+    // so a record validates the same whether its directory is loaded alone
+    // (as the write path does) or alongside others.
+    let mut ids_by_root: BTreeMap<&Path, BTreeMap<String, bool>> = BTreeMap::new();
     for q in &questions {
         ids_by_root
             .entry(q.root.as_path())
-            .or_default()
-            .insert(q.id.clone());
+            .or_insert_with(|| validate::ids_in(&questions, &q.root));
     }
     let mut report = Report::default();
-    let empty = BTreeSet::new();
     for q in &questions {
         let cx = Context {
-            known_ids: ids_by_root.get(q.root.as_path()).unwrap_or(&empty),
+            known_ids: &ids_by_root[q.root.as_path()],
             pending_fixture: None,
         };
         validate::question(q, &cx, &mut report);
     }
     problems.extend(report.errors);
-    problems.extend(derivation_cycles(&questions));
+    problems.extend(validate::cycles(&questions));
     if !problems.is_empty() {
         bail!(
             "{} invalid record problem(s):\n  {}",
@@ -100,39 +101,6 @@ pub fn load(roots: &[PathBuf]) -> Result<Store> {
     }
     questions.sort_by(|a, b| a.id.cmp(&b.id));
     Ok(Store { questions })
-}
-
-/// A question may not be derived, directly or transitively, from itself.
-/// Only hand edits can create a cycle (`add` needs its sources to exist
-/// first), so report each question found on one.
-fn derivation_cycles(questions: &[Question]) -> Vec<String> {
-    let edges: BTreeMap<&str, &[String]> = questions
-        .iter()
-        .map(|q| (q.id.as_str(), q.derived_from.as_slice()))
-        .collect();
-    let mut out = Vec::new();
-    for q in questions {
-        let mut stack: Vec<&str> = q.derived_from.iter().map(String::as_str).collect();
-        let mut seen = BTreeSet::new();
-        while let Some(id) = stack.pop() {
-            if id == q.id {
-                out.push(format!(
-                    "question {} is derived from itself through `derived_from`",
-                    q.id
-                ));
-                break;
-            }
-            if seen.insert(id) {
-                stack.extend(
-                    edges
-                        .get(id)
-                        .into_iter()
-                        .flat_map(|d| d.iter().map(String::as_str)),
-                );
-            }
-        }
-    }
-    out
 }
 
 /// Parse every question file under `root` and vet every other entry.
@@ -243,38 +211,116 @@ impl Store {
                     .code
                     .is_none_or(|c| q.codes().iter().any(|x| x.eq_ignore_ascii_case(c)))
             })
-            .filter(|q| filter.status.is_none_or(|s| self.resolve(q).status == s))
-            .filter(|q| !filter.derived || q.is_derived())
+            .filter(|q| {
+                filter
+                    .status
+                    .is_none_or(|s| self.resolve(q).status() == Some(s))
+            })
+            .filter(|q| !filter.inferred || q.is_inferred())
+            .filter(|q| !filter.retired || q.is_retired())
             .filter(|q| filter.kind.is_none_or(|k| q.kind == k))
             .collect()
     }
 
-    /// The status to show for `q`: its own, or for a derived question the
-    /// worst resolved status among its sources (conflict < open < settled),
-    /// naming the source responsible unless every source is settled. Sources
-    /// may themselves be derived; `load` has refused cycles.
+    /// The disposition to show for `q`. A retired question has no status. An
+    /// inferred one is settled when every premise resolves settled, and
+    /// otherwise open via its worst premise (conflict < open, first in
+    /// `basis` order on a tie): a conflicting premise blocks the inference
+    /// but is not a conflict in it, since nobody measured it. Premises may
+    /// themselves be inferred; `load` has refused cycles, and validation
+    /// keeps retired questions out of an active basis.
     pub fn resolve(&self, q: &Question) -> Resolved {
-        if !q.is_derived() {
-            return Resolved {
-                status: q.own_status(),
-                derived: false,
-                via: None,
+        if let Some(r) = &q.retired {
+            return Resolved::Retired {
+                replaced_by: r.replaced_by.clone(),
             };
         }
+        if !q.is_inferred() {
+            return Resolved::Measured(q.own_status());
+        }
         let mut worst: Option<(Status, &str)> = None;
-        for id in &q.derived_from {
+        for id in &q.basis {
             let status = self
                 .get(id)
-                .map_or(Status::Open, |s| self.resolve(s).status);
+                .and_then(|p| self.resolve(p).status())
+                .unwrap_or(Status::Open);
             if worst.is_none_or(|(w, _)| status < w) {
                 worst = Some((status, id));
             }
         }
-        let (status, via) = worst.unwrap_or((Status::Open, ""));
-        Resolved {
-            status,
-            derived: true,
-            via: (status != Status::Settled).then(|| via.to_string()),
+        match worst {
+            Some((Status::Settled, _)) | None => Resolved::Inferred {
+                status: Status::Settled,
+                via: None,
+            },
+            Some((_, via)) => Resolved::Inferred {
+                status: Status::Open,
+                via: Some(via.to_string()),
+            },
+        }
+    }
+
+    /// Where the investigation behind retired question `q` stands now: the
+    /// non-retired questions reached through `replaced_by`, following chains
+    /// through replacements that were retired in turn (A -> B -> C, D gives
+    /// C, D). In first-reached order, each once; empty when nothing replaced
+    /// it. `load` has refused replacement cycles.
+    pub fn current_successors(&self, q: &Question) -> Vec<&Question> {
+        let mut out: Vec<&Question> = Vec::new();
+        let mut seen = BTreeSet::new();
+        let mut queue: std::collections::VecDeque<&str> = Relation::ReplacedBy
+            .of(q)
+            .iter()
+            .map(String::as_str)
+            .collect();
+        while let Some(id) = queue.pop_front() {
+            if !seen.insert(id) {
+                continue;
+            }
+            let Some(next) = self.get(id) else { continue };
+            if next.is_retired() {
+                queue.extend(Relation::ReplacedBy.of(next).iter().map(String::as_str));
+            } else {
+                out.push(next);
+            }
+        }
+        out
+    }
+
+    /// Questions that name `id` through `relation`, in id order: the reverse
+    /// links `show` prints (follow-ups, premise users, replaces).
+    pub fn referrers(&self, id: &str, relation: Relation) -> Vec<&Question> {
+        self.questions
+            .iter()
+            .filter(|q| relation.of(q).iter().any(|x| x == id))
+            .collect()
+    }
+}
+
+/// One of the three question-to-question relations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Relation {
+    FollowUpTo,
+    Basis,
+    ReplacedBy,
+}
+
+impl Relation {
+    /// The ids `q` names through this relation.
+    pub fn of(self, q: &Question) -> &[String] {
+        match self {
+            Relation::FollowUpTo => &q.follow_up_to,
+            Relation::Basis => &q.basis,
+            Relation::ReplacedBy => q.retired.as_ref().map_or(&[], |r| &r.replaced_by),
+        }
+    }
+
+    /// The TOML field, as validation messages name it.
+    pub fn field(self) -> &'static str {
+        match self {
+            Relation::FollowUpTo => "follow_up_to",
+            Relation::Basis => "basis",
+            Relation::ReplacedBy => "retired.replaced_by",
         }
     }
 }

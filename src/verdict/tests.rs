@@ -35,7 +35,8 @@ fn question(kind: Kind, identifiers: &[&str]) -> NewQuestion {
         question: "Q?".to_string(),
         answer: "A.".to_string(),
         identifiers: identifiers.iter().map(ToString::to_string).collect(),
-        derived_from: Vec::new(),
+        follow_up_to: Vec::new(),
+        basis: Vec::new(),
     }
 }
 
@@ -365,11 +366,11 @@ fn invalid_observations_are_refused_and_nothing_is_written() {
         add(
             &root,
             &NewQuestion {
-                derived_from: vec!["deadbeef".into()],
+                basis: vec!["deadbeef".into()],
                 ..question(Kind::Compile, &["export"])
             },
         ),
-        "names unknown question",
+        "`basis` names unknown question",
     );
     refused(
         observe(
@@ -404,36 +405,46 @@ fn empty_identifiers_warn_but_write() {
     assert!(added.warnings.iter().any(|w| w.contains("no identifiers")));
 }
 
+/// The disposition `id` resolves to under `root`.
+fn resolved(root: &Path, id: &str) -> Resolved {
+    let store = load(&[root.to_path_buf()]).expect("load");
+    let q = store.get(id).expect("question").clone();
+    store.resolve(&q)
+}
+
+fn ids_of(store: &Store, filter: &ListFilter<'_>) -> Vec<String> {
+    store
+        .list(filter)
+        .into_iter()
+        .map(|q| q.id.clone())
+        .collect()
+}
+
 #[test]
-fn derived_questions() {
-    let root = scratch("derived");
+fn inferred_questions() {
+    let root = scratch("inferred");
     let base = add(&root, &question(Kind::Compile, &["export"]))
         .expect("add")
         .id;
     let other = add(&root, &question(Kind::Compile, &["export"]))
         .expect("add")
         .id;
-    let derived = add(
+    let inferred = add(
         &root,
         &NewQuestion {
-            derived_from: vec![base.clone(), other.clone()],
+            basis: vec![base.clone(), other.clone()],
             ..question(Kind::Compile, &["export"])
         },
     )
-    .expect("add derived")
+    .expect("add inferred")
     .id;
-    let resolved = |id: &str| {
-        let store = load(std::slice::from_ref(&root)).expect("load");
-        let q = store.get(id).expect("question").clone();
-        store.resolve(&q)
-    };
 
-    // Both sources open: the first is named.
-    let r = resolved(&derived);
-    assert_eq!(r.status, Status::Open);
-    assert_eq!(r.to_string(), format!("derived (open via {base})"));
+    // Both premises open: the first is named.
+    let r = resolved(&root, &inferred);
+    assert_eq!(r.status(), Some(Status::Open));
+    assert_eq!(r.to_string(), format!("inferred (open via {base})"));
 
-    // One source settled: the other, still open, is named.
+    // One premise settled: the other, still open, is named.
     observe(
         &root,
         &base,
@@ -441,73 +452,369 @@ fn derived_questions() {
     )
     .expect("settle base");
     assert_eq!(
-        resolved(&derived).to_string(),
-        format!("derived (open via {other})")
+        resolved(&root, &inferred).to_string(),
+        format!("inferred (open via {other})")
     );
 
-    // Every source settled.
+    // Every premise settled.
     observe(
         &root,
         &other,
         &compile(Source::Editor, "2026-09-27", Outcome::Accepted),
     )
     .expect("settle other");
-    assert_eq!(resolved(&derived).to_string(), "derived (settled)");
+    assert_eq!(resolved(&root, &inferred).to_string(), "inferred (settled)");
 
-    // A conflicting source is the worst status and wins.
+    // A conflicting premise blocks the inference; it is not a conflict in it.
     let reject = NewObservation {
         errors: vec![parse_diag("CE10099|m").expect("d")],
         ..compile(Source::Editor, "2026-09-27", Outcome::Rejected)
     };
     observe(&root, &base, &reject).expect("conflict base");
     assert_eq!(
-        resolved(&derived).to_string(),
-        format!("derived (conflict via {base})")
+        resolved(&root, &inferred).to_string(),
+        format!("inferred (open via {base})")
     );
 
-    // Derivation chains resolve through derived sources.
+    // Premises may be inferred themselves.
     let chained = add(
         &root,
         &NewQuestion {
-            derived_from: vec![derived.clone()],
+            basis: vec![inferred.clone()],
             ..question(Kind::Compile, &["export"])
         },
     )
     .expect("add chained")
     .id;
     assert_eq!(
-        resolved(&chained).to_string(),
-        format!("derived (conflict via {derived})")
+        resolved(&root, &chained).to_string(),
+        format!("inferred (open via {inferred})")
     );
 
-    // A non-counting observation does not end a derivation.
+    // Non-counting and weaker observations may sit on an inferred question;
+    // neither ends the inference.
     let misfire = NewObservation {
         inconclusive: Some("fixture bug".into()),
         ..compile(Source::Editor, "2026-09-27", Outcome::Rejected)
     };
-    observe(&root, &derived, &misfire).expect("inconclusive");
-    assert!(resolved(&derived).derived);
+    observe(&root, &inferred, &misfire).expect("inconclusive");
+    observe(
+        &root,
+        &inferred,
+        &compile(Source::Endpoint, "2026-09-10", Outcome::Accepted),
+    )
+    .expect("an endpoint accept is weak evidence, not a measurement of the answer");
+    assert!(matches!(
+        resolved(&root, &inferred),
+        Resolved::Inferred { .. }
+    ));
+    // A top-strength measurement must not: the question is either measured
+    // or inferred, never silently both.
+    refused(
+        observe(
+            &root,
+            &inferred,
+            &compile(Source::Editor, "2026-09-28", Outcome::Accepted),
+        ),
+        "an inferred question (non-empty `basis`) carries a counting editor/chart observation",
+    );
 
-    // Filtering matches the resolved status.
+    // Filtering matches the resolved status; only measured questions conflict.
     let store = load(std::slice::from_ref(&root)).expect("load");
-    let conflicted: Vec<&str> = store
-        .list(&ListFilter {
-            status: Some(Status::Conflict),
-            ..Default::default()
-        })
+    assert_eq!(
+        ids_of(
+            &store,
+            &ListFilter {
+                status: Some(Status::Conflict),
+                ..Default::default()
+            }
+        ),
+        vec![base.clone()]
+    );
+    let mut both = vec![inferred.clone(), chained.clone()];
+    both.sort();
+    assert_eq!(
+        ids_of(
+            &store,
+            &ListFilter {
+                inferred: true,
+                ..Default::default()
+            }
+        ),
+        both
+    );
+}
+
+#[test]
+fn follow_up_is_lineage_only() {
+    let root = scratch("follow-up");
+    let parent = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    let child = add(
+        &root,
+        &NewQuestion {
+            follow_up_to: vec![parent.clone()],
+            ..question(Kind::Compile, &["export"])
+        },
+    )
+    .expect("add child")
+    .id;
+    observe(
+        &root,
+        &child,
+        &compile(Source::Editor, "2026-09-27", Outcome::Accepted),
+    )
+    .expect("a follow-up is measured like any question");
+    assert_eq!(resolved(&root, &child), Resolved::Measured(Status::Settled));
+    assert_eq!(resolved(&root, &parent), Resolved::Measured(Status::Open));
+    let store = load(std::slice::from_ref(&root)).expect("load");
+    assert_eq!(
+        store
+            .referrers(&parent, Relation::FollowUpTo)
+            .iter()
+            .map(|q| q.id.as_str())
+            .collect::<Vec<_>>(),
+        vec![child.as_str()]
+    );
+}
+
+/// The two piners cases that motivated retirement, rebuilt on scratch
+/// records: an ill-posed question (every observation inconclusive, its
+/// sub-questions measured separately) and a mis-filed one (two fixtures
+/// testing different claims under one question, so a false conflict).
+#[test]
+fn retiring_ill_posed_and_misfiled_questions() {
+    let root = scratch("retire");
+    let reject = |code: &str, date: &str| NewObservation {
+        errors: vec![parse_diag(code).expect("d")],
+        ..compile(Source::Editor, date, Outcome::Rejected)
+    };
+
+    // Ill-posed: the method declaration is refused before the question
+    // arises, so no observation can ever answer it.
+    let ill_posed = add(&root, &question(Kind::Compile, &["method", "ta.ema"]))
+        .expect("add")
+        .id;
+    let confounded = NewObservation {
+        inconclusive: Some("refused for CE10236 before the qualifier question arose".into()),
+        ..reject("CE10236", "2026-09-27")
+    };
+    observe(&root, &ill_posed, &confounded).expect("inconclusive");
+    let mut subs = Vec::new();
+    for outcome in [Outcome::Rejected, Outcome::Accepted, Outcome::Accepted] {
+        let sub = add(
+            &root,
+            &NewQuestion {
+                follow_up_to: vec![ill_posed.clone()],
+                ..question(Kind::Compile, &["method"])
+            },
+        )
+        .expect("add sub-question")
+        .id;
+        let o = match outcome {
+            Outcome::Rejected => reject("CE10236", "2026-09-27"),
+            _ => compile(Source::Editor, "2026-09-27", outcome),
+        };
+        observe(&root, &sub, &o).expect("measure sub-question");
+        subs.push(sub);
+    }
+    assert_eq!(
+        resolved(&root, &ill_posed),
+        Resolved::Measured(Status::Open)
+    );
+    retire(&root, &ill_posed, "No valid Pine form answers it.", &subs).expect("retire");
+    let r = resolved(&root, &ill_posed);
+    assert_eq!(r.status(), None, "retired is not settled, open or conflict");
+    assert_eq!(
+        r.to_string(),
+        format!("retired (replaced by {})", subs.join(", "))
+    );
+
+    // Mis-filed: two fixtures with different codes make a false conflict.
+    let misfiled = add(&root, &question(Kind::Compile, &["max_bars_back"]))
+        .expect("add")
+        .id;
+    observe(&root, &misfiled, &reject("CE10013", "2026-09-28")).expect("b40");
+    observe(&root, &misfiled, &reject("CE10120", "2026-09-28")).expect("b39");
+    assert_eq!(
+        resolved(&root, &misfiled),
+        Resolved::Measured(Status::Conflict)
+    );
+    let mut refiled = Vec::new();
+    for code in ["CE10120", "CE10013"] {
+        let id = add(&root, &question(Kind::Compile, &["max_bars_back"]))
+            .expect("add")
+            .id;
+        observe(&root, &id, &reject(code, "2026-09-28")).expect("refile");
+        refiled.push(id);
+    }
+    retire(
+        &root,
+        &misfiled,
+        "Two fixtures testing different claims.",
+        &refiled,
+    )
+    .expect("retire");
+
+    // Neither shows up as owed work any more, and both keep their evidence.
+    let store = load(std::slice::from_ref(&root)).expect("load");
+    for status in [Status::Open, Status::Conflict] {
+        let work = ids_of(
+            &store,
+            &ListFilter {
+                status: Some(status),
+                ..Default::default()
+            },
+        );
+        assert!(
+            !work.contains(&ill_posed) && !work.contains(&misfiled),
+            "{work:?}"
+        );
+    }
+    let mut retired = vec![ill_posed.clone(), misfiled.clone()];
+    retired.sort();
+    assert_eq!(
+        ids_of(
+            &store,
+            &ListFilter {
+                retired: true,
+                ..Default::default()
+            }
+        ),
+        retired
+    );
+    assert_eq!(store.get(&misfiled).expect("q").observations.len(), 2);
+    assert_eq!(
+        ids_of(&store, &ListFilter::default()).len(),
+        store.questions().len(),
+        "an unfiltered list keeps retired rows"
+    );
+
+    // A retired question takes no more observations, and retires once.
+    refused(
+        observe(&root, &misfiled, &reject("CE10120", "2026-09-29")),
+        "is retired (replaced by",
+    );
+    refused(retire(&root, &misfiled, "again", &[]), "already retired");
+}
+
+#[test]
+fn retirement_rules() {
+    let root = scratch("retire-rules");
+    let q = |basis: Vec<String>| NewQuestion {
+        basis,
+        ..question(Kind::Compile, &["export"])
+    };
+    let premise = add(&root, &q(Vec::new())).expect("add").id;
+    let inference = add(&root, &q(vec![premise.clone()])).expect("add").id;
+
+    // An active inference pins its premise until the basis is reworked.
+    refused(
+        retire(&root, &premise, "ill-posed", &[]),
+        &format!("premise of active question(s) {inference}"),
+    );
+    retire(&root, &inference, "superseded", &[]).expect("retire the inference");
+    retire(&root, &premise, "ill-posed", &[]).expect("no active user now");
+    // A new inference cannot rest on a retired premise.
+    refused(
+        add(&root, &q(vec![premise.clone()])),
+        "`basis` names retired question",
+    );
+
+    // Replacement chains: A replaced by B, B later split into C and D.
+    let a = add(&root, &q(Vec::new())).expect("add").id;
+    let b = add(&root, &q(Vec::new())).expect("add").id;
+    let c = add(&root, &q(Vec::new())).expect("add").id;
+    let d = add(&root, &q(Vec::new())).expect("add").id;
+    retire(&root, &a, "reworded", std::slice::from_ref(&b)).expect("A -> B");
+    retire(&root, &b, "split", &[c.clone(), d.clone()]).expect("B -> C, D");
+    let store = load(std::slice::from_ref(&root)).expect("load");
+    assert_eq!(
+        store.resolve(store.get(&a).expect("a")).to_string(),
+        format!("retired (replaced by {b})")
+    );
+    assert_eq!(
+        store.referrers(&b, Relation::ReplacedBy)[0].id,
+        a,
+        "B shows it replaces A"
+    );
+    let now: Vec<&str> = store
+        .current_successors(store.get(&a).expect("a"))
         .into_iter()
         .map(|q| q.id.as_str())
         .collect();
-    assert_eq!(conflicted.len(), 3, "base, derived and chained");
-    assert_eq!(
-        store
-            .list(&ListFilter {
-                derived: true,
-                ..Default::default()
-            })
-            .len(),
-        2
+    assert_eq!(now, vec![c.as_str(), d.as_str()], "A continues in C and D");
+    // ...but never back to where it started.
+    refused(
+        retire(&root, &c, "loop", std::slice::from_ref(&a)),
+        "reaches itself through `retired.replaced_by`",
     );
+
+    refused(retire(&root, &c, "   ", &[]), "`retired.reason` is empty");
+    refused(
+        retire(&root, &c, "self", std::slice::from_ref(&c)),
+        "`retired.replaced_by` names the question itself",
+    );
+    refused(retire(&root, &c, "dup", &[d.clone(), d.clone()]), "lists");
+}
+
+#[test]
+fn retired_observations_are_not_compared() {
+    let root = scratch("retired-annotations");
+    let id = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    observe(
+        &root,
+        &id,
+        &compile(Source::Editor, "2026-09-27", Outcome::Accepted),
+    )
+    .expect("editor");
+    observe(
+        &root,
+        &id,
+        &compile(Source::Endpoint, "2026-09-10", Outcome::Accepted),
+    )
+    .expect("endpoint");
+    assert_eq!(
+        reload(&root, &id).ranked()[1].annotation.as_deref(),
+        Some("weaker source; confirmed by editor")
+    );
+    retire(&root, &id, "the two runs used different fixtures", &[]).expect("retire");
+    let q = reload(&root, &id);
+    assert!(q.ranked().iter().all(|r| r.annotation.is_none()));
+    assert_eq!(resolved(&root, &id).to_string(), "retired");
+}
+
+#[test]
+fn legacy_derived_from_names_the_split() {
+    let root = scratch("legacy-derived-from");
+    let a = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    let b = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    let path = root.join(format!("{b}.toml"));
+    let text = std::fs::read_to_string(&path).expect("read");
+
+    // The empty list every record written before the split carries is inert,
+    // and the next write drops it.
+    std::fs::write(&path, format!("derived_from = []\n{text}")).expect("write");
+    load(std::slice::from_ref(&root)).expect("an empty legacy list claims nothing");
+    observe(
+        &root,
+        &b,
+        &compile(Source::Editor, "2026-09-27", Outcome::Accepted),
+    )
+    .expect("observe rewrites the record");
+    let rewritten = std::fs::read_to_string(&path).expect("read");
+    assert!(!rewritten.contains("derived_from"), "{rewritten}");
+
+    // A populated one is a decision the author has to make.
+    std::fs::write(&path, format!("derived_from = [\"{a}\"]\n{text}")).expect("write");
+    refused(load(&[root]), "`derived_from` was split");
 }
 
 #[test]
@@ -914,32 +1221,59 @@ fn conflict_leaves_weaker_rows_unannotated_and_same_day_is_newest_first() {
 }
 
 #[test]
-fn derivation_cycles_are_rejected() {
-    let root = scratch("derive-cycle");
-    let a = add(&root, &question(Kind::Compile, &["export"]))
+fn relation_cycles_are_rejected_per_relation() {
+    for field in ["basis", "follow_up_to"] {
+        let root = scratch(&format!("cycle-{field}"));
+        let a = add(&root, &question(Kind::Compile, &["export"]))
+            .expect("add")
+            .id;
+        let b = add(
+            &root,
+            &NewQuestion {
+                basis: if field == "basis" {
+                    vec![a.clone()]
+                } else {
+                    Vec::new()
+                },
+                follow_up_to: if field == "follow_up_to" {
+                    vec![a.clone()]
+                } else {
+                    Vec::new()
+                },
+                ..question(Kind::Compile, &["export"])
+            },
+        )
         .expect("add")
         .id;
-    let b = add(
+        let path = root.join(format!("{a}.toml"));
+        let text = std::fs::read_to_string(&path).expect("read");
+        std::fs::write(
+            &path,
+            text.replace(&format!("{field} = []"), &format!("{field} = [\"{b}\"]")),
+        )
+        .expect("write");
+        refused(load(&[root]), &format!("reaches itself through `{field}`"));
+    }
+
+    // Across relations is fine: a parent replaced by its own follow-up.
+    let root = scratch("cycle-across");
+    let parent = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    let child = add(
         &root,
         &NewQuestion {
-            derived_from: vec![a.clone()],
+            follow_up_to: vec![parent.clone()],
             ..question(Kind::Compile, &["export"])
         },
     )
     .expect("add")
     .id;
-    let path = root.join(format!("{a}.toml"));
-    let text = std::fs::read_to_string(&path).expect("read");
-    std::fs::write(
-        &path,
-        text.replace("derived_from = []", &format!("derived_from = [\"{b}\"]")),
-    )
-    .expect("write");
-    refused(load(&[root]), "derived from itself");
+    retire(&root, &parent, "split", &[child]).expect("replaced by its follow-up");
 }
 
 #[test]
-fn derived_from_resolves_within_its_own_directory() {
+fn relations_resolve_within_their_own_directory() {
     let a = scratch("cross-root-a");
     let b = scratch("cross-root-b");
     let in_a = add(&a, &question(Kind::Compile, &["export"]))
@@ -948,12 +1282,12 @@ fn derived_from_resolves_within_its_own_directory() {
     let in_b = add(&b, &question(Kind::Compile, &["export"]))
         .expect("add")
         .id;
-    // Hand-edit a cross-directory derived_from into b's question.
+    // Hand-edit a cross-directory follow_up_to into b's question.
     let path = b.join(format!("{in_b}.toml"));
     let text = std::fs::read_to_string(&path).expect("read");
     std::fs::write(
         &path,
-        text.replace("derived_from = []", &format!("derived_from = [\"{in_a}\"]")),
+        text.replace("follow_up_to = []", &format!("follow_up_to = [\"{in_a}\"]")),
     )
     .expect("write");
     refused(load(&[a, b]), "names unknown question");

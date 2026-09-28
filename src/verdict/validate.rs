@@ -6,6 +6,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+use super::load::Relation;
 use super::{Diag, Kind, Observation, Outcome, Question, Source};
 use crate::behavior;
 
@@ -18,8 +19,10 @@ pub(super) struct Report {
 
 /// What validation needs beyond the question itself.
 pub(super) struct Context<'a> {
-    /// Every question id the store holds (for `derived_from`).
-    pub(super) known_ids: &'a BTreeSet<String>,
+    /// Every question id in the question's own records directory, mapped to
+    /// whether that question is retired (an active question may not rest on
+    /// a retired premise).
+    pub(super) known_ids: &'a BTreeMap<String, bool>,
     /// A fixture sha256 about to be written alongside this question: treated
     /// as present, since the write path validates before touching disk.
     pub(super) pending_fixture: Option<&'a str>,
@@ -71,12 +74,51 @@ pub(super) fn question(q: &Question, cx: &Context<'_>, out: &mut Report) {
             errs.push(format!("identifier `{ident}` listed twice"));
         }
     }
-    for d in &q.derived_from {
-        if d == &q.id {
-            errs.push("`derived_from` names the question itself".to_string());
-        } else if !cx.known_ids.contains(d) {
-            errs.push(format!("`derived_from` names unknown question `{d}`"));
+    // Every record the old writer produced carries `derived_from = []`; an
+    // empty list claims nothing, so only a populated one needs a decision.
+    let empty_list = |v: &toml::Value| v.as_array().is_some_and(Vec::is_empty);
+    if q.legacy_derived_from
+        .as_ref()
+        .is_some_and(|v| !empty_list(v))
+    {
+        errs.push(
+            "`derived_from` was split: use `follow_up_to` for lineage (this investigation grew out of that one), `basis` for premises an inferred answer is concluded from, or `[retired]` to withdraw the question"
+                .to_string(),
+        );
+    }
+    for relation in [Relation::FollowUpTo, Relation::Basis, Relation::ReplacedBy] {
+        let field = relation.field();
+        let mut seen = BTreeSet::new();
+        for id in relation.of(q) {
+            if id == &q.id {
+                errs.push(format!("`{field}` names the question itself"));
+            } else if !cx.known_ids.contains_key(id) {
+                errs.push(format!("`{field}` names unknown question `{id}`"));
+            }
+            if !seen.insert(id) {
+                errs.push(format!("`{field}` lists `{id}` twice"));
+            }
         }
+    }
+    if q.is_inferred() {
+        for id in &q.basis {
+            if cx.known_ids.get(id) == Some(&true) {
+                errs.push(format!(
+                    "`basis` names retired question `{id}`: an active inference cannot rest on a withdrawn premise"
+                ));
+            }
+        }
+        if q.observations.iter().any(Observation::decides) {
+            errs.push(
+                "an inferred question (non-empty `basis`) carries a counting editor/chart observation: either answer it by measurement (drop `basis`) or mark that observation inconclusive"
+                    .to_string(),
+            );
+        }
+    }
+    if let Some(r) = &q.retired
+        && r.reason.trim().is_empty()
+    {
+        errs.push("`retired.reason` is empty".to_string());
     }
     // Runtime status compares candidates across runs by name, so a name must
     // mean the same model everywhere in the question.
@@ -117,6 +159,52 @@ pub(super) fn question(q: &Question, cx: &Context<'_>, out: &mut Report) {
         .extend(errs.into_iter().map(|m| format!("{file}: {m}")));
     out.warnings
         .extend(warns.into_iter().map(|m| format!("{file}: {m}")));
+}
+
+/// Every question that reaches itself through one relation (`basis`,
+/// `follow_up_to` or `retired.replaced_by`), checked per relation: a parent
+/// replaced by a child that follows up to it is legitimate. Lineage and
+/// replacement are histories, and history is acyclic; a basis cycle would
+/// make resolution circular. `add` cannot create a cycle (its id is new),
+/// but `retire` and hand edits can, so both the write and read paths run it.
+pub(super) fn cycles(questions: &[Question]) -> Vec<String> {
+    let mut out = Vec::new();
+    for relation in [Relation::Basis, Relation::FollowUpTo, Relation::ReplacedBy] {
+        let name = relation.field();
+        let edges: BTreeMap<&str, &[String]> = questions
+            .iter()
+            .map(|q| (q.id.as_str(), relation.of(q)))
+            .collect();
+        for q in questions {
+            let mut stack: Vec<&str> = relation.of(q).iter().map(String::as_str).collect();
+            let mut seen = BTreeSet::new();
+            while let Some(id) = stack.pop() {
+                if id == q.id {
+                    out.push(format!("question {} reaches itself through `{name}`", q.id));
+                    break;
+                }
+                if seen.insert(id) {
+                    stack.extend(
+                        edges
+                            .get(id)
+                            .into_iter()
+                            .flat_map(|d| d.iter().map(String::as_str)),
+                    );
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Question id -> retired, for every question in `questions` that lives in
+/// `root` (relations resolve within a question's own directory only).
+pub(super) fn ids_in(questions: &[Question], root: &Path) -> BTreeMap<String, bool> {
+    questions
+        .iter()
+        .filter(|q| q.root == root)
+        .map(|q| (q.id.clone(), q.is_retired()))
+        .collect()
 }
 
 /// An identifier is a pine-data name (function, variable, keyword, operator,

@@ -1,5 +1,5 @@
-// Write side: `add` creates a question, `observe` appends one observation.
-// Both strictly load the target records directory first (never write into a
+// Write side: `add` creates a question, `observe` appends one observation,
+// `retire` withdraws a question. All three strictly load the target records directory first (never write into a
 // store that is already invalid), validate the new state with the same rules
 // the read side enforces, and only then touch disk. po computes fixture
 // hashes itself from the bytes it stores, so a recorded hash cannot disagree
@@ -12,7 +12,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use toml::value::Datetime;
 
 use super::validate::{self, Context, Report, fixture_path, question_path, sha256_hex};
-use super::{Candidate, CandidateState, Diag, Kind, Observation, Outcome, Question, Source, load};
+use super::{
+    Candidate, CandidateState, Diag, Kind, Observation, Outcome, Question, Relation, Retired,
+    Source, Store, load,
+};
 
 /// A question to create.
 #[derive(Debug, Clone)]
@@ -21,7 +24,8 @@ pub struct NewQuestion {
     pub question: String,
     pub answer: String,
     pub identifiers: Vec<String>,
-    pub derived_from: Vec<String>,
+    pub follow_up_to: Vec<String>,
+    pub basis: Vec<String>,
 }
 
 /// The id `add` assigned plus any non-blocking warnings about the question.
@@ -62,9 +66,8 @@ pub struct NewObservation {
 /// Create a question under `root` and return its generated id.
 pub fn add(root: &Path, new: &NewQuestion) -> Result<Added> {
     let store = load(&[root.to_path_buf()])?;
-    let mut ids: BTreeSet<String> = store.questions().iter().map(|q| q.id.clone()).collect();
-    let id = fresh_id(&new.question, &ids, root);
-    ids.insert(id.clone());
+    let taken: BTreeSet<String> = store.questions().iter().map(|q| q.id.clone()).collect();
+    let id = fresh_id(&new.question, &taken, root);
 
     let q = Question {
         id: id.clone(),
@@ -73,17 +76,59 @@ pub fn add(root: &Path, new: &NewQuestion) -> Result<Added> {
         question: new.question.trim().to_string(),
         answer: new.answer.trim().to_string(),
         identifiers: new.identifiers.clone(),
-        derived_from: new
-            .derived_from
-            .iter()
-            .map(|d| d.to_ascii_lowercase())
-            .collect(),
+        follow_up_to: ids(&new.follow_up_to),
+        basis: ids(&new.basis),
+        legacy_derived_from: None,
+        retired: None,
         observations: Vec::new(),
     };
-    let warnings = check(&q, &ids, None)?;
+    let warnings = check(&store, &q, None)?;
     let text = toml::to_string(&q).context("serializing question")?;
     write_atomic(&question_path(root, &id), text.as_bytes())?;
     Ok(Added { id, warnings })
+}
+
+/// Retire question `id` under `root`: withdraw it for `reason` (ill-posed,
+/// mis-filed, reworded, abandoned), naming where the investigation continued. Refuses an already-retired
+/// question, and one an active question still uses as a premise (retiring it
+/// must first force a review of that inference).
+pub fn retire(root: &Path, id: &str, reason: &str, replaced_by: &[String]) -> Result<()> {
+    let store = load(&[root.to_path_buf()])?;
+    let Some(existing) = store.get(id) else {
+        bail!("no question `{id}` in {}", root.display());
+    };
+    if existing.is_retired() {
+        bail!("question {} is already retired", existing.id);
+    }
+    let users: Vec<&str> = store
+        .referrers(&existing.id, Relation::Basis)
+        .into_iter()
+        .filter(|q| !q.is_retired())
+        .map(|q| q.id.as_str())
+        .collect();
+    if !users.is_empty() {
+        bail!(
+            "question {} is a premise of active question(s) {}: rework their `basis` first",
+            existing.id,
+            users.join(", ")
+        );
+    }
+    let mut q = existing.clone();
+    q.retired = Some(Retired {
+        reason: reason.trim().to_string(),
+        replaced_by: ids(replaced_by),
+    });
+    check(&store, &q, None)?;
+    let text = toml::to_string(&q).context("serializing question")?;
+    write_atomic(&question_path(root, &q.id), text.as_bytes())
+}
+
+/// Question ids as given on the command line, normalized like `Store::get`.
+fn ids(given: &[String]) -> Vec<String> {
+    given
+        .iter()
+        .map(|d| d.trim().to_ascii_lowercase())
+        .collect()
 }
 
 /// Append one observation to question `id` under `root`. Returns the
@@ -93,8 +138,18 @@ pub fn observe(root: &Path, id: &str, new: &NewObservation) -> Result<Vec<String
     let Some(existing) = store.get(id) else {
         bail!("no question `{id}` in {}", root.display());
     };
+    if let Some(r) = &existing.retired {
+        let hint = if r.replaced_by.is_empty() {
+            String::new()
+        } else {
+            format!(" (replaced by {})", r.replaced_by.join(", "))
+        };
+        bail!(
+            "question {} is retired{hint}: record the observation under the question it tests",
+            existing.id
+        );
+    }
     let mut q = existing.clone();
-    let ids: BTreeSet<String> = store.questions().iter().map(|q| q.id.clone()).collect();
 
     let date = parse_date(new.date.as_deref())?;
     let date_before = parse_date(new.date_before.as_deref())?;
@@ -140,7 +195,7 @@ pub fn observe(root: &Path, id: &str, new: &NewObservation) -> Result<Vec<String
         candidates: decide_candidates(&new.candidates, &new.selected, &new.refuted)?,
     };
     q.observations.push(observation);
-    let warnings = check(&q, &ids, fixture_sha.as_deref())?;
+    let warnings = check(&store, &q, fixture_sha.as_deref())?;
 
     if let (Some(sha), Some(bytes)) = (&fixture_sha, &fixture_bytes) {
         store_fixture(root, sha, bytes)?;
@@ -179,18 +234,25 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     std::fs::rename(&tmp, path).with_context(|| format!("replacing {}", path.display()))
 }
 
-/// Validate `q` as it would be written; errors refuse the write.
-fn check(
-    q: &Question,
-    ids: &BTreeSet<String>,
-    pending_fixture: Option<&str>,
-) -> Result<Vec<String>> {
+/// Validate `q` as it would be written into `store` (new or replacing its
+/// namesake), including the relation cycles only the whole store can show;
+/// errors refuse the write.
+fn check(store: &Store, q: &Question, pending_fixture: Option<&str>) -> Result<Vec<String>> {
+    let mut after: Vec<Question> = store
+        .questions()
+        .iter()
+        .filter(|x| x.id != q.id)
+        .cloned()
+        .collect();
+    after.push(q.clone());
+    let known_ids = validate::ids_in(&after, &q.root);
     let mut report = Report::default();
     let cx = Context {
-        known_ids: ids,
+        known_ids: &known_ids,
         pending_fixture,
     };
     validate::question(q, &cx, &mut report);
+    report.errors.extend(validate::cycles(&after));
     if !report.errors.is_empty() {
         bail!("refusing to write:\n  {}", report.errors.join("\n  "));
     }

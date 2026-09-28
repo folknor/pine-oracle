@@ -13,7 +13,7 @@ produced it.
 
 ```
 po verdict add      --records <DIR> --kind compile|runtime --question "..." --answer "..."
-                    [--identifier X]... [--derived-from <id>]...
+                    [--identifier X]... [--follow-up-to <id>]... [--basis <id>]...
 po verdict observe  <id> --records <DIR> --source editor|endpoint|chart
                     (--date YYYY-MM-DD | --date-before YYYY-MM-DD)
                     (--fixture <file.pine> | --no-fixture)
@@ -23,16 +23,23 @@ po verdict observe  <id> --records <DIR> --source editor|endpoint|chart
                              [--candidate "name|model"]... [--selected name]... [--refuted name]...
                     [--inconclusive "<reason>"] [--evidence <path>]...
                     [--environment "..."] [--note "..."]
+po verdict retire   <id> --records <DIR> --reason "..." [--replaced-by <id>]...
 po verdict search   <query> --records <DIR>... [--limit N]
 po verdict show     <id>... --records <DIR>...
 po verdict list     --records <DIR>... [--identifier X] [--code C]
-                    [--status settled|conflict|open|derived] [--kind compile|runtime]
+                    [--status settled|conflict|open] [--inferred] [--retired]
+                    [--kind compile|runtime]
 ```
 
 - `add` prints the generated 8-hex question id. Every other verb addresses the
   question by it.
 - `observe` appends one observation. Run it once per measurement: eight chart
-  exports that differ only in settings are eight observations.
+  exports that differ only in settings are eight observations. Every
+  observation under one question must test the same claim under comparable
+  conditions; status compares them against each other, so two fixtures
+  testing different claims belong to two questions.
+- `retire` withdraws a question (see below). It refuses a question that is
+  already retired, or that an active question uses as a premise.
 - The write verbs take one `--records` directory, which must already exist.
   The read verbs accept `--records` more than once.
 - `search` and `list` print `<id>  <status>  <kind>  <question>` rows. `show`
@@ -119,12 +126,54 @@ reason. If the difference is intended, the runs had different inputs and
 belong to separate questions. Nothing supersedes automatically: a stale
 observation is removed from the TOML in a commit.
 
-A **derived** question has `--derived-from` sources and no counting
-observations of its own. It takes the worst status among its sources,
-ordered conflict, open, settled, and names the source responsible:
-`derived (open via 3fa91c02)`. It is `derived (settled)` only when every
-source is settled. Sources may themselves be derived. `list --status`
-matches the resolved status; `list --status derived` lists derived questions.
+## Relations between questions
+
+Questions relate to each other in three separate ways. None of them stands in
+for another.
+
+| Field | Meaning | Effect on status |
+|---|---|---|
+| `follow_up_to` | Lineage: this investigation grew out of that one | None |
+| `basis` | Premises: the answer is concluded from these questions | Makes the question inferred |
+| `[retired]` `replaced_by` | Where the investigation continued after this question was withdrawn | The question has no status |
+
+An **inferred** question has a non-empty `basis`. It is not measured, so it
+may not carry a counting editor or chart observation: answer it either by
+measurement (drop `basis`) or by inference, never silently both. Weaker
+(endpoint) and non-counting observations may sit on it and are shown
+unannotated. Its answer must say why the premises jointly establish it: po
+checks that the premises are settled, not that they imply the answer.
+
+An inferred question is `inferred (settled)` when every premise resolves
+settled. Otherwise it is open, naming the worst premise (conflict before
+open, first in `basis` order on a tie): `inferred (open via 3fa91c02)`. A
+conflicting premise blocks the inference; it does not make the inferred
+question a conflict, since nobody measured it. Premises may be inferred
+themselves.
+
+A **retired** question was withdrawn, with a required reason: for example
+ill-posed (no valid form can answer it), mis-filed (its observations test
+different claims), reworded, or abandoned. It keeps its observations and its
+answer as history, shows the answer as the former answer, takes no more
+observations, and has no status:
+`retired (replaced by 9fa2f155, 120605ec)`, or `retired` when nothing
+replaced it. `replaced_by` records where the investigation continued, not a
+claim that the replacements answer the retired question. A replacement may
+itself be retired later (a question reworded, then split); `show` then also
+prints where the chain continues now, each current successor with its
+status. A retired question's observations are never annotated against each
+other (`confirmed by editor` and the like): comparing them is what
+retirement withdraws. An active
+question may not rest on a retired premise, so `retire` refuses a question
+an active one uses in `basis`: rework that inference first.
+
+`list --status` matches the resolved status of questions that are not
+retired, so `open` and `conflict` are the owed-work views. `--inferred` lists
+inferred questions and combines with `--status`. `--retired` lists retired
+questions and combines with neither. An unfiltered `list` shows every
+question, retired ones included. `show` prints each relation both ways
+(follows up / follow-ups, basis / premise of, replaced by / replaces), each
+linked question with its own disposition.
 
 `show` orders observations by strength, then newest first, and among
 same-day observations the later-recorded first. Weaker compile observations
@@ -165,7 +214,8 @@ kind = "compile"
 question = "Can an indicator script declare an exported function?"
 answer = "No. Only libraries can contain exported functions (CE10099)."
 identifiers = ["export"]
-derived_from = []
+follow_up_to = []
+basis = []
 
 [[observation]]
 source = "editor"
@@ -188,13 +238,28 @@ outcome = "accepted"
 note = "Taken on inline `export f() => 1` before the fixture file existed."
 ```
 
+A retired question carries a table after the plain fields:
+
+```
+[retired]
+reason = "The editor refuses the method declaration (CE10236) before the length question arises; no valid Pine form asks it."
+replaced_by = ["9fa2f155", "120605ec", "00524fc4"]
+```
+
 po has no edit or delete verb. A wrong observation or a reworded question is
-fixed by editing the TOML in a commit; git keeps the history.
+fixed by editing the TOML in a commit; git keeps the history. A question that
+was ill-posed or mis-filed is retired rather than deleted, so its id and its
+evidence stay resolvable.
+
+Records written before the relations split carry `derived_from = []`. The
+empty list is accepted and dropped the next time po rewrites the file. A
+populated `derived_from` is refused: it meant status inheritance but was used
+as lineage, so each one needs a decision, usually `follow_up_to`.
 
 ## Validation
 
-The same rules guard both directions. `add` and `observe` refuse to write an
-invalid record and touch nothing on disk. Every read verb loads strictly: one
+The same rules guard both directions. `add`, `observe` and `retire` refuse to
+write an invalid record and touch nothing on disk. Every read verb loads strictly: one
 invalid record anywhere under the given directories fails the command, listing
 every problem with its file. A successful `po verdict list --records <DIR>`
 therefore validates the whole directory and serves as a CI gate.
@@ -210,10 +275,14 @@ Errors:
   `function(parameter)` such as `strategy(process_orders_on_close)`, whose
   parameter must belong to that function. A bare parameter name is refused,
   because the same name is a parameter of many functions;
-- a `derived_from` id that does not exist in the same directory, or a
-  derivation chain that leads back to the question itself. `add` cannot
-  create a cycle, since sources must exist first; a hand edit that does is
-  refused on read;
+- a `follow_up_to`, `basis` or `replaced_by` id that does not exist in the
+  same directory, names the question itself, or is listed twice; a chain
+  through any one of the three that leads back to the question (each is
+  checked on its own: a question replaced by its own follow-up is fine);
+- an active inferred question with a retired premise, or with a counting
+  editor or chart observation;
+- a retired question with an empty `reason`;
+- a populated legacy `derived_from`;
 - a date or date bound that is not a plain `YYYY-MM-DD`, or an observation
   with both or neither of `date` and `date_before`;
 - an explicitly empty diagnostic message (leave the field out instead);
