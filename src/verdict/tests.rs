@@ -1707,7 +1707,13 @@ fn inconclusive_and_void_stop_an_observation_counting() {
     assert_eq!(reload(&root, &id).own_status(), Status::Conflict);
 
     // A mis-transcribed accept: void it, the reject stands alone.
-    void(&root, &id, 1, "the capture was a reject; transcribed wrong").expect("void");
+    void(
+        &root,
+        &id,
+        VoidTarget::Observation(1),
+        "the capture was a reject; transcribed wrong",
+    )
+    .expect("void");
     let q = reload(&root, &id);
     assert_eq!(q.own_status(), Status::Settled);
     let voided = q.ranked().into_iter().find(|r| r.number == 1).expect("#1");
@@ -1715,8 +1721,14 @@ fn inconclusive_and_void_stop_an_observation_counting() {
         voided.annotation.as_deref(),
         Some("void, does not count: the capture was a reject; transcribed wrong")
     );
-    refused(void(&root, &id, 1, "again"), "already void");
-    refused(void(&root, &id, 3, "r"), "has no observation #3");
+    refused(
+        void(&root, &id, VoidTarget::Observation(1), "again"),
+        "already void",
+    );
+    refused(
+        void(&root, &id, VoidTarget::Observation(3), "r"),
+        "has no observation #3",
+    );
     // A rerun script does not quietly re-confirm a voided capture.
     refused(observe(&root, &id, &accept), "which is void");
 
@@ -1728,7 +1740,13 @@ fn inconclusive_and_void_stop_an_observation_counting() {
         ..runtime("2026-09-20")
     };
     observe(&root, &rt, &wrong).expect("wrong model");
-    void(&root, &rt, 1, "model transcribed wrong").expect("void");
+    void(
+        &root,
+        &rt,
+        VoidTarget::Observation(1),
+        "model transcribed wrong",
+    )
+    .expect("void");
     let right = NewObservation {
         candidates: vec![parse_candidate("A|net").expect("A")],
         selected: vec!["A".into()],
@@ -1775,6 +1793,190 @@ fn answer_support_is_reported() {
         .expect("amend")
         .expect("answer support");
     assert!(support.contains("no active disposition"), "{support}");
+}
+
+/// The manual section behind piners verdict 127addd2 (`po search` id), with
+/// both bullets as `po show` prints them: emphasis as asterisks, link text
+/// without its URL.
+const LOWER_TF: &str = "b3541569";
+const LOOKAHEAD_ON: &str = "barmerge.lookahead_on returns the *first* intrabar of the period historically, but the *last* intrabar in realtime.";
+const LOOKAHEAD_OFF: &str = "barmerge.lookahead_off always returns the last intrabar for both historical and realtime data.";
+
+fn quotes(q: &[&str]) -> Vec<String> {
+    q.iter().map(ToString::to_string).collect()
+}
+
+/// The 127addd2 case: a runtime question the manual states outright, with
+/// no practical live capture. Cited, it is `documented` - owed no
+/// measurement, but never `settled` - until a measurement decides it.
+#[test]
+fn manual_citations_document_a_question() {
+    let root = scratch("cite");
+    let id = add(&root, &question(Kind::Runtime, &["request.security"]))
+        .expect("add")
+        .id;
+    assert_eq!(resolved(&root, &id), Resolved::Measured(Status::Open));
+
+    let both = quotes(&[LOOKAHEAD_ON, LOOKAHEAD_OFF]);
+    let cited = cite(&root, &id, LOWER_TF, &both, None).expect("cite");
+    assert_eq!((cited.number, cited.existing), (1, false));
+    assert_eq!(resolved(&root, &id), Resolved::Documented);
+    let q = reload(&root, &id);
+    assert_eq!(
+        q.citations[0].section,
+        "faq/other-data-and-timeframes#lower-timeframes"
+    );
+    // The same claim again is a no-op; the page#anchor spelling resolves too.
+    let again = cite(
+        &root,
+        &id,
+        "faq/other-data-and-timeframes#lower-timeframes",
+        &both,
+        None,
+    )
+    .expect("cite again");
+    assert_eq!((again.number, again.existing), (1, true));
+
+    // `list --status open` no longer owes it a measurement.
+    let store = load(std::slice::from_ref(&root)).expect("load");
+    let by_status = |status| {
+        ids_of(
+            &store,
+            &ListFilter {
+                status: Some(status),
+                ..Default::default()
+            },
+        )
+    };
+    assert_eq!(by_status(Status::Documented), vec![id.clone()]);
+    assert!(by_status(Status::Open).is_empty());
+    assert!(by_status(Status::Settled).is_empty());
+    assert_eq!(
+        store
+            .search("first intrabar historically", 5)
+            .expect("search")[0]
+            .id,
+        id
+    );
+
+    // An inference resting on it is documented, naming the premise.
+    let inferred = add(
+        &root,
+        &NewQuestion {
+            basis: vec![id.clone()],
+            ..question(Kind::Runtime, &["request.security"])
+        },
+    )
+    .expect("add inferred")
+    .id;
+    assert_eq!(
+        resolved(&root, &inferred).to_string(),
+        format!("inferred (documented via {id})")
+    );
+    refused(
+        cite(&root, &inferred, LOWER_TF, &both, None),
+        "carries an active citation",
+    );
+
+    // A measurement that decides wins over the manual.
+    observe(&root, &id, &runtime("2026-09-29")).expect("chart run");
+    assert_eq!(resolved(&root, &id), Resolved::Measured(Status::Settled));
+}
+
+#[test]
+fn citation_quotes_must_be_in_one_block_of_the_section() {
+    let root = scratch("cite-quotes");
+    let id = add(&root, &question(Kind::Runtime, &["request.security"]))
+        .expect("add")
+        .id;
+    refused(
+        cite(
+            &root,
+            &id,
+            LOWER_TF,
+            &quotes(&["returns the first intrabar in realtime"]),
+            None,
+        ),
+        "does not say",
+    );
+    // Both halves are real, but they sit in two list items.
+    refused(
+        cite(
+            &root,
+            &id,
+            LOWER_TF,
+            &quotes(&["intrabar in realtime. barmerge.lookahead_off always"]),
+            None,
+        ),
+        "does not say",
+    );
+    // Nor may the quote itself be two paragraphs joined into one.
+    refused(
+        cite(
+            &root,
+            &id,
+            LOWER_TF,
+            &quotes(&["the first\n\nintrabar of the period"]),
+            None,
+        ),
+        "does not say",
+    );
+    refused(
+        cite(&root, &id, "ffffffff", &quotes(&[LOOKAHEAD_ON]), None),
+        "no manual section with id",
+    );
+    refused(
+        cite(&root, &id, "faq/nope#nope", &quotes(&[LOOKAHEAD_ON]), None),
+        "no manual section `faq/nope#nope`",
+    );
+    retire(&root, &id, "reworded", &[]).expect("retire");
+    refused(
+        cite(&root, &id, LOWER_TF, &quotes(&[LOOKAHEAD_ON]), None),
+        "is retired",
+    );
+}
+
+/// A re-vendored manual that changed the section: the citation goes stale,
+/// the load still succeeds (so the repair writes work), and the question is
+/// owed work again until the stale citation is voided and the passage cited
+/// anew.
+#[test]
+fn stale_citations_stop_counting_without_failing_the_load() {
+    let root = scratch("cite-stale");
+    let id = add(&root, &question(Kind::Runtime, &["request.security"]))
+        .expect("add")
+        .id;
+    cite(&root, &id, LOWER_TF, &quotes(&[LOOKAHEAD_ON]), None).expect("cite");
+    // Simulate drift: the digest recorded at cite time no longer matches.
+    let path = root.join(format!("{id}.toml"));
+    let text = std::fs::read_to_string(&path).expect("read");
+    let digest = reload(&root, &id).citations[0].digest.clone();
+    std::fs::write(&path, text.replace(&digest, &"0".repeat(64))).expect("write");
+
+    assert_eq!(resolved(&root, &id), Resolved::Measured(Status::Open));
+    let stale = reload(&root, &id).citations[0].not_counting();
+    assert!(
+        stale
+            .as_deref()
+            .is_some_and(|s| s.starts_with("stale, does not count")),
+        "{stale:?}"
+    );
+    // One stale member stops the whole support set.
+    cite(&root, &id, LOWER_TF, &quotes(&[LOOKAHEAD_OFF]), None).expect("cite other");
+    assert_eq!(resolved(&root, &id), Resolved::Measured(Status::Open));
+
+    void(
+        &root,
+        &id,
+        VoidTarget::Citation(1),
+        "section reworded; re-cited",
+    )
+    .expect("void stale");
+    assert_eq!(resolved(&root, &id), Resolved::Documented);
+    refused(
+        void(&root, &id, VoidTarget::Citation(3), "r"),
+        "has no citation #3",
+    );
 }
 
 #[test]

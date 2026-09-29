@@ -9,7 +9,9 @@ use std::path::{Path, PathBuf};
 use toml::value::{Datetime, Offset};
 
 use super::load::Relation;
-use super::{AmendField, Amendment, Diag, Kind, Observation, Outcome, Question, Source, Void};
+use super::{
+    AmendField, Amendment, Citation, Diag, Kind, Observation, Outcome, Question, Source, Void,
+};
 use crate::behavior;
 
 /// Problems found in one or more records.
@@ -130,6 +132,17 @@ pub(super) fn question(q: &Question, cx: &Context<'_>, out: &mut Report) {
         && r.reason.trim().is_empty()
     {
         errs.push("`retired.reason` is empty".to_string());
+    }
+    if q.is_inferred() && q.citations.iter().any(|c| c.void.is_none()) {
+        errs.push(
+            "an inferred question (non-empty `basis`) carries an active citation: a citation is an answer route of its own, so either document it (drop `basis`) or void the citation"
+                .to_string(),
+        );
+    }
+    for (i, c) in q.citations.iter().enumerate() {
+        for msg in citation(c) {
+            errs.push(format!("citation {}: {msg}", i + 1));
+        }
     }
     errs.extend(amendments(&q.amendments, |f| {
         (f == AmendField::Answer).then(|| Some(q.answer.clone()))
@@ -359,6 +372,40 @@ fn observation(kind: Kind, o: &Observation, root: &Path, cx: &Context<'_>) -> Ve
         errs.extend(void(v));
     }
     errs.extend(amendments(&o.amendments, |f| o.field(f).cloned()));
+    errs
+}
+
+/// Errors in one citation's shape. Whether it is still current against the
+/// baked manual is NOT an error: a stale citation stops counting instead, so
+/// a manual re-vendor never fails the load or blocks the writes that repair
+/// it.
+fn citation(c: &Citation) -> Vec<String> {
+    let mut errs = Vec::new();
+    let well_formed = c
+        .section
+        .split_once('#')
+        .is_some_and(|(page, anchor)| !page.is_empty() && !anchor.is_empty());
+    if !well_formed {
+        errs.push(format!("section `{}` is not `page#anchor`", c.section));
+    }
+    if c.quotes.is_empty() {
+        errs.push("no quotes".to_string());
+    }
+    if c.quotes.iter().any(|q| q.trim().is_empty()) {
+        errs.push("an empty quote".to_string());
+    }
+    if !is_sha256(&c.digest) {
+        errs.push(format!("digest `{}` is not a lowercase sha256", c.digest));
+    }
+    if !is_utc_timestamp(&c.at) {
+        errs.push(format!("`at` `{}` must be a UTC timestamp", c.at));
+    }
+    if c.note.as_deref().is_some_and(|n| n.trim().is_empty()) {
+        errs.push("`note` is empty".to_string());
+    }
+    if let Some(v) = &c.void {
+        errs.extend(void(v));
+    }
     errs
 }
 

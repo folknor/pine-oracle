@@ -29,11 +29,13 @@ po verdict amend    <id> --records <DIR> --reason "..."
                     (--answer "..." | --observation N (--note "..." | --result "..."
                      | --settings "..." | --environment "..." | --inconclusive "..."
                      | --clear note|environment|inconclusive))
-po verdict void     <id> --records <DIR> --observation N --reason "..."
+po verdict cite     <id> --records <DIR> --section <manual id | page#anchor>
+                    --quote "..." [--quote "..."]... [--note "..."]
+po verdict void     <id> --records <DIR> (--observation N | --citation N) --reason "..."
 po verdict search   <query> --records <DIR>... [--limit N]
 po verdict show     <id>... --records <DIR>...
 po verdict list     --records <DIR>... [--identifier X] [--code C]
-                    [--status settled|conflict|open] [--inferred] [--retired]
+                    [--status settled|documented|conflict|open] [--inferred] [--retired]
                     [--kind compile|runtime]
 ```
 
@@ -101,11 +103,12 @@ the write is validated like any other, so clearing a runtime `result` is
 refused.
 
 An amended answer is an assertion like the original: po never checks that
-the observations or premises supporting a question imply its answer, so
-`amend --answer` prints (stderr, unless `--quiet`) what the answer now rests
-on, computed from the state it wrote: the deciding editor / chart
-observations and weaker counting ones by `#N`, or the premises with their
-dispositions, and the resulting status. Amendments are allowed on retired
+the observations, citations or premises supporting a question imply its
+answer, so `amend --answer` prints (stderr, unless `--quiet`) what the answer
+now rests on, computed from the state it wrote: the deciding editor / chart
+observations and weaker counting ones by `#N` plus the active citations
+(stale ones marked), or the premises with their dispositions, and the
+resulting status. Amendments are allowed on retired
 questions (they correct the record, they do not measure); there the former
 answer rests on nothing and the summary says so.
 
@@ -177,6 +180,12 @@ Status is decided by the counting editor/chart observations (the top tier):
 | `conflict` | Top observations differ on the outcome, the error codes or the warning codes | A candidate selected by one run and refuted by another, or runs whose error codes differ (one halts, one runs clean) |
 | `open` | No top observation (endpoint only, only crashes, or nothing yet) | No top run, or only runs whose candidates are all undecided |
 
+A question that would be `open` is `documented` instead when its manual
+citations hold (see Manual citations). `documented` is never a measurement:
+a measured question's `settled` and `conflict` come from observations only,
+and override any citation (an inferred question settles through its
+premises, see Relations between questions).
+
 Messages never matter for agreement, because TradingView rewords them. A
 reject that recorded no codes at all means "not recorded", not "different":
 it is compared on the outcome alone, so it neither conflicts with nor
@@ -189,6 +198,56 @@ look. Two runs that differ in how they halt are a conflict for the same
 reason. If the difference is intended, the runs had different inputs and
 belong to separate questions. Nothing supersedes automatically: a stale or
 wrongly recorded observation is voided (see Corrections).
+
+## Manual citations
+
+When the Pine User Manual states a behavior outright, `cite` records the
+passage as support for the answer, where a live capture would be impractical
+or is simply not owed. It is not an observation: the manual is not a
+measurement of TradingView, and a citation never makes a question `settled`.
+
+```
+po verdict cite 127addd2 --records <DIR> --section b3541569 \
+    --quote "barmerge.lookahead_on returns the *first* intrabar of the period historically, but the *last* intrabar in realtime." \
+    --quote "barmerge.lookahead_off always returns the last intrabar for both historical and realtime data."
+```
+
+`--section` takes the 8-hex id `po search` prints or the section's
+`page#anchor`; po stores `page#anchor`. Each `--quote` must be a verbatim
+passage of the section (its subsections included) in the manual baked into
+this po binary, lying inside one paragraph, list item, heading, table cell
+or code block. Quotes are compared on the plain text of the markdown with
+whitespace collapsed, so text copied from `po show` (emphasis as `*first*`,
+links without their URL) matches the source.
+
+All active citations of a question form one support set. Whoever cites
+asserts that they jointly establish the whole answer: po checks provenance
+(the section says the quotes), never support, just as it never checks that
+observations or premises imply an answer. Cite every passage the answer
+needs; context that does not support the answer belongs in a note.
+
+A question resolves `documented` when nothing measured decides it (its
+measured status would be `open`), it has at least one active citation, and
+every active citation is **current**. po stores the sha256 of the cited
+subtree's source markdown, and a citation goes **stale** when the baked
+manual no longer has the section, no longer says a quote, or the subtree
+changed at all (a new qualifier elsewhere in the section, a changed link).
+Staleness is decided at read time and is not a validation error: a manual
+re-vendor never fails a load or blocks a write. A stale citation is shown as
+`stale, does not count: <why>` and drops its question back to `open` until
+someone reviews the section, voids the stale citation (`void --citation N`)
+and cites again. `void --citation` also withdraws a citation applied in
+error.
+
+Citing the same section with the same quotes while an identical active
+citation is current is a no-op, so a script may rerun it. A citation is not
+allowed on an active inferred question (it is an answer route of its own,
+like measurement) or on a retired one. An inferred question whose worst
+premise is `documented` is `inferred (documented via <id>)`.
+
+`show` lists citations before the observations, each headed `#N  manual
+<section id>  <time>` with the section, its breadcrumb, the quotes and the
+note. Search indexes quotes and notes.
 
 ## Relations between questions
 
@@ -209,8 +268,10 @@ unannotated. Its answer must say why the premises jointly establish it: po
 checks that the premises are settled, not that they imply the answer.
 
 An inferred question is `inferred (settled)` when every premise resolves
-settled. Otherwise it is open, naming the worst premise (conflict before
-open, first in `basis` order on a tie): `inferred (open via 3fa91c02)`. A
+settled, and `inferred (documented via 5c0ffee1)` when the worst premise is
+documented. Otherwise it is open, naming the worst premise (conflict before
+open before documented, first in `basis` order on a tie):
+`inferred (open via 3fa91c02)`. A
 conflicting premise blocks the inference; it does not make the inferred
 question a conflict, since nobody measured it. Premises may be inferred
 themselves.
@@ -232,12 +293,25 @@ question may not rest on a retired premise, so `retire` refuses a question
 an active one uses in `basis`: rework that inference first.
 
 `list --status` matches the resolved status of questions that are not
-retired, so `open` and `conflict` are the owed-work views. `--inferred` lists
+retired, so `open` and `conflict` are the owed-work views, and `documented`
+lists questions with no deciding measurement that current manual citations
+support, directly or (inferred) through a documented premise. `--inferred` lists
 inferred questions and combines with `--status`. `--retired` lists retired
 questions and combines with neither. An unfiltered `list` shows every
 question, retired ones included. `show` prints each relation both ways
 (follows up / follow-ups, basis / premise of, replaced by / replaces), each
 linked question with its own disposition.
+
+**Which id to cite.** A follow-up does not supersede its parent: it may ask
+a finer point while the parent's answer stays valid, so po never computes a
+"current answer" from lineage. Before citing a question id at a code site,
+read its `follow-ups:` line and cite the question whose answer is the claim
+the code relies on, which may be the parent, a follow-up, or both. When a
+parent's question or answer is actually withdrawn, retire it with
+`--replaced-by`: it then shows `retired (replaced by ...)` (and, once a
+replacement is itself retired, `now continued in` with the live
+successors), and it drops out of every `--status` view.
+Do not rewrite a still-valid answer into a pointer at a follow-up.
 
 `show` orders observations by strength, then newest first, and among
 same-day observations the later-recorded first. Weaker compile observations
@@ -316,7 +390,9 @@ mis-filed is retired rather than deleted, so its id and its evidence stay
 resolvable. An amended observation carries `[[observation.amendment]]`
 tables (`at`, `field`, `was`, `now`, `reason`), a voided one an
 `[observation.void]` table (`at`, `reason`); answer amendments are
-question-level `[[amendment]]` tables.
+question-level `[[amendment]]` tables. Citations are question-level
+`[[citation]]` tables (`section`, `quotes`, `digest`, `at`, optional `note`,
+optional `[citation.void]`).
 
 Records written before the relations split carry `derived_from = []`. The
 empty list is accepted and dropped the next time po rewrites the file. A
@@ -362,6 +438,10 @@ Errors:
 - a candidate that is undeclared, listed twice, or both selected and refuted,
   or a candidate name that means different models in different observations
   of one question (runs are compared by candidate name);
+- a citation whose section is not `page#anchor`, with no quotes or an empty
+  one, a digest that is not a sha256, a non-UTC time or an empty note; an
+  active citation on an active inferred question (a stale citation is not
+  an error, see Manual citations);
 - an amendment of a field not amendable at its level, with an empty reason,
   empty `was` / `now`, `was` equal to `now`, or a time that is not a UTC
   timestamp; a field whose amendments do not chain or do not end at its

@@ -1,8 +1,8 @@
 use anyhow::{Result, bail};
 use clap::{ArgGroup, Subcommand};
 use pine_oracle::verdict::{
-    self, AmendField, AmendTarget, Amendment, Kind, ListFilter, NewObservation, NewQuestion,
-    Outcome, Question, Ranked, Relation, Source, Status, Store,
+    self, AmendField, AmendTarget, Amendment, Citation, Kind, ListFilter, NewObservation,
+    NewQuestion, Outcome, Question, Ranked, Relation, Source, Status, Store, VoidTarget,
 };
 use std::path::PathBuf;
 
@@ -69,9 +69,32 @@ pub(crate) enum VerdictCommand {
     /// time and the reason are kept beside the field; `show` prints them.
     Amend(Box<AmendArgs>),
 
+    /// Cite a Pine User Manual passage as support for the answer. The
+    /// citations jointly assert the whole answer; po checks that the section
+    /// says the quotes, never that they imply the answer. A question nothing
+    /// measured decides becomes `documented`, never `settled`.
+    Cite {
+        id: String,
+        /// Records directory holding the question.
+        #[arg(long)]
+        records: PathBuf,
+        /// The manual section: the 8-hex id `po search` prints, or
+        /// `page#anchor`.
+        #[arg(long)]
+        section: String,
+        /// A verbatim passage from the section (within one paragraph, list
+        /// item or table cell). Repeatable.
+        #[arg(long = "quote", value_name = "TEXT", required = true)]
+        quotes: Vec<String>,
+        #[arg(long)]
+        note: Option<String>,
+    },
+
     /// Withdraw a wrongly recorded observation (a mis-transcribed outcome,
-    /// code or candidate). It stays visible and never counts; record the
-    /// corrected measurement with `observe`.
+    /// code or candidate) or a citation (stale and reviewed, or applied in
+    /// error). It stays visible and never counts; record the correction with
+    /// `observe` or `cite`.
+    #[command(group(ArgGroup::new("record").required(true).args(["observation", "citation"])))]
     Void {
         id: String,
         /// Records directory holding the question.
@@ -79,7 +102,10 @@ pub(crate) enum VerdictCommand {
         records: PathBuf,
         /// The observation's `#N`, as `show` prints it.
         #[arg(long, value_name = "N")]
-        observation: usize,
+        observation: Option<usize>,
+        /// The citation's `#N`, as `show` prints it.
+        #[arg(long, value_name = "N")]
+        citation: Option<usize>,
         /// Why it is withdrawn.
         #[arg(long)]
         reason: String,
@@ -118,7 +144,7 @@ pub(crate) enum VerdictCommand {
         #[arg(long)]
         code: Option<String>,
         /// Resolved status; retired questions have none and never match.
-        #[arg(long, value_parser = ["settled", "conflict", "open"])]
+        #[arg(long, value_parser = ["settled", "documented", "conflict", "open"])]
         status: Option<String>,
         /// Only inferred questions (answered from `basis` premises).
         #[arg(long)]
@@ -328,12 +354,33 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
             }
             Ok(())
         }
+        VerdictCommand::Cite {
+            id,
+            records,
+            section,
+            quotes,
+            note,
+        } => {
+            let cited = verdict::cite(&records, &id, &section, &quotes, note.as_deref())?;
+            if cited.existing && !quiet {
+                eprintln!("already cited as citation #{}: unchanged", cited.number);
+            }
+            Ok(())
+        }
         VerdictCommand::Void {
             id,
             records,
             observation,
+            citation,
             reason,
-        } => verdict::void(&records, &id, observation, &reason),
+        } => {
+            let target = match (observation, citation) {
+                (Some(n), _) => VoidTarget::Observation(n),
+                (None, Some(n)) => VoidTarget::Citation(n),
+                (None, None) => bail!("name --observation N or --citation N"),
+            };
+            verdict::void(&records, &id, target, &reason)
+        }
         VerdictCommand::Search {
             query,
             records,
@@ -521,6 +568,10 @@ fn print_question(store: &Store, q: &Question, style: Style) {
             println!("  now continued in: {}", with_disposition(&current));
         }
     }
+    for (i, c) in q.citations.iter().enumerate() {
+        println!();
+        print_citation(i + 1, c, style);
+    }
     if q.observations.is_empty() {
         println!("  observations: none");
         return;
@@ -614,6 +665,36 @@ fn print_observation(r: &Ranked<'_>, style: Style) {
         detail("voided", &v.at.to_string());
     }
     print_amendments("            ", &o.amendments);
+}
+
+/// One citation: `#N  manual  <8-hex id>  <at>`, then where it points and
+/// what it quotes. A void or stale one is dimmed and says why.
+fn print_citation(number: usize, c: &Citation, style: Style) {
+    let info = c.section_info();
+    let handle = info.as_ref().map_or("(gone)", |(id, _)| id.as_str());
+    let mut head = format!("  #{number:<3} {:<8}  {handle}  {}", "manual", c.at);
+    let not_counting = c.not_counting();
+    match &not_counting {
+        Some(why) => {
+            head.push_str(&format!("  ({why})"));
+            println!("{}", style.dim(&head));
+        }
+        None => println!("{head}"),
+    }
+    let detail = |label: &str, value: &str| println!("            {label}: {value}");
+    detail("section", &c.section);
+    if let Some((_, breadcrumb)) = &info {
+        detail("breadcrumb", breadcrumb);
+    }
+    for quote in &c.quotes {
+        detail("quote", quote);
+    }
+    if let Some(note) = &c.note {
+        detail("note", note);
+    }
+    if let Some(v) = &c.void {
+        detail("voided", &v.at.to_string());
+    }
 }
 
 /// Each correction, oldest first: which field, when, why, and what it read

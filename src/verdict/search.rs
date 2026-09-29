@@ -80,6 +80,10 @@ fn title_text(q: &Question) -> String {
 fn content_text(q: &Question) -> String {
     let mut parts: Vec<String> = vec![q.answer.clone()];
     parts.extend(q.retired.as_ref().map(|r| r.reason.clone()));
+    for c in &q.citations {
+        parts.extend(c.quotes.iter().cloned());
+        parts.extend(c.note.clone());
+    }
     let mut fixtures = std::collections::BTreeSet::new();
     for o in &q.observations {
         parts.extend(

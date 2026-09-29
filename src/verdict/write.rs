@@ -1,6 +1,7 @@
 // Write side: `add` creates a question, `observe` appends one observation,
 // `retire` withdraws a question, `amend` corrects an answer or an
-// observation's prose keeping the history, `void` withdraws an observation.
+// observation's prose keeping the history, `cite` records a manual passage
+// supporting the answer, `void` withdraws an observation or a citation.
 // Each takes the records directory's lock,
 // strictly loads it (never write into a store that is already invalid),
 // validates the new state with the same rules the read side enforces, and
@@ -16,8 +17,8 @@ use toml::value::Datetime;
 
 use super::validate::{self, Context, Report, fixture_path, question_path, sha256_hex};
 use super::{
-    AmendField, Amendment, Candidate, CandidateState, Diag, Kind, Observation, Outcome, Question,
-    Relation, Retired, Source, Store, Void, load,
+    AmendField, Amendment, Candidate, CandidateState, Citation, Diag, Kind, Observation, Outcome,
+    Question, Relation, Retired, Source, Store, Void, citation, load,
 };
 
 /// A question to create.
@@ -104,6 +105,7 @@ pub fn add(root: &Path, new: &NewQuestion) -> Result<Added> {
         legacy_derived_from: None,
         retired: None,
         amendments: Vec::new(),
+        citations: Vec::new(),
         observations: Vec::new(),
     };
     if let Some(key) = &q.key
@@ -120,12 +122,13 @@ pub fn add(root: &Path, new: &NewQuestion) -> Result<Added> {
             );
         }
         // Only the current values of the fields `add` sets are compared:
-        // observations, amendments and retirement are later history, not
+        // observations, citations, amendments and retirement come later, not
         // part of the add payload. A script still emitting an answer since
         // amended fails here, which is the point.
         let stored = Question {
             observations: Vec::new(),
             amendments: Vec::new(),
+            citations: Vec::new(),
             ..existing.clone()
         };
         let diff = field_diff(&stored, &q)?;
@@ -319,9 +322,9 @@ pub fn amend(
 
 /// What an amended answer now rests on, for the person asserting it: po
 /// never checks that support implies an answer, so it shows the support
-/// instead. Measured: the observations that decide status, and weaker ones
-/// that count; inferred: the premises. A retired question's answer is
-/// history and rests on nothing.
+/// instead. Measured: the observations that decide status, weaker ones that
+/// count, and active citations (stale ones marked); inferred: the premises.
+/// A retired question's answer is history and rests on nothing.
 fn answer_support(store: &Store, q: &Question) -> String {
     if q.is_retired() {
         return format!(
@@ -363,33 +366,152 @@ fn answer_support(store: &Store, q: &Question) -> String {
                 weaker.join(", ")
             ));
         }
+        let citations: Vec<String> = q
+            .citations
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| c.void.is_none())
+            .map(|(i, c)| match citation::staleness(c) {
+                None => format!("#{} {}", i + 1, c.section),
+                Some(_) => format!("#{} {} (stale)", i + 1, c.section),
+            })
+            .collect();
+        if !citations.is_empty() {
+            parts.push(format!("citations {}", citations.join(", ")));
+        }
         parts.join("; ")
     };
     format!("the amended answer rests on {support}; status {resolved}")
 }
 
-/// Withdraw observation `number` of question `id` (1-based file order): it
-/// stays visible and never counts again. For a mis-transcribed outcome, code
-/// or candidate, which `amend` cannot touch: void it, then observe the
-/// corrected measurement. Not reversible by po.
-pub fn void(root: &Path, id: &str, number: usize, reason: &str) -> Result<()> {
+/// What `void` withdraws, by 1-based file-order number (the `#N` `show`
+/// prints for observations and citations).
+#[derive(Debug, Clone, Copy)]
+pub enum VoidTarget {
+    Observation(usize),
+    Citation(usize),
+}
+
+/// Withdraw an observation or a citation of question `id`: it stays visible
+/// and never counts again. For a mis-transcribed outcome, code or candidate,
+/// which `amend` cannot touch: void it, then observe the corrected
+/// measurement. For a stale citation: void it after review, then cite
+/// again; for one applied in error: void it. Not reversible by po.
+pub fn void(root: &Path, id: &str, target: VoidTarget, reason: &str) -> Result<()> {
     let _lock = lock(root)?;
     let store = load(&[root.to_path_buf()])?;
     let Some(existing) = store.get(id) else {
         bail!("no question `{id}` in {}", root.display());
     };
     let mut q = existing.clone();
-    let o = observation_mut(&mut q, number)?;
-    if o.void.is_some() {
-        bail!("observation #{number} of question {} is already void", q.id);
+    let slot = match target {
+        VoidTarget::Observation(number) => &mut observation_mut(&mut q, number)?.void,
+        VoidTarget::Citation(number) => {
+            let count = q.citations.len();
+            match number.checked_sub(1).and_then(|i| q.citations.get_mut(i)) {
+                Some(c) => &mut c.void,
+                None => bail!("question {id} has no citation #{number} (it has {count})"),
+            }
+        }
+    };
+    if slot.is_some() {
+        bail!("that record of question {id} is already void");
     }
-    o.void = Some(Void {
+    *slot = Some(Void {
         at: now_utc()?,
         reason: reason.trim().to_string(),
     });
     check(&store, &q, None)?;
     let text = toml::to_string(&q).context("serializing question")?;
     write_atomic(&question_path(root, &q.id), text.as_bytes())
+}
+
+/// Where `cite` put the citation: its 1-based position in file order.
+#[derive(Debug, Clone)]
+pub struct Cited {
+    pub number: usize,
+    /// An identical active citation already existed, whose number this is;
+    /// nothing was written.
+    pub existing: bool,
+}
+
+/// Cite the manual section `section` (the 8-hex id `po search` prints, or
+/// `page#anchor`) as support for question `id`'s answer, quoting `quotes`
+/// from it. Each quote must lie inside one block of the section subtree in
+/// the manual baked into this binary; the subtree's markdown digest is kept
+/// so later drift makes the citation stale. Citing the same section with
+/// the same quotes again is a no-op while the earlier citation is active
+/// and current (a citation is a claim, not a measurement: repeating it adds
+/// nothing).
+pub fn cite(
+    root: &Path,
+    id: &str,
+    section: &str,
+    quotes: &[String],
+    note: Option<&str>,
+) -> Result<Cited> {
+    let _lock = lock(root)?;
+    let store = load(&[root.to_path_buf()])?;
+    let Some(existing) = store.get(id) else {
+        bail!("no question `{id}` in {}", root.display());
+    };
+    if let Some(r) = &existing.retired {
+        bail!(
+            "question {} is retired{}: cite under the question the passage supports",
+            existing.id,
+            replaced_hint(r)
+        );
+    }
+    let s = citation::resolve_section(section)?;
+    let quotes: Vec<String> = quotes.iter().map(|q| q.trim().to_string()).collect();
+    if quotes.is_empty() {
+        bail!("a citation needs at least one --quote");
+    }
+    for quote in &quotes {
+        if !citation::quote_found(s, quote) {
+            bail!(
+                "manual section {} ({}) does not say \"{quote}\" within one paragraph, list item or table cell",
+                s.id,
+                citation::key(s)
+            );
+        }
+    }
+    let new = Citation {
+        section: citation::key(s),
+        quotes,
+        digest: citation::digest(s),
+        at: now_utc()?,
+        note: trimmed(note.map(str::to_string).as_ref()),
+        void: None,
+    };
+    let mut q = existing.clone();
+    // Same digest: the earlier one is current, so it is the same claim on the
+    // same text. A stale match is not reused; void it and cite anew.
+    if let Some(i) = q.citations.iter().position(|c| {
+        c.void.is_none()
+            && c.section == new.section
+            && c.quotes == new.quotes
+            && c.digest == new.digest
+    }) {
+        if q.citations[i].note != new.note {
+            bail!(
+                "citation #{} already quotes this with a different note; void it to cite anew",
+                i + 1
+            );
+        }
+        return Ok(Cited {
+            number: i + 1,
+            existing: true,
+        });
+    }
+    q.citations.push(new);
+    check(&store, &q, None)?;
+    let text = toml::to_string(&q).context("serializing question")?;
+    write_atomic(&question_path(root, &q.id), text.as_bytes())?;
+    Ok(Cited {
+        number: q.citations.len(),
+        existing: false,
+    })
 }
 
 /// Observation `number` (1-based file order) of `q`.

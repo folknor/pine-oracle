@@ -27,8 +27,9 @@ pub struct ListFilter<'a> {
     /// Exact diagnostic code, case-insensitive.
     pub code: Option<&'a str>,
     /// Matches the resolved status of non-retired questions, so an inferred
-    /// question whose premises are all settled matches `Settled`. Retired
-    /// questions have no status and never match.
+    /// question whose premises are all settled matches `Settled`, and a
+    /// documented one matches `Documented`, never `Open` or `Settled`.
+    /// Retired questions have no status and never match.
     pub status: Option<Status>,
     /// Only inferred questions.
     pub inferred: bool,
@@ -237,11 +238,14 @@ impl Store {
             .collect()
     }
 
-    /// The disposition to show for `q`. A retired question has no status. An
-    /// inferred one is settled when every premise resolves settled, and
-    /// otherwise open via its worst premise (conflict < open, first in
-    /// `basis` order on a tie): a conflicting premise blocks the inference
-    /// but is not a conflict in it, since nobody measured it. Premises may
+    /// The disposition to show for `q`. A retired question has no status. A
+    /// measured one is documented when nothing measured decides it and its
+    /// citations hold. An inferred one is settled when every premise
+    /// resolves settled, documented via its worst premise when that is
+    /// documented, and otherwise open via its worst premise (conflict < open
+    /// < documented, first in `basis` order on a tie): a conflicting premise
+    /// blocks the inference but is not a conflict in it, since nobody
+    /// measured it. Premises may
     /// themselves be inferred; `load` has refused cycles, and validation
     /// keeps retired questions out of an active basis.
     pub fn resolve(&self, q: &Question) -> Resolved {
@@ -251,7 +255,12 @@ impl Store {
             };
         }
         if !q.is_inferred() {
-            return Resolved::Measured(q.own_status());
+            // A measurement that settles or conflicts wins over the manual;
+            // citations only lift what nothing measured decides.
+            return match q.own_status() {
+                Status::Open if q.citations_hold() => Resolved::Documented,
+                status => Resolved::Measured(status),
+            };
         }
         let mut worst: Option<(Status, &str)> = None;
         for id in &q.basis {
@@ -267,6 +276,10 @@ impl Store {
             Some((Status::Settled, _)) | None => Resolved::Inferred {
                 status: Status::Settled,
                 via: None,
+            },
+            Some((Status::Documented, via)) => Resolved::Inferred {
+                status: Status::Documented,
+                via: Some(via.to_string()),
             },
             Some((_, via)) => Resolved::Inferred {
                 status: Status::Open,

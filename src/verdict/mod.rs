@@ -13,7 +13,10 @@
 // A question records what TradingView did, per oracle source, and never
 // whether any engine matches it. Source strength is editor = chart >
 // endpoint; `Question::own_status` derives settled / conflict / open from the
-// observations that count (not inconclusive, not crashed).
+// observations that count (not void, not inconclusive, not crashed). Manual
+// citations are not observations: they only lift a question nothing
+// measured decides from open to documented, and only while every active
+// citation is current against the manual baked into this binary.
 //
 // Questions relate to each other in three separate ways, and none of them
 // stands in for another: `follow_up_to` is lineage (this investigation grew
@@ -31,6 +34,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use toml::value::Datetime;
 
+mod citation;
 mod load;
 mod search;
 mod spec;
@@ -43,7 +47,8 @@ pub use load::{ListFilter, Relation, Store, load};
 pub use search::SearchHit;
 pub use spec::{parse_candidate, parse_diag};
 pub use write::{
-    Added, AmendTarget, NewObservation, NewQuestion, Observed, add, amend, observe, retire, void,
+    Added, AmendTarget, Cited, NewObservation, NewQuestion, Observed, VoidTarget, add, amend, cite,
+    observe, retire, void,
 };
 
 /// Whether a question is about compilation (accept / reject) or about what a
@@ -104,8 +109,13 @@ pub enum Status {
     Conflict,
     /// Nothing decides it yet: no counting editor/chart observation, only
     /// chart runs whose candidates are all undecided, or (inferred) a premise
-    /// that is not settled.
+    /// that is neither settled nor documented.
     Open,
+    /// Not measured, but stated by the manual: no deciding measurement, and
+    /// at least one active citation with every active citation current.
+    /// Inferred: the worst premise is documented. Never produced by
+    /// `Question::own_status`, which is measurement-only.
+    Documented,
     /// Measured: counting editor/chart observations exist, agree, and
     /// decide. Inferred: every premise is settled.
     Settled,
@@ -114,12 +124,16 @@ pub enum Status {
 /// A question's disposition as shown by every read verb.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Resolved {
-    /// Answered by its own observations.
+    /// Answered by its own observations (settled, conflict, or open).
     Measured(Status),
-    /// Answered from `basis` premises: settled only when every premise is.
-    /// Otherwise open, naming the worst premise (first in `basis` order on a
-    /// tie); a conflicting premise blocks the inference, it does not make
-    /// the inferred question a conflict.
+    /// Nothing measured decides it, and the manual states it: at least one
+    /// active citation, every active citation current.
+    Documented,
+    /// Answered from `basis` premises: settled only when every premise is,
+    /// documented when the worst premise is documented (named). Otherwise
+    /// open, naming the worst premise (first in `basis` order on a tie); a
+    /// conflicting premise blocks the inference, it does not make the
+    /// inferred question a conflict.
     Inferred { status: Status, via: Option<String> },
     /// Withdrawn. Has no status; `replaced_by` is where the investigation
     /// continued.
@@ -131,6 +145,7 @@ impl Resolved {
     pub fn status(&self) -> Option<Status> {
         match self {
             Resolved::Measured(s) | Resolved::Inferred { status: s, .. } => Some(*s),
+            Resolved::Documented => Some(Status::Documented),
             Resolved::Retired { .. } => None,
         }
     }
@@ -140,6 +155,7 @@ impl fmt::Display for Resolved {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Resolved::Measured(s) => f.write_str(s.as_str()),
+            Resolved::Documented => f.write_str(Status::Documented.as_str()),
             Resolved::Inferred { status, via: None } => write!(f, "inferred ({status})"),
             Resolved::Inferred {
                 status,
@@ -208,6 +224,48 @@ pub struct Void {
     /// UTC timestamp of the voiding.
     pub at: Datetime,
     pub reason: String,
+}
+
+/// A Pine User Manual passage cited as support for the answer. Not an
+/// observation: the manual is not a measurement of TradingView, so a
+/// citation never makes a question settled, only `documented`. All active
+/// citations of a question form one support set, asserted by whoever cites
+/// to establish the whole answer jointly; po checks provenance (the section
+/// exists and says the quotes), never support.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Citation {
+    /// `page#anchor` of the cited manual section.
+    pub section: String,
+    /// Verbatim passages from the section subtree, each inside one block.
+    pub quotes: Vec<String>,
+    /// sha256 of the cited subtree's source markdown at cite time. When the
+    /// baked manual differs, the citation is stale and stops counting.
+    pub digest: String,
+    /// UTC timestamp of the citation.
+    pub at: Datetime,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    /// Set when the citation was withdrawn (stale and reviewed, or wrongly
+    /// applied): it stays visible and never counts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub void: Option<Void>,
+}
+
+impl Citation {
+    /// Why this citation does not count, or `None` when it counts: void,
+    /// or stale against the manual baked into this binary.
+    pub fn not_counting(&self) -> Option<String> {
+        match &self.void {
+            Some(v) => Some(format!("void, does not count: {}", v.reason)),
+            None => citation::staleness(self).map(|why| format!("stale, does not count: {why}")),
+        }
+    }
+
+    /// The manual section's 8-hex id and breadcrumb, if it still exists.
+    pub fn section_info(&self) -> Option<(String, String)> {
+        citation::section(&self.section).map(|s| (s.id.clone(), s.breadcrumb()))
+    }
 }
 
 /// One diagnostic TradingView reported: a compile error / warning or a
@@ -341,6 +399,9 @@ pub struct Question {
     /// Corrections of `answer`, oldest first.
     #[serde(default, rename = "amendment", skip_serializing_if = "Vec::is_empty")]
     pub amendments: Vec<Amendment>,
+    /// Manual passages supporting the answer; see `Citation`.
+    #[serde(default, rename = "citation", skip_serializing_if = "Vec::is_empty")]
+    pub citations: Vec<Citation>,
     #[serde(default, rename = "observation", skip_serializing_if = "Vec::is_empty")]
     pub observations: Vec<Observation>,
 }
@@ -413,6 +474,7 @@ impl Status {
             Status::Settled => "settled",
             Status::Conflict => "conflict",
             Status::Open => "open",
+            Status::Documented => "documented",
         }
     }
 }
@@ -500,7 +562,12 @@ impl FromStr for Status {
             "settled" => Ok(Status::Settled),
             "conflict" => Ok(Status::Conflict),
             "open" => Ok(Status::Open),
-            _ => Err(unknown("status", s, "settled, conflict or open")),
+            "documented" => Ok(Status::Documented),
+            _ => Err(unknown(
+                "status",
+                s,
+                "settled, documented, conflict or open",
+            )),
         }
     }
 }
@@ -595,6 +662,19 @@ impl Question {
 
     pub fn is_retired(&self) -> bool {
         self.retired.is_some()
+    }
+
+    /// Whether the citations support the answer: at least one active (not
+    /// void) citation, and every active one current. One stale member stops
+    /// the whole set, since the citations jointly assert the answer: void it
+    /// after review and cite again.
+    pub fn citations_hold(&self) -> bool {
+        let mut active = self
+            .citations
+            .iter()
+            .filter(|c| c.void.is_none())
+            .peekable();
+        active.peek().is_some() && active.all(|c| citation::staleness(c).is_none())
     }
 
     /// Status from this question's own observations, ignoring derivation.
