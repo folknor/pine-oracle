@@ -193,6 +193,20 @@ impl Store {
         &self.questions
     }
 
+    /// This store with `q` added, or replacing its namesake: the state a
+    /// write is about to produce.
+    pub(super) fn with(&self, q: &Question) -> Store {
+        let mut questions: Vec<Question> = self
+            .questions
+            .iter()
+            .filter(|x| x.id != q.id)
+            .cloned()
+            .collect();
+        questions.push(q.clone());
+        questions.sort_by(|a, b| a.id.cmp(&b.id));
+        Store { questions }
+    }
+
     pub fn get(&self, id: &str) -> Option<&Question> {
         let id = id.trim().to_ascii_lowercase();
         self.questions.iter().find(|q| q.id == id)

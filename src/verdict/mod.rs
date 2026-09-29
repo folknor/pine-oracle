@@ -42,7 +42,9 @@ mod write;
 pub use load::{ListFilter, Relation, Store, load};
 pub use search::SearchHit;
 pub use spec::{parse_candidate, parse_diag};
-pub use write::{Added, NewObservation, NewQuestion, Observed, add, observe, retire};
+pub use write::{
+    Added, AmendTarget, NewObservation, NewQuestion, Observed, add, amend, observe, retire, void,
+};
 
 /// Whether a question is about compilation (accept / reject) or about what a
 /// script does when it runs on a chart.
@@ -166,6 +168,48 @@ pub struct Retired {
     pub replaced_by: Vec<String>,
 }
 
+/// A field `po verdict amend` may correct. The question's `answer`, and an
+/// observation's transcribed prose. What was measured (source, dates,
+/// fixture, outcome, codes, candidates) is not amendable: a wrong measurement
+/// is voided and the corrected one observed again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AmendField {
+    Answer,
+    Note,
+    Result,
+    Settings,
+    Environment,
+    Inconclusive,
+}
+
+/// One correction, stored beside what it corrects. `was` / `now` are absent
+/// when the field was absent before / cleared. Consecutive amendments of one
+/// field chain (`now` of one is `was` of the next) and the last `now` is the
+/// current value; validation checks both, so an amended field is not edited
+/// by hand without its history. Git remains the audit boundary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Amendment {
+    /// UTC timestamp of the amendment.
+    pub at: Datetime,
+    pub field: AmendField,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub was: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub now: Option<String>,
+    pub reason: String,
+}
+
+/// A withdrawn record: shown, never counts. Not reversible by po.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Void {
+    /// UTC timestamp of the voiding.
+    pub at: Datetime,
+    pub reason: String,
+}
+
 /// One diagnostic TradingView reported: a compile error / warning or a
 /// runtime halt. `span` is a `line:col-line:col` source range, `bar` the bar
 /// index a runtime error fired on, `ctx` the template arguments some errors
@@ -242,12 +286,18 @@ pub struct Observation {
     /// Evidence paths, relative to the records directory.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub evidence: Vec<String>,
+    /// Set when the observation was withdrawn (a mis-transcribed outcome,
+    /// code or candidate): it stays visible and never counts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub void: Option<Void>,
     #[serde(default, rename = "error", skip_serializing_if = "Vec::is_empty")]
     pub errors: Vec<Diag>,
     #[serde(default, rename = "warning", skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<Diag>,
     #[serde(default, rename = "candidate", skip_serializing_if = "Vec::is_empty")]
     pub candidates: Vec<Candidate>,
+    #[serde(default, rename = "amendment", skip_serializing_if = "Vec::is_empty")]
+    pub amendments: Vec<Amendment>,
 }
 
 /// One question and every observation of it. `id` (the file stem) and `root`
@@ -288,6 +338,9 @@ pub struct Question {
     pub legacy_derived_from: Option<toml::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retired: Option<Retired>,
+    /// Corrections of `answer`, oldest first.
+    #[serde(default, rename = "amendment", skip_serializing_if = "Vec::is_empty")]
+    pub amendments: Vec<Amendment>,
     #[serde(default, rename = "observation", skip_serializing_if = "Vec::is_empty")]
     pub observations: Vec<Observation>,
 }
@@ -421,6 +474,25 @@ impl FromStr for Source {
     }
 }
 
+impl FromStr for AmendField {
+    type Err = UnknownValue;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "answer" => Ok(AmendField::Answer),
+            "note" => Ok(AmendField::Note),
+            "result" => Ok(AmendField::Result),
+            "settings" => Ok(AmendField::Settings),
+            "environment" => Ok(AmendField::Environment),
+            "inconclusive" => Ok(AmendField::Inconclusive),
+            _ => Err(unknown(
+                "field",
+                s,
+                "answer, note, result, settings, environment or inconclusive",
+            )),
+        }
+    }
+}
+
 impl FromStr for Status {
     type Err = UnknownValue;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -433,11 +505,49 @@ impl FromStr for Status {
     }
 }
 
+impl AmendField {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AmendField::Answer => "answer",
+            AmendField::Note => "note",
+            AmendField::Result => "result",
+            AmendField::Settings => "settings",
+            AmendField::Environment => "environment",
+            AmendField::Inconclusive => "inconclusive",
+        }
+    }
+}
+
 impl Observation {
-    /// Whether this observation may decide status: inconclusive runs and
-    /// crashed oracles are shown but never count.
+    /// Whether this observation may decide status: void records,
+    /// inconclusive runs and crashed oracles are shown but never count.
     pub fn counts(&self) -> bool {
-        self.inconclusive.is_none() && self.outcome != Some(Outcome::Crashed)
+        self.void.is_none() && self.inconclusive.is_none() && self.outcome != Some(Outcome::Crashed)
+    }
+
+    /// The current value of amendable field `field` (`None` for `Answer`, a
+    /// question field).
+    pub fn field(&self, field: AmendField) -> Option<&Option<String>> {
+        match field {
+            AmendField::Answer => None,
+            AmendField::Note => Some(&self.note),
+            AmendField::Result => Some(&self.result),
+            AmendField::Settings => Some(&self.settings),
+            AmendField::Environment => Some(&self.environment),
+            AmendField::Inconclusive => Some(&self.inconclusive),
+        }
+    }
+
+    /// Amendable field `field`, for writing (`None` for `Answer`).
+    pub fn field_mut(&mut self, field: AmendField) -> Option<&mut Option<String>> {
+        match field {
+            AmendField::Answer => None,
+            AmendField::Note => Some(&mut self.note),
+            AmendField::Result => Some(&mut self.result),
+            AmendField::Settings => Some(&mut self.settings),
+            AmendField::Environment => Some(&mut self.environment),
+            AmendField::Inconclusive => Some(&mut self.inconclusive),
+        }
     }
 
     /// Whether this observation may decide a measured question's status: it
@@ -564,6 +674,9 @@ impl Question {
 }
 
 fn annotate(kind: Kind, o: &Observation, anchor: Option<&Observation>) -> Option<String> {
+    if let Some(void) = &o.void {
+        return Some(format!("void, does not count: {}", void.reason));
+    }
     if let Some(reason) = &o.inconclusive {
         return Some(format!("inconclusive, does not count: {reason}"));
     }

@@ -6,8 +6,10 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+use toml::value::{Datetime, Offset};
+
 use super::load::Relation;
-use super::{Diag, Kind, Observation, Outcome, Question, Source};
+use super::{AmendField, Amendment, Diag, Kind, Observation, Outcome, Question, Source, Void};
 use crate::behavior;
 
 /// Problems found in one or more records.
@@ -119,7 +121,7 @@ pub(super) fn question(q: &Question, cx: &Context<'_>, out: &mut Report) {
         }
         if q.observations.iter().any(Observation::decides) {
             errs.push(
-                "an inferred question (non-empty `basis`) carries a counting editor/chart observation: either answer it by measurement (drop `basis`) or mark that observation inconclusive"
+                "an inferred question (non-empty `basis`) carries a counting editor/chart observation: either answer it by measurement (drop `basis`), or mark that observation inconclusive or void it"
                     .to_string(),
             );
         }
@@ -129,10 +131,19 @@ pub(super) fn question(q: &Question, cx: &Context<'_>, out: &mut Report) {
     {
         errs.push("`retired.reason` is empty".to_string());
     }
+    errs.extend(amendments(&q.amendments, |f| {
+        (f == AmendField::Answer).then(|| Some(q.answer.clone()))
+    }));
     // Runtime status compares candidates across runs by name, so a name must
-    // mean the same model everywhere in the question.
+    // mean the same model everywhere in the question. A void observation is
+    // out of the comparison: voiding a mis-recorded model is how it is fixed.
     let mut models: BTreeMap<&str, Option<&str>> = BTreeMap::new();
-    for c in q.observations.iter().flat_map(|o| &o.candidates) {
+    for c in q
+        .observations
+        .iter()
+        .filter(|o| o.void.is_none())
+        .flat_map(|o| &o.candidates)
+    {
         let model = c.model.as_deref();
         match models.get(c.name.as_str()) {
             Some(first) if *first != model => {
@@ -342,6 +353,85 @@ fn observation(kind: Kind, o: &Observation, root: &Path, cx: &Context<'_>) -> Ve
             errs.push("empty evidence path".to_string());
         } else if !root.join(e).is_file() {
             errs.push(format!("evidence `{e}` is not an existing file"));
+        }
+    }
+    if let Some(v) = &o.void {
+        errs.extend(void(v));
+    }
+    errs.extend(amendments(&o.amendments, |f| o.field(f).cloned()));
+    errs
+}
+
+/// Errors in a `void` table.
+pub(super) fn void(v: &Void) -> Vec<String> {
+    let mut errs = Vec::new();
+    if v.reason.trim().is_empty() {
+        errs.push("`void.reason` is empty".to_string());
+    }
+    if !is_utc_timestamp(&v.at) {
+        errs.push(format!("`void.at` `{}` must be a UTC timestamp", v.at));
+    }
+    errs
+}
+
+/// `YYYY-MM-DDTHH:MM:SSZ`, as po writes amendment and void times.
+fn is_utc_timestamp(d: &Datetime) -> bool {
+    d.date.is_some() && d.time.is_some() && d.offset == Some(Offset::Z)
+}
+
+/// Errors in an amendment history. `current(field)` is the field's current
+/// value, or `None` when the field is not amendable at this level. Each
+/// field's amendments must chain (`now` of one is `was` of the next) and end
+/// at the current value, so an amended field is not edited by hand without
+/// its history.
+fn amendments(
+    list: &[Amendment],
+    current: impl Fn(AmendField) -> Option<Option<String>>,
+) -> Vec<String> {
+    let mut errs = Vec::new();
+    let mut last: BTreeMap<AmendField, &Amendment> = BTreeMap::new();
+    for (i, a) in list.iter().enumerate() {
+        let label = format!("amendment {} ({})", i + 1, a.field.as_str());
+        if current(a.field).is_none() {
+            errs.push(format!(
+                "{label}: `{}` is not amendable here",
+                a.field.as_str()
+            ));
+            continue;
+        }
+        if a.reason.trim().is_empty() {
+            errs.push(format!("{label}: `reason` is empty"));
+        }
+        if !is_utc_timestamp(&a.at) {
+            errs.push(format!("{label}: `at` `{}` must be a UTC timestamp", a.at));
+        }
+        if a.was == a.now {
+            errs.push(format!("{label}: changes nothing"));
+        }
+        if [&a.was, &a.now]
+            .into_iter()
+            .flatten()
+            .any(|v| v.trim().is_empty())
+        {
+            errs.push(format!(
+                "{label}: empty `was` or `now` (leave the field out instead)"
+            ));
+        }
+        if let Some(prev) = last.get(&a.field)
+            && prev.now != a.was
+        {
+            errs.push(format!(
+                "{label}: `was` is not the previous amendment's `now`"
+            ));
+        }
+        last.insert(a.field, a);
+    }
+    for (field, a) in last {
+        if current(field).flatten() != a.now {
+            errs.push(format!(
+                "`{}` differs from its last amendment's `now`: amend it rather than editing it by hand",
+                field.as_str()
+            ));
         }
     }
     errs

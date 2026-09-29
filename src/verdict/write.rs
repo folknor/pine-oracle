@@ -1,5 +1,7 @@
 // Write side: `add` creates a question, `observe` appends one observation,
-// `retire` withdraws a question. Each takes the records directory's lock,
+// `retire` withdraws a question, `amend` corrects an answer or an
+// observation's prose keeping the history, `void` withdraws an observation.
+// Each takes the records directory's lock,
 // strictly loads it (never write into a store that is already invalid),
 // validates the new state with the same rules the read side enforces, and
 // only then touches disk. po computes fixture hashes itself from the bytes it
@@ -14,8 +16,8 @@ use toml::value::Datetime;
 
 use super::validate::{self, Context, Report, fixture_path, question_path, sha256_hex};
 use super::{
-    Candidate, CandidateState, Diag, Kind, Observation, Outcome, Question, Relation, Retired,
-    Source, Store, load,
+    AmendField, Amendment, Candidate, CandidateState, Diag, Kind, Observation, Outcome, Question,
+    Relation, Retired, Source, Store, Void, load,
 };
 
 /// A question to create.
@@ -101,6 +103,7 @@ pub fn add(root: &Path, new: &NewQuestion) -> Result<Added> {
         basis: ids(&new.basis),
         legacy_derived_from: None,
         retired: None,
+        amendments: Vec::new(),
         observations: Vec::new(),
     };
     if let Some(key) = &q.key
@@ -116,10 +119,13 @@ pub fn add(root: &Path, new: &NewQuestion) -> Result<Added> {
                 replaced_hint(r)
             );
         }
-        // Only the plain fields `add` sets are compared: observations and
-        // retirement are later history, not part of the add payload.
+        // Only the current values of the fields `add` sets are compared:
+        // observations, amendments and retirement are later history, not
+        // part of the add payload. A script still emitting an answer since
+        // amended fails here, which is the point.
         let stored = Question {
             observations: Vec::new(),
+            amendments: Vec::new(),
             ..existing.clone()
         };
         let diff = field_diff(&stored, &q)?;
@@ -234,6 +240,179 @@ pub fn retire(root: &Path, id: &str, reason: &str, replaced_by: &[String]) -> Re
     write_atomic(&question_path(root, &q.id), text.as_bytes())
 }
 
+/// What `amend` corrects: the question's answer, or one prose field of the
+/// observation numbered `number` (1-based file order, the `#N` `show` prints).
+#[derive(Debug, Clone, Copy)]
+pub enum AmendTarget {
+    Answer,
+    Observation { number: usize, field: AmendField },
+}
+
+/// Correct question `id`'s answer or an observation's prose field to `value`
+/// (`None` clears an optional field), recording the old and new value, the
+/// time and `reason` beside the field. Allowed on retired questions too: it
+/// is a correction of the record, not a measurement. Validation then runs as
+/// for any write, so e.g. marking a run inconclusive recomputes its status
+/// and clearing a required runtime `result` is refused. For an answer
+/// amendment, returns what the answer now rests on (see `answer_support`).
+pub fn amend(
+    root: &Path,
+    id: &str,
+    target: AmendTarget,
+    value: Option<&str>,
+    reason: &str,
+) -> Result<Option<String>> {
+    let _lock = lock(root)?;
+    let store = load(&[root.to_path_buf()])?;
+    let Some(existing) = store.get(id) else {
+        bail!("no question `{id}` in {}", root.display());
+    };
+    let mut q = existing.clone();
+    let now = value.map(|v| v.trim().to_string());
+    let at = now_utc()?;
+    let reason = reason.trim().to_string();
+    match target {
+        AmendTarget::Answer => {
+            let Some(answer) = &now else {
+                bail!("the answer cannot be cleared, only replaced");
+            };
+            if *answer == q.answer {
+                bail!("the answer already reads that");
+            }
+            let was = std::mem::replace(&mut q.answer, answer.clone());
+            q.amendments.push(Amendment {
+                at,
+                field: AmendField::Answer,
+                was: Some(was),
+                now,
+                reason,
+            });
+        }
+        AmendTarget::Observation { number, field } => {
+            let o = observation_mut(&mut q, number)?;
+            let Some(current) = o.field_mut(field) else {
+                bail!(
+                    "`{}` is a question field, not an observation field",
+                    field.as_str()
+                );
+            };
+            if *current == now {
+                bail!("`{}` already reads that", field.as_str());
+            }
+            let was = std::mem::replace(current, now.clone());
+            o.amendments.push(Amendment {
+                at,
+                field,
+                was,
+                now,
+                reason,
+            });
+        }
+    }
+    check(&store, &q, None)?;
+    let text = toml::to_string(&q).context("serializing question")?;
+    write_atomic(&question_path(root, &q.id), text.as_bytes())?;
+    // Computed from the state just written, under the lock, so it describes
+    // what was written and not what another writer made of it since.
+    Ok(matches!(target, AmendTarget::Answer).then(|| answer_support(&store.with(&q), &q)))
+}
+
+/// What an amended answer now rests on, for the person asserting it: po
+/// never checks that support implies an answer, so it shows the support
+/// instead. Measured: the observations that decide status, and weaker ones
+/// that count; inferred: the premises. A retired question's answer is
+/// history and rests on nothing.
+fn answer_support(store: &Store, q: &Question) -> String {
+    if q.is_retired() {
+        return format!(
+            "question {} is retired: the amended former answer has no active disposition",
+            q.id
+        );
+    }
+    let resolved = store.resolve(q);
+    let support = if q.is_inferred() {
+        let premises: Vec<String> = q
+            .basis
+            .iter()
+            .map(|id| match store.get(id) {
+                Some(p) => format!("{id} ({})", store.resolve(p)),
+                None => id.clone(),
+            })
+            .collect();
+        format!("premises {}", premises.join(", "))
+    } else {
+        let numbered = |keep: fn(&Observation) -> bool| -> Vec<String> {
+            q.observations
+                .iter()
+                .enumerate()
+                .filter(|(_, o)| keep(o))
+                .map(|(i, o)| format!("#{} {}", i + 1, o.source.as_str()))
+                .collect()
+        };
+        let deciding = numbered(Observation::decides);
+        let weaker = numbered(|o| o.counts() && !o.decides());
+        let mut parts = Vec::new();
+        if deciding.is_empty() {
+            parts.push("no deciding editor or chart observation".to_string());
+        } else {
+            parts.push(format!("deciding observations {}", deciding.join(", ")));
+        }
+        if !weaker.is_empty() {
+            parts.push(format!(
+                "weaker counting observations {}",
+                weaker.join(", ")
+            ));
+        }
+        parts.join("; ")
+    };
+    format!("the amended answer rests on {support}; status {resolved}")
+}
+
+/// Withdraw observation `number` of question `id` (1-based file order): it
+/// stays visible and never counts again. For a mis-transcribed outcome, code
+/// or candidate, which `amend` cannot touch: void it, then observe the
+/// corrected measurement. Not reversible by po.
+pub fn void(root: &Path, id: &str, number: usize, reason: &str) -> Result<()> {
+    let _lock = lock(root)?;
+    let store = load(&[root.to_path_buf()])?;
+    let Some(existing) = store.get(id) else {
+        bail!("no question `{id}` in {}", root.display());
+    };
+    let mut q = existing.clone();
+    let o = observation_mut(&mut q, number)?;
+    if o.void.is_some() {
+        bail!("observation #{number} of question {} is already void", q.id);
+    }
+    o.void = Some(Void {
+        at: now_utc()?,
+        reason: reason.trim().to_string(),
+    });
+    check(&store, &q, None)?;
+    let text = toml::to_string(&q).context("serializing question")?;
+    write_atomic(&question_path(root, &q.id), text.as_bytes())
+}
+
+/// Observation `number` (1-based file order) of `q`.
+fn observation_mut(q: &mut Question, number: usize) -> Result<&mut Observation> {
+    let count = q.observations.len();
+    let id = q.id.clone();
+    match number
+        .checked_sub(1)
+        .and_then(|i| q.observations.get_mut(i))
+    {
+        Some(o) => Ok(o),
+        None => bail!("question {id} has no observation #{number} (it has {count})"),
+    }
+}
+
+/// The current UTC time, to the second, as a TOML datetime.
+fn now_utc() -> Result<Datetime> {
+    let stamp = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    stamp
+        .parse::<Datetime>()
+        .map_err(|e| anyhow::anyhow!("timestamp `{stamp}`: {e}"))
+}
+
 /// Question ids as given on the command line, normalized like `Store::get`.
 fn ids(given: &[String]) -> Vec<String> {
     given
@@ -303,6 +482,8 @@ pub fn observe(root: &Path, id: &str, new: &NewObservation) -> Result<Observed> 
         errors: new.errors.clone(),
         warnings: new.warnings.clone(),
         candidates: decide_candidates(&new.candidates, &new.selected, &new.refuted)?,
+        void: None,
+        amendments: Vec::new(),
     };
     if let Some(key) = &observation.key
         && let Some(i) = q
@@ -310,7 +491,22 @@ pub fn observe(root: &Path, id: &str, new: &NewObservation) -> Result<Observed> 
             .iter()
             .position(|o| o.key.as_ref() == Some(key))
     {
-        let diff = field_diff(&q.observations[i], &observation)?;
+        let stored = &q.observations[i];
+        if let Some(v) = &stored.void {
+            bail!(
+                "key `{key}` belongs to observation #{} of question {}, which is void: {}",
+                i + 1,
+                q.id,
+                v.reason
+            );
+        }
+        // Current values only: amendment history is not part of the payload,
+        // and a script still emitting a since-amended value fails here.
+        let current = Observation {
+            amendments: Vec::new(),
+            ..stored.clone()
+        };
+        let diff = field_diff(&current, &observation)?;
         if !diff.is_empty() {
             bail!(
                 "key `{key}` belongs to observation #{} of question {}, which differs:\n  {}",
@@ -374,22 +570,17 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
 /// store can show;
 /// errors refuse the write.
 fn check(store: &Store, q: &Question, pending_fixture: Option<&str>) -> Result<Vec<String>> {
-    let mut after: Vec<Question> = store
-        .questions()
-        .iter()
-        .filter(|x| x.id != q.id)
-        .cloned()
-        .collect();
-    after.push(q.clone());
-    let known_ids = validate::ids_in(&after, &q.root);
+    let after_store = store.with(q);
+    let after = after_store.questions();
+    let known_ids = validate::ids_in(after, &q.root);
     let mut report = Report::default();
     let cx = Context {
         known_ids: &known_ids,
         pending_fixture,
     };
     validate::question(q, &cx, &mut report);
-    report.errors.extend(validate::cycles(&after));
-    report.errors.extend(validate::duplicate_keys(&after));
+    report.errors.extend(validate::cycles(after));
+    report.errors.extend(validate::duplicate_keys(after));
     if !report.errors.is_empty() {
         bail!("refusing to write:\n  {}", report.errors.join("\n  "));
     }

@@ -25,6 +25,11 @@ po verdict observe  <id> --records <DIR> --source editor|endpoint|chart [--key K
                     [--inconclusive "<reason>"] [--evidence <path>]...
                     [--environment "..."] [--note "..."]
 po verdict retire   <id> --records <DIR> --reason "..." [--replaced-by <id>]...
+po verdict amend    <id> --records <DIR> --reason "..."
+                    (--answer "..." | --observation N (--note "..." | --result "..."
+                     | --settings "..." | --environment "..." | --inconclusive "..."
+                     | --clear note|environment|inconclusive))
+po verdict void     <id> --records <DIR> --observation N --reason "..."
 po verdict search   <query> --records <DIR>... [--limit N]
 po verdict show     <id>... --records <DIR>...
 po verdict list     --records <DIR>... [--identifier X] [--code C]
@@ -75,6 +80,39 @@ payload with the stored record:
 Unkeyed writes always append: two identical unkeyed chart runs are two
 measurements. There is no key-less deduplication by question text, because
 two experiments can ask the same sentence.
+
+### Corrections
+
+`amend` corrects what was written down, keeping the history beside it: the
+question's `answer`, or an observation's `note`, `result`, `settings`,
+`environment` or `inconclusive` reason. Each amendment records the UTC time,
+the reason, and the value before and after (either absent when the field was
+added or cleared). `show` prints the history under the current value. Search
+indexes current values only.
+
+What was measured is not amendable: source, dates, fixture, outcome, codes
+and candidates. A wrong measurement is withdrawn with `void`, which keeps the
+observation visible, marks it `void, does not count: <reason>`, and never
+lets it count again; the corrected measurement is then a new `observe`.
+Marking a run inconclusive after the fact (`amend --inconclusive`) is for a
+run that was measured correctly but did not test the claim; `--clear
+inconclusive` makes it count again. Status is recomputed from the result, and
+the write is validated like any other, so clearing a runtime `result` is
+refused.
+
+An amended answer is an assertion like the original: po never checks that
+the observations or premises supporting a question imply its answer, so
+`amend --answer` prints (stderr, unless `--quiet`) what the answer now rests
+on, computed from the state it wrote: the deciding editor / chart
+observations and weaker counting ones by `#N`, or the premises with their
+dispositions, and the resulting status. Amendments are allowed on retired
+questions (they correct the record, they do not measure); there the former
+answer rests on nothing and the summary says so.
+
+A field's amendments must chain (each `was` is the previous `now`) and end
+at the current value, so an amended field edited by hand without its history
+fails validation. Git remains the audit boundary: the in-file history guards
+against isolated edits, not against rewriting the history too.
 
 `--date` or `--date-before` is required. Use `--date-before` for a capture
 whose date was never recorded, bounded by what is known (for example the date
@@ -128,8 +166,8 @@ a `chart` observation: a script that ran on a chart was accepted, so such an
 observation records `--accepted`. There is no local-validator source:
 pine-lint is not TradingView, so its verdict is not a measurement.
 
-An observation **counts** unless it is `--inconclusive` or `--crashed`. Both
-kinds are shown, marked, but never decide status.
+An observation **counts** unless it is `--inconclusive`, `--crashed` or void.
+All three are shown, marked, but never decide status.
 
 Status is decided by the counting editor/chart observations (the top tier):
 
@@ -149,8 +187,8 @@ editor rejects with different codes are a conflict on purpose: TradingView
 changed between the observations or the fixtures differ, and someone should
 look. Two runs that differ in how they halt are a conflict for the same
 reason. If the difference is intended, the runs had different inputs and
-belong to separate questions. Nothing supersedes automatically: a stale
-observation is removed from the TOML in a commit.
+belong to separate questions. Nothing supersedes automatically: a stale or
+wrongly recorded observation is voided (see Corrections).
 
 ## Relations between questions
 
@@ -272,10 +310,13 @@ reason = "The editor refuses the method declaration (CE10236) before the length 
 replaced_by = ["9fa2f155", "120605ec", "00524fc4"]
 ```
 
-po has no edit or delete verb. A wrong observation or a reworded question is
-fixed by editing the TOML in a commit; git keeps the history. A question that
-was ill-posed or mis-filed is retired rather than deleted, so its id and its
-evidence stay resolvable.
+po has no delete verb. A wrong answer or observation prose is amended, a
+wrong measurement is voided, and a question that was reworded, ill-posed or
+mis-filed is retired rather than deleted, so its id and its evidence stay
+resolvable. An amended observation carries `[[observation.amendment]]`
+tables (`at`, `field`, `was`, `now`, `reason`), a voided one an
+`[observation.void]` table (`at`, `reason`); answer amendments are
+question-level `[[amendment]]` tables.
 
 Records written before the relations split carry `derived_from = []`. The
 empty list is accepted and dropped the next time po rewrites the file. A
@@ -284,7 +325,7 @@ as lineage, so each one needs a decision, usually `follow_up_to`.
 
 ## Validation
 
-The same rules guard both directions. `add`, `observe` and `retire` refuse to
+The same rules guard both directions. Every write verb refuses to
 write an invalid record and leave every record and fixture untouched (only the
 persistent `.lock` may be created). Every read verb loads strictly: one
 invalid record anywhere under the given directories fails the command, listing
@@ -321,6 +362,10 @@ Errors:
 - a candidate that is undeclared, listed twice, or both selected and refuted,
   or a candidate name that means different models in different observations
   of one question (runs are compared by candidate name);
+- an amendment of a field not amendable at its level, with an empty reason,
+  empty `was` / `now`, `was` equal to `now`, or a time that is not a UTC
+  timestamp; a field whose amendments do not chain or do not end at its
+  current value; a `void` with an empty reason or a non-UTC time;
 - an empty `key`, a question key held by two questions of one directory, or
   an observation key used twice in one question;
 - a `fixture_name` without a `fixture`;

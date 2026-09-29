@@ -1561,6 +1561,222 @@ fn capture_keys_make_reruns_idempotent() {
     refused(load(&[root]), "key `run26/export` is held by questions");
 }
 
+/// The piners cases: a note with wrong counts, and an answer that claimed
+/// more than was measured, corrected in place with the history kept.
+#[test]
+fn amendments_keep_history_and_chain() {
+    let root = scratch("amend");
+    let id = add(&root, &question(Kind::Runtime, &[])).expect("add").id;
+    let run = NewObservation {
+        note: Some("35 long round trips over 5602 bars.".into()),
+        ..runtime("2026-09-20")
+    };
+    observe(&root, &id, &run).expect("observe");
+
+    let note = AmendTarget::Observation {
+        number: 1,
+        field: AmendField::Note,
+    };
+    amend(
+        &root,
+        &id,
+        note,
+        Some("70 long round trips over about 20,240 bars."),
+        "the export lists 70; 5602 was the loaded chart bars",
+    )
+    .expect("amend note");
+    amend(
+        &root,
+        &id,
+        AmendTarget::Answer,
+        Some("B."),
+        "claimed more than measured",
+    )
+    .expect("amend answer");
+    let q = reload(&root, &id);
+    assert_eq!(q.answer, "B.");
+    assert_eq!(q.amendments[0].was.as_deref(), Some("A."));
+    let o = &q.observations[0];
+    assert_eq!(
+        o.note.as_deref(),
+        Some("70 long round trips over about 20,240 bars.")
+    );
+    assert_eq!(
+        o.amendments[0].was.as_deref(),
+        Some("35 long round trips over 5602 bars.")
+    );
+
+    // A second correction chains onto the first; clearing leaves `now` out.
+    amend(&root, &id, note, None, "the note restates the result").expect("clear note");
+    let o = reload(&root, &id).observations[0].clone();
+    assert_eq!(o.note, None);
+    assert_eq!(o.amendments[1].was, o.amendments[0].now);
+    assert_eq!(o.amendments[1].now, None);
+
+    // Search sees current wording only.
+    let store = load(std::slice::from_ref(&root)).expect("load");
+    assert!(store.search("5602", 5).expect("search").is_empty());
+
+    // Refusals: a no-op, a missing observation, a required runtime field
+    // cleared, an answer cleared.
+    refused(
+        amend(&root, &id, AmendTarget::Answer, Some("B."), "r"),
+        "already reads that",
+    );
+    let missing = AmendTarget::Observation {
+        number: 2,
+        field: AmendField::Note,
+    };
+    refused(
+        amend(&root, &id, missing, Some("x"), "r"),
+        "has no observation #2 (it has 1)",
+    );
+    let result = AmendTarget::Observation {
+        number: 1,
+        field: AmendField::Result,
+    };
+    refused(amend(&root, &id, result, None, "r"), "needs a `result`");
+    refused(
+        amend(&root, &id, AmendTarget::Answer, None, "r"),
+        "cannot be cleared",
+    );
+
+    // An amended field edited by hand, without its history, fails the load.
+    let path = root.join(format!("{id}.toml"));
+    let text = std::fs::read_to_string(&path).expect("read");
+    std::fs::write(&path, text.replace("answer = \"B.\"", "answer = \"C.\"")).expect("write");
+    refused(
+        load(std::slice::from_ref(&root)),
+        "amend it rather than editing it by hand",
+    );
+    std::fs::write(&path, &text).expect("restore");
+
+    // Retired questions take corrections too.
+    retire(&root, &id, "reworded", &[]).expect("retire");
+    amend(
+        &root,
+        &id,
+        AmendTarget::Answer,
+        Some("D."),
+        "typo in the former answer",
+    )
+    .expect("amend retired");
+}
+
+#[test]
+fn inconclusive_and_void_stop_an_observation_counting() {
+    let root = scratch("void");
+    let id = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    let accept = NewObservation {
+        key: Some("a".into()),
+        ..compile(Source::Editor, "2026-09-27", Outcome::Accepted)
+    };
+    observe(&root, &id, &accept).expect("accept");
+    let reject = NewObservation {
+        errors: vec![parse_diag("CE10099").expect("d")],
+        ..compile(Source::Editor, "2026-09-27", Outcome::Rejected)
+    };
+    observe(&root, &id, &reject).expect("reject");
+    assert_eq!(reload(&root, &id).own_status(), Status::Conflict);
+
+    // Marked inconclusive after the fact, the reject stops counting; cleared,
+    // it counts again.
+    let inconclusive = AmendTarget::Observation {
+        number: 2,
+        field: AmendField::Inconclusive,
+    };
+    amend(
+        &root,
+        &id,
+        inconclusive,
+        Some("fixture tested a different claim"),
+        "reviewed",
+    )
+    .expect("mark");
+    assert_eq!(reload(&root, &id).own_status(), Status::Settled);
+    amend(
+        &root,
+        &id,
+        inconclusive,
+        None,
+        "the claim was the same after all",
+    )
+    .expect("clear");
+    assert_eq!(reload(&root, &id).own_status(), Status::Conflict);
+
+    // A mis-transcribed accept: void it, the reject stands alone.
+    void(&root, &id, 1, "the capture was a reject; transcribed wrong").expect("void");
+    let q = reload(&root, &id);
+    assert_eq!(q.own_status(), Status::Settled);
+    let voided = q.ranked().into_iter().find(|r| r.number == 1).expect("#1");
+    assert_eq!(
+        voided.annotation.as_deref(),
+        Some("void, does not count: the capture was a reject; transcribed wrong")
+    );
+    refused(void(&root, &id, 1, "again"), "already void");
+    refused(void(&root, &id, 3, "r"), "has no observation #3");
+    // A rerun script does not quietly re-confirm a voided capture.
+    refused(observe(&root, &id, &accept), "which is void");
+
+    // A voided mis-recorded candidate model does not block the corrected one.
+    let rt = add(&root, &question(Kind::Runtime, &[])).expect("add").id;
+    let wrong = NewObservation {
+        candidates: vec![parse_candidate("A|gross").expect("A")],
+        selected: vec!["A".into()],
+        ..runtime("2026-09-20")
+    };
+    observe(&root, &rt, &wrong).expect("wrong model");
+    void(&root, &rt, 1, "model transcribed wrong").expect("void");
+    let right = NewObservation {
+        candidates: vec![parse_candidate("A|net").expect("A")],
+        selected: vec!["A".into()],
+        ..runtime("2026-09-20")
+    };
+    observe(&root, &rt, &right).expect("corrected model under the same name");
+}
+
+#[test]
+fn answer_support_is_reported() {
+    let root = scratch("answer-support");
+    let id = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    observe(
+        &root,
+        &id,
+        &compile(Source::Endpoint, "2026-09-10", Outcome::Accepted),
+    )
+    .expect("endpoint");
+    observe(
+        &root,
+        &id,
+        &compile(Source::Editor, "2026-09-27", Outcome::Accepted),
+    )
+    .expect("editor");
+    let support = amend(&root, &id, AmendTarget::Answer, Some("B."), "r")
+        .expect("amend")
+        .expect("answer support");
+    assert_eq!(
+        support,
+        "the amended answer rests on deciding observations #2 editor; weaker counting observations #1 endpoint; status settled"
+    );
+    let note = AmendTarget::Observation {
+        number: 1,
+        field: AmendField::Note,
+    };
+    assert_eq!(
+        amend(&root, &id, note, Some("n"), "r").expect("amend note"),
+        None
+    );
+    retire(&root, &id, "reworded", &[]).expect("retire");
+    let support = amend(&root, &id, AmendTarget::Answer, Some("C."), "r")
+        .expect("amend")
+        .expect("answer support");
+    assert!(support.contains("no active disposition"), "{support}");
+}
+
 #[test]
 fn list_filters() {
     let root = scratch("list");

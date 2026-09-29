@@ -1,8 +1,8 @@
 use anyhow::{Result, bail};
 use clap::{ArgGroup, Subcommand};
 use pine_oracle::verdict::{
-    self, Kind, ListFilter, NewObservation, NewQuestion, Outcome, Question, Ranked, Relation,
-    Source, Status, Store,
+    self, AmendField, AmendTarget, Amendment, Kind, ListFilter, NewObservation, NewQuestion,
+    Outcome, Question, Ranked, Relation, Source, Status, Store,
 };
 use std::path::PathBuf;
 
@@ -62,6 +62,27 @@ pub(crate) enum VerdictCommand {
         /// Id of a question the investigation continued in. Repeatable.
         #[arg(long = "replaced-by", value_name = "ID")]
         replaced_by: Vec<String>,
+    },
+
+    /// Correct a question's answer, or an observation's note, result,
+    /// settings, environment or inconclusive reason. The old value, the
+    /// time and the reason are kept beside the field; `show` prints them.
+    Amend(Box<AmendArgs>),
+
+    /// Withdraw a wrongly recorded observation (a mis-transcribed outcome,
+    /// code or candidate). It stays visible and never counts; record the
+    /// corrected measurement with `observe`.
+    Void {
+        id: String,
+        /// Records directory holding the question.
+        #[arg(long)]
+        records: PathBuf,
+        /// The observation's `#N`, as `show` prints it.
+        #[arg(long, value_name = "N")]
+        observation: usize,
+        /// Why it is withdrawn.
+        #[arg(long)]
+        reason: String,
     },
 
     /// BM25 search over questions, answers, results, messages and fixture
@@ -185,6 +206,47 @@ pub(crate) struct ObserveArgs {
     note: Option<String>,
 }
 
+#[derive(clap::Args)]
+#[command(group(ArgGroup::new("change").required(true).args([
+    "answer", "note", "result", "settings", "environment", "inconclusive", "clear",
+])))]
+pub(crate) struct AmendArgs {
+    /// Question id.
+    id: String,
+    /// Records directory holding the question.
+    #[arg(long)]
+    records: PathBuf,
+    /// Why the old value was wrong.
+    #[arg(long)]
+    reason: String,
+    /// The corrected answer.
+    #[arg(long, conflicts_with = "observation")]
+    answer: Option<String>,
+    /// The observation to correct: its `#N`, as `show` prints it.
+    #[arg(long, value_name = "N", required_unless_present = "answer")]
+    observation: Option<usize>,
+    /// The corrected note.
+    #[arg(long)]
+    note: Option<String>,
+    /// The corrected runtime result.
+    #[arg(long)]
+    result: Option<String>,
+    /// The corrected runtime settings.
+    #[arg(long)]
+    settings: Option<String>,
+    /// The corrected environment.
+    #[arg(long)]
+    environment: Option<String>,
+    /// Mark the observation inconclusive (or reword the reason): it stops
+    /// counting.
+    #[arg(long, value_name = "REASON")]
+    inconclusive: Option<String>,
+    /// Remove an optional field: `note`, `environment`, or `inconclusive`
+    /// (the run counts again).
+    #[arg(long, value_name = "FIELD", value_parser = ["note", "environment", "inconclusive"])]
+    clear: Option<String>,
+}
+
 pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<()> {
     match command {
         VerdictCommand::Add {
@@ -233,6 +295,45 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
             }
             Ok(())
         }
+        VerdictCommand::Amend(args) => {
+            let a = *args;
+            let (target, value) = match (a.observation, a.answer) {
+                (_, Some(answer)) => (AmendTarget::Answer, Some(answer)),
+                (Some(number), None) => {
+                    let (field, value) = match (
+                        a.note,
+                        a.result,
+                        a.settings,
+                        a.environment,
+                        a.inconclusive,
+                        a.clear,
+                    ) {
+                        (Some(v), ..) => (AmendField::Note, Some(v)),
+                        (_, Some(v), ..) => (AmendField::Result, Some(v)),
+                        (_, _, Some(v), ..) => (AmendField::Settings, Some(v)),
+                        (_, _, _, Some(v), ..) => (AmendField::Environment, Some(v)),
+                        (_, _, _, _, Some(v), _) => (AmendField::Inconclusive, Some(v)),
+                        (.., Some(field)) => (field.parse()?, None),
+                        _ => bail!("nothing to amend"),
+                    };
+                    (AmendTarget::Observation { number, field }, value)
+                }
+                (None, None) => bail!("name --answer or --observation N"),
+            };
+            let support = verdict::amend(&a.records, &a.id, target, value.as_deref(), &a.reason)?;
+            if let Some(support) = support
+                && !quiet
+            {
+                eprintln!("{support}");
+            }
+            Ok(())
+        }
+        VerdictCommand::Void {
+            id,
+            records,
+            observation,
+            reason,
+        } => verdict::void(&records, &id, observation, &reason),
         VerdictCommand::Search {
             query,
             records,
@@ -361,9 +462,13 @@ fn print_question(store: &Store, q: &Question, style: Style) {
         // A retired question asserts nothing: its answer is history.
         Some(r) => {
             println!("  former answer: {}", q.answer);
+            print_amendments("    ", &q.amendments);
             println!("  retired: {}", r.reason);
         }
-        None => println!("  {}", q.answer),
+        None => {
+            println!("  {}", q.answer);
+            print_amendments("    ", &q.amendments);
+        }
     }
     if q.identifiers.is_empty() {
         println!("  identifiers: none");
@@ -503,5 +608,29 @@ fn print_observation(r: &Ranked<'_>, style: Style) {
     }
     if let Some(note) = &o.note {
         detail("note", note);
+    }
+    if let Some(v) = &o.void {
+        // The reason is already in the header annotation.
+        detail("voided", &v.at.to_string());
+    }
+    print_amendments("            ", &o.amendments);
+}
+
+/// Each correction, oldest first: which field, when, why, and what it read
+/// before (the value after is the next amendment's `was`, or the current
+/// field).
+fn print_amendments(indent: &str, amendments: &[Amendment]) {
+    for a in amendments {
+        println!(
+            "{indent}amended {} {}: {}",
+            a.field.as_str(),
+            a.at,
+            a.reason
+        );
+        let was = a.was.as_deref().unwrap_or("(absent)");
+        match &a.now {
+            Some(_) => println!("{indent}  was: {was}"),
+            None => println!("{indent}  cleared, was: {was}"),
+        }
     }
 }
