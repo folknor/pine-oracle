@@ -2037,6 +2037,52 @@ fn stale_citations_stop_counting_without_failing_the_load() {
     );
 }
 
+/// A pine-data refresh that drops or renames a name must not brick the
+/// records: stored identifiers are held to shape rules only, and pine-data
+/// membership is checked when `add` creates a question.
+#[test]
+fn stored_identifiers_survive_a_pine_data_refresh() {
+    let root = scratch("identifier-refresh");
+    let keyed = NewQuestion {
+        key: Some("k".into()),
+        ..question(Kind::Compile, &["export"])
+    };
+    let id = add(&root, &keyed).expect("add").id;
+    // Simulate the refresh: the stored name no longer resolves.
+    let path = root.join(format!("{id}.toml"));
+    let text = std::fs::read_to_string(&path).expect("read");
+    std::fs::write(&path, text.replace("\"export\"", "\"export_gone\"")).expect("write");
+    assert!(!identifier_known("export_gone"));
+
+    load(std::slice::from_ref(&root)).expect("an unknown stored identifier loads");
+    observe(
+        &root,
+        &id,
+        &compile(Source::Editor, "2026-09-27", Outcome::Accepted),
+    )
+    .expect("writes to the question still work");
+    let rerun = NewQuestion {
+        key: Some("k".into()),
+        ..question(Kind::Compile, &["export_gone"])
+    };
+    let again = add(&root, &rerun).expect("a keyed rerun stays a no-op");
+    assert!(again.existing);
+    // A new question may not introduce an unknown name.
+    refused(
+        add(&root, &question(Kind::Compile, &["export_gone"])),
+        "is not in pine-data",
+    );
+
+    // Shape rules still fail the load.
+    for bad in ["f(", "f(a(b))", " export", ""] {
+        std::fs::write(&path, text.replace("\"export\"", &format!("{bad:?}"))).expect("write");
+        assert!(
+            load(std::slice::from_ref(&root)).is_err(),
+            "`{bad}` must fail the load"
+        );
+    }
+}
+
 #[test]
 fn list_filters() {
     let root = scratch("list");

@@ -46,6 +46,7 @@ mod write;
 pub use load::{ListFilter, Relation, Store, load};
 pub use search::SearchHit;
 pub use spec::{parse_candidate, parse_diag};
+pub use validate::identifier_known;
 pub use write::{
     Added, AmendTarget, Cited, NewObservation, NewQuestion, Observed, VoidTarget, add, amend, cite,
     observe, retire, void,

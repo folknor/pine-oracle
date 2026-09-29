@@ -145,6 +145,18 @@ pub fn add(root: &Path, new: &NewQuestion) -> Result<Added> {
             warnings: Vec::new(),
         });
     }
+    // Only now, creating a question, are its identifiers checked against
+    // pine-data: a keyed rerun above must stay a no-op after a pine-data
+    // refresh dropped one of them, and stored identifiers are never
+    // re-checked.
+    let unknown: Vec<String> = q
+        .identifiers
+        .iter()
+        .filter_map(|i| validate::identifier_membership(i).err())
+        .collect();
+    if !unknown.is_empty() {
+        bail!("refusing to write:\n  {}", unknown.join("\n  "));
+    }
     let taken: BTreeSet<String> = store.questions().iter().map(|x| x.id.clone()).collect();
     q.id = fresh_id(&q.question, &taken, root);
     let warnings = check(&store, &q, None)?;

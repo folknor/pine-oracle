@@ -525,7 +525,22 @@ fn print_question(store: &Store, q: &Question, style: Style) {
     if q.identifiers.is_empty() {
         println!("  identifiers: none");
     } else {
-        println!("  identifiers: {}", q.identifiers.join(", "));
+        // Stored identifiers are never re-checked against pine-data (a
+        // refresh must not fail the load), so one a refresh renamed or
+        // dropped is marked here, prompting a hand edit.
+        let snapshot = pine_oracle::behavior::snapshot().generated_at;
+        let idents: Vec<String> = q
+            .identifiers
+            .iter()
+            .map(|i| {
+                if verdict::identifier_known(i) {
+                    i.clone()
+                } else {
+                    format!("{i} (not in pine-data snapshot {snapshot})")
+                }
+            })
+            .collect();
+        println!("  identifiers: {}", idents.join(", "));
     }
     // Each relation both ways. Linked questions print with their own
     // disposition (a premise or replacement may itself be retired).

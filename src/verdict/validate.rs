@@ -80,7 +80,7 @@ pub(super) fn question(q: &Question, cx: &Context<'_>, out: &mut Report) {
     }
     let mut seen_idents = BTreeSet::new();
     for ident in &q.identifiers {
-        if let Err(msg) = identifier(ident) {
+        if let Err(msg) = identifier_shape(ident) {
             errs.push(msg);
         }
         if !seen_idents.insert(ident.to_ascii_lowercase()) {
@@ -266,16 +266,57 @@ pub(super) fn ids_in(questions: &[Question], root: &Path) -> BTreeMap<String, bo
         .collect()
 }
 
-/// An identifier is a pine-data name (function, variable, keyword, operator,
-/// ...) or a qualified parameter `function(parameter)` whose parameter belongs
-/// to that function in some overload. A bare parameter name is refused: the
-/// same name is a parameter of many functions.
-fn identifier(ident: &str) -> Result<(), String> {
-    let qualified = ident
-        .strip_suffix(')')
-        .and_then(|s| s.split_once('('))
-        .filter(|(func, param)| !func.is_empty() && !param.is_empty());
-    let Some((func, param)) = qualified else {
+/// `function(parameter)` split into its parts, or `None` for a bare name.
+/// Only called on identifiers that passed `identifier_shape`.
+fn qualified(ident: &str) -> Option<(&str, &str)> {
+    ident.strip_suffix(')').and_then(|s| s.split_once('('))
+}
+
+/// Shape rules, checked on every path: an identifier is a bare name
+/// (non-empty, no surrounding whitespace, no parentheses; no pine-data name
+/// contains one) or a qualified `function(parameter)` with both parts
+/// non-empty. Whether the name is in pine-data is NOT checked here: see
+/// `identifier_known`.
+fn identifier_shape(ident: &str) -> Result<(), String> {
+    if ident.trim().is_empty() {
+        return Err("an empty identifier".to_string());
+    }
+    if ident.trim() != ident {
+        return Err(format!("identifier `{ident}` has surrounding whitespace"));
+    }
+    if !ident.contains(['(', ')']) {
+        return Ok(());
+    }
+    let well_formed = qualified(ident).is_some_and(|(func, param)| {
+        !func.is_empty()
+            && !param.is_empty()
+            && !func.contains(['(', ')'])
+            && !param.contains(['(', ')'])
+    });
+    if well_formed {
+        Ok(())
+    } else {
+        Err(format!(
+            "identifier `{ident}` is not a bare name or `function(parameter)`"
+        ))
+    }
+}
+
+/// Whether `ident` resolves in the pine-data baked into this binary: a name
+/// in some catalog, or a qualified parameter whose function exists and takes
+/// that parameter in some overload. `add` requires it of the identifiers a
+/// person supplies now; stored identifiers are never re-checked, so a
+/// pine-data refresh that renames or drops a name cannot fail a load or
+/// block the writes around it (`show` marks such an identifier instead).
+pub fn identifier_known(ident: &str) -> bool {
+    identifier_membership(ident).is_ok()
+}
+
+/// The membership check behind `identifier_known`, with the reason it fails.
+/// A bare parameter name is refused: the same name is a parameter of many
+/// functions.
+pub(super) fn identifier_membership(ident: &str) -> Result<(), String> {
+    let Some((func, param)) = qualified(ident) else {
         return if behavior::lookup_all(ident).is_empty() {
             Err(format!(
                 "identifier `{ident}` is not in pine-data (qualify a parameter as `function(parameter)`)"

@@ -420,12 +420,19 @@ Errors:
 - unknown TOML fields, unknown `kind` / `source` / `outcome`;
 - an empty question, answer, free-text field, fixture name, candidate model,
   evidence path, or ctx key / value;
-- an identifier that is not in pine-data, or the same identifier listed
-  twice. An identifier is any pine-data name (operators like `?:` and
-  keywords like `for` resolve), or a qualified parameter
-  `function(parameter)` such as `strategy(process_orders_on_close)`, whose
-  parameter must belong to that function. A bare parameter name is refused,
-  because the same name is a parameter of many functions;
+- an identifier that is empty, has surrounding whitespace, or holds
+  parentheses without being `function(parameter)`, or the same identifier
+  listed twice;
+- on `add` creating a question only: an identifier that is not in the
+  pine-data baked into this po. An identifier is any pine-data name
+  (operators like `?:` and keywords like `for` resolve), or a qualified
+  parameter `function(parameter)` such as
+  `strategy(process_orders_on_close)`, whose parameter must belong to that
+  function. A bare parameter name is refused, because the same name is a
+  parameter of many functions. Stored identifiers are never re-checked, so a
+  pine-data refresh that renames or drops a name cannot fail a load or block
+  a write (a keyed `add` rerun included); `show` marks such an identifier
+  `(not in pine-data snapshot ...)` and the record is fixed by hand;
 - a `follow_up_to`, `basis` or `replaced_by` id that does not exist in the
   same directory, names the question itself, or is listed twice; a chain
   through any one of the three that leads back to the question (each is
