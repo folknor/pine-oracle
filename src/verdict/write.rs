@@ -1,9 +1,10 @@
 // Write side: `add` creates a question, `observe` appends one observation,
-// `retire` withdraws a question. All three strictly load the target records directory first (never write into a
-// store that is already invalid), validate the new state with the same rules
-// the read side enforces, and only then touch disk. po computes fixture
-// hashes itself from the bytes it stores, so a recorded hash cannot disagree
-// with its file.
+// `retire` withdraws a question. Each takes the records directory's lock,
+// strictly loads it (never write into a store that is already invalid),
+// validates the new state with the same rules the read side enforces, and
+// only then touches disk. po computes fixture hashes itself from the bytes it
+// stores, so a recorded hash cannot disagree with its file. `add` and
+// `observe` take an optional capture key that makes a rerun a no-op.
 
 use anyhow::{Context as _, Result, bail};
 use std::collections::BTreeSet;
@@ -21,6 +22,9 @@ use super::{
 #[derive(Debug, Clone)]
 pub struct NewQuestion {
     pub kind: Kind,
+    /// Capture key: `add` under a key the directory already holds returns
+    /// that question if the payload matches, and fails if it differs.
+    pub key: Option<String>,
     pub question: String,
     pub answer: String,
     pub identifiers: Vec<String>,
@@ -32,6 +36,20 @@ pub struct NewQuestion {
 #[derive(Debug, Clone)]
 pub struct Added {
     pub id: String,
+    /// The key was already held by an identical question, whose id this is;
+    /// nothing was written.
+    pub existing: bool,
+    pub warnings: Vec<String>,
+}
+
+/// Where `observe` put the observation: its 1-based position in file order
+/// (the `#N` `show` prints).
+#[derive(Debug, Clone)]
+pub struct Observed {
+    pub number: usize,
+    /// The key was already held by an identical observation, whose number
+    /// this is; nothing was written.
+    pub existing: bool,
     pub warnings: Vec<String>,
 }
 
@@ -41,6 +59,9 @@ pub struct Added {
 #[derive(Debug, Clone)]
 pub struct NewObservation {
     pub source: Source,
+    /// Capture key: re-observing under a key the question already holds is
+    /// a no-op if the payload matches, and fails if it differs.
+    pub key: Option<String>,
     /// `YYYY-MM-DD`. Exactly one of `date` and `date_before` must be set.
     pub date: Option<String>,
     /// `YYYY-MM-DD` upper bound, for a capture whose date was never recorded.
@@ -65,14 +86,14 @@ pub struct NewObservation {
 
 /// Create a question under `root` and return its generated id.
 pub fn add(root: &Path, new: &NewQuestion) -> Result<Added> {
+    let _lock = lock(root)?;
     let store = load(&[root.to_path_buf()])?;
-    let taken: BTreeSet<String> = store.questions().iter().map(|q| q.id.clone()).collect();
-    let id = fresh_id(&new.question, &taken, root);
-
-    let q = Question {
-        id: id.clone(),
+    let mut q = Question {
+        id: String::new(),
         root: root.to_path_buf(),
         kind: new.kind,
+        // Keys are exact: stored and matched as given, never normalized.
+        key: new.key.clone(),
         question: new.question.trim().to_string(),
         answer: new.answer.trim().to_string(),
         identifiers: new.identifiers.clone(),
@@ -82,10 +103,99 @@ pub fn add(root: &Path, new: &NewQuestion) -> Result<Added> {
         retired: None,
         observations: Vec::new(),
     };
+    if let Some(key) = &q.key
+        && let Some(existing) = store
+            .questions()
+            .iter()
+            .find(|x| x.key.as_ref() == Some(key))
+    {
+        if let Some(r) = &existing.retired {
+            bail!(
+                "key `{key}` belongs to question {}, which is retired{}",
+                existing.id,
+                replaced_hint(r)
+            );
+        }
+        // Only the plain fields `add` sets are compared: observations and
+        // retirement are later history, not part of the add payload.
+        let stored = Question {
+            observations: Vec::new(),
+            ..existing.clone()
+        };
+        let diff = field_diff(&stored, &q)?;
+        if !diff.is_empty() {
+            bail!(
+                "key `{key}` belongs to question {}, which differs:\n  {}",
+                existing.id,
+                diff.join("\n  ")
+            );
+        }
+        return Ok(Added {
+            id: existing.id.clone(),
+            existing: true,
+            warnings: Vec::new(),
+        });
+    }
+    let taken: BTreeSet<String> = store.questions().iter().map(|x| x.id.clone()).collect();
+    q.id = fresh_id(&q.question, &taken, root);
     let warnings = check(&store, &q, None)?;
     let text = toml::to_string(&q).context("serializing question")?;
-    write_atomic(&question_path(root, &id), text.as_bytes())?;
-    Ok(Added { id, warnings })
+    write_atomic(&question_path(root, &q.id), text.as_bytes())?;
+    Ok(Added {
+        id: q.id,
+        existing: false,
+        warnings,
+    })
+}
+
+/// ` (replaced by a, b)`, or nothing when a retired question names no
+/// replacement.
+fn replaced_hint(r: &Retired) -> String {
+    if r.replaced_by.is_empty() {
+        String::new()
+    } else {
+        format!(" (replaced by {})", r.replaced_by.join(", "))
+    }
+}
+
+/// The top-level fields on which two records differ, as `field: stored X,
+/// given Y` lines. Compared through their TOML form, so the diff speaks the
+/// on-disk field names.
+fn field_diff<T: serde::Serialize>(stored: &T, given: &T) -> Result<Vec<String>> {
+    let table = |v: &T| -> Result<toml::Table> {
+        toml::Table::try_from(v).context("serializing record for comparison")
+    };
+    let (a, b) = (table(stored)?, table(given)?);
+    let fields: BTreeSet<&String> = a.keys().chain(b.keys()).collect();
+    let show =
+        |v: Option<&toml::Value>| v.map_or_else(|| "(absent)".to_string(), ToString::to_string);
+    Ok(fields
+        .into_iter()
+        .filter(|f| a.get(*f) != b.get(*f))
+        .map(|f| format!("`{f}`: stored {}, given {}", show(a.get(f)), show(b.get(f))))
+        .collect())
+}
+
+/// Hold the records directory's write lock until the returned file drops.
+/// Every write verb holds it from its strict load through its last write, so
+/// a check (key absent, question not retired) cannot go stale before the
+/// write that relies on it. The lock file is a persistent dot-file (the
+/// loader ignores dot-files); it is never deleted, since recreating it would
+/// let two processes lock different files.
+fn lock(root: &Path) -> Result<std::fs::File> {
+    if !root.is_dir() {
+        bail!("records directory {} does not exist", root.display());
+    }
+    let path = root.join(".lock");
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&path)
+        .with_context(|| format!("opening {}", path.display()))?;
+    file.lock()
+        .with_context(|| format!("locking {}", path.display()))?;
+    Ok(file)
 }
 
 /// Retire question `id` under `root`: withdraw it for `reason` (ill-posed,
@@ -93,6 +203,7 @@ pub fn add(root: &Path, new: &NewQuestion) -> Result<Added> {
 /// question, and one an active question still uses as a premise (retiring it
 /// must first force a review of that inference).
 pub fn retire(root: &Path, id: &str, reason: &str, replaced_by: &[String]) -> Result<()> {
+    let _lock = lock(root)?;
     let store = load(&[root.to_path_buf()])?;
     let Some(existing) = store.get(id) else {
         bail!("no question `{id}` in {}", root.display());
@@ -131,22 +242,19 @@ fn ids(given: &[String]) -> Vec<String> {
         .collect()
 }
 
-/// Append one observation to question `id` under `root`. Returns the
-/// question's non-blocking warnings.
-pub fn observe(root: &Path, id: &str, new: &NewObservation) -> Result<Vec<String>> {
+/// Append one observation to question `id` under `root`, or, under a key the
+/// question already holds, confirm the identical stored one.
+pub fn observe(root: &Path, id: &str, new: &NewObservation) -> Result<Observed> {
+    let _lock = lock(root)?;
     let store = load(&[root.to_path_buf()])?;
     let Some(existing) = store.get(id) else {
         bail!("no question `{id}` in {}", root.display());
     };
     if let Some(r) = &existing.retired {
-        let hint = if r.replaced_by.is_empty() {
-            String::new()
-        } else {
-            format!(" (replaced by {})", r.replaced_by.join(", "))
-        };
         bail!(
-            "question {} is retired{hint}: record the observation under the question it tests",
-            existing.id
+            "question {} is retired{}: record the observation under the question it tests",
+            existing.id,
+            replaced_hint(r)
         );
     }
     let mut q = existing.clone();
@@ -178,6 +286,8 @@ pub fn observe(root: &Path, id: &str, new: &NewObservation) -> Result<Vec<String
 
     let observation = Observation {
         source: new.source,
+        // Keys are exact: stored and matched as given, never normalized.
+        key: new.key.clone(),
         date,
         date_before,
         fixture: fixture_sha.clone(),
@@ -194,6 +304,27 @@ pub fn observe(root: &Path, id: &str, new: &NewObservation) -> Result<Vec<String
         warnings: new.warnings.clone(),
         candidates: decide_candidates(&new.candidates, &new.selected, &new.refuted)?,
     };
+    if let Some(key) = &observation.key
+        && let Some(i) = q
+            .observations
+            .iter()
+            .position(|o| o.key.as_ref() == Some(key))
+    {
+        let diff = field_diff(&q.observations[i], &observation)?;
+        if !diff.is_empty() {
+            bail!(
+                "key `{key}` belongs to observation #{} of question {}, which differs:\n  {}",
+                i + 1,
+                q.id,
+                diff.join("\n  ")
+            );
+        }
+        return Ok(Observed {
+            number: i + 1,
+            existing: true,
+            warnings: Vec::new(),
+        });
+    }
     q.observations.push(observation);
     let warnings = check(&store, &q, fixture_sha.as_deref())?;
 
@@ -202,7 +333,11 @@ pub fn observe(root: &Path, id: &str, new: &NewObservation) -> Result<Vec<String
     }
     let text = toml::to_string(&q).context("serializing question")?;
     write_atomic(&question_path(root, &q.id), text.as_bytes())?;
-    Ok(warnings)
+    Ok(Observed {
+        number: q.observations.len(),
+        existing: false,
+        warnings,
+    })
 }
 
 /// Put a fixture into the content-addressed store. An existing file is kept
@@ -222,8 +357,8 @@ fn store_fixture(root: &Path, sha: &str, bytes: &[u8]) -> Result<()> {
 /// Write `bytes` to a dot-prefixed temp file beside `path` (unique per
 /// process), then rename it into place, so an interrupted write never leaves
 /// a partial record or fixture under its real name. The loader ignores
-/// dot-files. Concurrent `observe` calls on the same question are still a
-/// read-modify-write race (last writer wins); record sequentially.
+/// dot-files. Callers hold the directory lock, so concurrent writers
+/// serialize rather than race.
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     let name = path
         .file_name()
@@ -235,7 +370,8 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
 }
 
 /// Validate `q` as it would be written into `store` (new or replacing its
-/// namesake), including the relation cycles only the whole store can show;
+/// namesake), including the relation cycles and key clashes only the whole
+/// store can show;
 /// errors refuse the write.
 fn check(store: &Store, q: &Question, pending_fixture: Option<&str>) -> Result<Vec<String>> {
     let mut after: Vec<Question> = store
@@ -253,6 +389,7 @@ fn check(store: &Store, q: &Question, pending_fixture: Option<&str>) -> Result<V
     };
     validate::question(q, &cx, &mut report);
     report.errors.extend(validate::cycles(&after));
+    report.errors.extend(validate::duplicate_keys(&after));
     if !report.errors.is_empty() {
         bail!("refusing to write:\n  {}", report.errors.join("\n  "));
     }

@@ -32,6 +32,7 @@ fn scratch(test: &str) -> PathBuf {
 fn question(kind: Kind, identifiers: &[&str]) -> NewQuestion {
     NewQuestion {
         kind,
+        key: None,
         question: "Q?".to_string(),
         answer: "A.".to_string(),
         identifiers: identifiers.iter().map(ToString::to_string).collect(),
@@ -43,6 +44,7 @@ fn question(kind: Kind, identifiers: &[&str]) -> NewQuestion {
 fn obs(source: Source, date: &str) -> NewObservation {
     NewObservation {
         source,
+        key: None,
         date: Some(date.to_string()),
         date_before: None,
         fixture: None,
@@ -1482,6 +1484,81 @@ fn search_finds_questions_by_prose_code_and_fixture_source() {
         );
     }
     assert!(store.search("   ", 5).expect("search").is_empty());
+}
+
+/// A capture script rerun: the same keyed add and observe are no-ops that
+/// hand back what the first run wrote; a changed payload under the same key
+/// is refused with the differing field named.
+#[test]
+fn capture_keys_make_reruns_idempotent() {
+    let root = scratch("capture-keys");
+    let keyed = NewQuestion {
+        key: Some("run26/export".into()),
+        ..question(Kind::Compile, &["export"])
+    };
+    let first = add(&root, &keyed).expect("first add");
+    assert!(!first.existing);
+    let again = add(&root, &keyed).expect("rerun add");
+    assert!(again.existing);
+    assert_eq!(again.id, first.id);
+    assert_eq!(
+        load(std::slice::from_ref(&root))
+            .expect("load")
+            .questions()
+            .len(),
+        1
+    );
+    refused(
+        add(
+            &root,
+            &NewQuestion {
+                answer: "B.".into(),
+                ..keyed.clone()
+            },
+        ),
+        "`answer`: stored \"A.\", given \"B.\"",
+    );
+
+    let editor = NewObservation {
+        key: Some("editor".into()),
+        fixture: Some(testdata("editor-export-outside-library.pine")),
+        ..compile(Source::Editor, "2026-09-27", Outcome::Accepted)
+    };
+    let o1 = observe(&root, &first.id, &editor).expect("first observe");
+    assert_eq!((o1.number, o1.existing), (1, false));
+    let o2 = observe(&root, &first.id, &editor).expect("rerun observe");
+    assert_eq!((o2.number, o2.existing), (1, true));
+    assert_eq!(reload(&root, &first.id).observations.len(), 1);
+    refused(
+        observe(
+            &root,
+            &first.id,
+            &NewObservation {
+                note: Some("new".into()),
+                ..editor.clone()
+            },
+        ),
+        "`note`: stored (absent)",
+    );
+    // An unkeyed observation is always appended: two identical runs are two
+    // measurements.
+    let plain = compile(Source::Editor, "2026-09-27", Outcome::Accepted);
+    observe(&root, &first.id, &plain).expect("unkeyed");
+    observe(&root, &first.id, &plain).expect("unkeyed again");
+    assert_eq!(reload(&root, &first.id).observations.len(), 3);
+
+    // A retired question does not hand its id back to a rerun.
+    retire(&root, &first.id, "reworded", &[]).expect("retire");
+    refused(add(&root, &keyed), "which is retired");
+
+    // A key held twice (a hand edit) fails the load.
+    let other = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    let path = root.join(format!("{other}.toml"));
+    let text = std::fs::read_to_string(&path).expect("read");
+    std::fs::write(&path, format!("key = \"run26/export\"\n{text}")).expect("write");
+    refused(load(&[root]), "key `run26/export` is held by questions");
 }
 
 #[test]

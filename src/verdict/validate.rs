@@ -65,6 +65,15 @@ pub(super) fn question(q: &Question, cx: &Context<'_>, out: &mut Report) {
     if q.answer.trim().is_empty() {
         errs.push("`answer` is empty".to_string());
     }
+    if q.key.as_deref().is_some_and(|k| k.trim().is_empty()) {
+        errs.push("`key` is empty".to_string());
+    }
+    let mut observation_keys = BTreeSet::new();
+    for key in q.observations.iter().filter_map(|o| o.key.as_deref()) {
+        if !observation_keys.insert(key) {
+            errs.push(format!("observation key `{key}` used twice"));
+        }
+    }
     let mut seen_idents = BTreeSet::new();
     for ident in &q.identifiers {
         if let Err(msg) = identifier(ident) {
@@ -197,6 +206,32 @@ pub(super) fn cycles(questions: &[Question]) -> Vec<String> {
     out
 }
 
+/// Every capture key held by more than one question of one records directory.
+/// A key identifies one question per directory, so a rerun capture script can
+/// find the question it created.
+pub(super) fn duplicate_keys(questions: &[Question]) -> Vec<String> {
+    let mut holders: BTreeMap<(&Path, &str), Vec<&str>> = BTreeMap::new();
+    for q in questions {
+        if let Some(key) = &q.key {
+            holders
+                .entry((q.root.as_path(), key.as_str()))
+                .or_default()
+                .push(q.id.as_str());
+        }
+    }
+    holders
+        .into_iter()
+        .filter(|(_, ids)| ids.len() > 1)
+        .map(|((root, key), ids)| {
+            format!(
+                "{}: key `{key}` is held by questions {}",
+                root.display(),
+                ids.join(", ")
+            )
+        })
+        .collect()
+}
+
 /// Question id -> retired, for every question in `questions` that lives in
 /// `root` (relations resolve within a question's own directory only).
 pub(super) fn ids_in(questions: &[Question], root: &Path) -> BTreeMap<String, bool> {
@@ -269,6 +304,7 @@ fn observation(kind: Kind, o: &Observation, root: &Path, cx: &Context<'_>) -> Ve
         }
     }
     for (field, value) in [
+        ("key", &o.key),
         ("crash", &o.crash),
         ("result", &o.result),
         ("settings", &o.settings),

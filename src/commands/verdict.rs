@@ -22,6 +22,11 @@ pub(crate) enum VerdictCommand {
         records: PathBuf,
         #[arg(long, value_parser = ["compile", "runtime"])]
         kind: String,
+        /// Capture key, unique in the directory. If a question already holds
+        /// it, print that question's id when the payload matches (writing
+        /// nothing) and fail when it differs, so a capture script can rerun.
+        #[arg(long)]
+        key: Option<String>,
         /// The question, in one sentence.
         #[arg(long)]
         question: String,
@@ -117,6 +122,11 @@ pub(crate) struct ObserveArgs {
     records: PathBuf,
     #[arg(long, value_parser = ["editor", "endpoint", "chart"])]
     source: String,
+    /// Capture key, unique in the question. If an observation already holds
+    /// it, do nothing when the payload matches and fail when it differs, so
+    /// a capture script can rerun.
+    #[arg(long)]
+    key: Option<String>,
     /// When the observation was taken, YYYY-MM-DD.
     #[arg(long)]
     date: Option<String>,
@@ -180,6 +190,7 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
         VerdictCommand::Add {
             records,
             kind,
+            key,
             question,
             answer,
             identifiers,
@@ -190,6 +201,7 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
                 &records,
                 &NewQuestion {
                     kind: kind.parse()?,
+                    key,
                     question,
                     answer,
                     identifiers,
@@ -198,6 +210,9 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
                 },
             )?;
             print_warnings(&added.warnings, quiet);
+            if added.existing && !quiet {
+                eprintln!("already recorded: the key's question is unchanged");
+            }
             println!("{}", added.id);
             Ok(())
         }
@@ -208,8 +223,14 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
             replaced_by,
         } => verdict::retire(&records, &id, &reason, &replaced_by),
         VerdictCommand::Observe(args) => {
-            let warnings = verdict::observe(&args.records, &args.id, &new_observation(&args)?)?;
-            print_warnings(&warnings, quiet);
+            let observed = verdict::observe(&args.records, &args.id, &new_observation(&args)?)?;
+            print_warnings(&observed.warnings, quiet);
+            if observed.existing && !quiet {
+                eprintln!(
+                    "already recorded as observation #{}: unchanged",
+                    observed.number
+                );
+            }
             Ok(())
         }
         VerdictCommand::Search {
@@ -276,6 +297,7 @@ fn new_observation(a: &ObserveArgs) -> Result<NewObservation> {
     };
     Ok(NewObservation {
         source: a.source.parse::<Source>()?,
+        key: a.key.clone(),
         date: a.date.clone(),
         date_before: a.date_before.clone(),
         fixture: a.fixture.clone(),
@@ -407,7 +429,12 @@ fn print_question(store: &Store, q: &Question, style: Style) {
 fn print_observation(r: &Ranked<'_>, style: Style) {
     let o = r.observation;
     let verdict = o.outcome.map_or("run", Outcome::as_str);
-    let mut head = format!("  {:<8}  {}  {verdict}", o.source.as_str(), o.date_string());
+    let mut head = format!(
+        "  #{:<3} {:<8}  {}  {verdict}",
+        r.number,
+        o.source.as_str(),
+        o.date_string()
+    );
     if let Some(note) = &r.annotation {
         head.push_str(&format!("  ({note})"));
     }

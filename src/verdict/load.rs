@@ -92,6 +92,7 @@ pub fn load(roots: &[PathBuf]) -> Result<Store> {
     }
     problems.extend(report.errors);
     problems.extend(validate::cycles(&questions));
+    problems.extend(validate::duplicate_keys(&questions));
     if !problems.is_empty() {
         bail!(
             "{} invalid record problem(s):\n  {}",

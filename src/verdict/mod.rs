@@ -42,7 +42,7 @@ mod write;
 pub use load::{ListFilter, Relation, Store, load};
 pub use search::SearchHit;
 pub use spec::{parse_candidate, parse_diag};
-pub use write::{Added, NewObservation, NewQuestion, add, observe, retire};
+pub use write::{Added, NewObservation, NewQuestion, Observed, add, observe, retire};
 
 /// Whether a question is about compilation (accept / reject) or about what a
 /// script does when it runs on a chart.
@@ -204,6 +204,11 @@ pub struct Candidate {
 #[serde(deny_unknown_fields)]
 pub struct Observation {
     pub source: Source,
+    /// Caller-chosen capture key, unique within the question: re-observing
+    /// under an existing key is a no-op when the payload matches and an error
+    /// when it differs, so capture scripts can be rerun.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
     /// When the observation was taken. Exactly one of `date` and
     /// `date_before` is set: `date_before` is an upper bound for captures
     /// whose date was never recorded (e.g. the commit that added an export).
@@ -257,6 +262,11 @@ pub struct Question {
     #[serde(skip)]
     pub root: PathBuf,
     pub kind: Kind,
+    /// Caller-chosen capture key, unique within the records directory:
+    /// adding under an existing key returns that question when the payload
+    /// matches and fails when it differs, so capture scripts can be rerun.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
     pub question: String,
     /// For an inferred question, why the premises jointly establish it. For
     /// a retired one, the former answer, kept as history.
@@ -286,6 +296,9 @@ pub struct Question {
 /// counting observation.
 #[derive(Debug, Clone)]
 pub struct Ranked<'a> {
+    /// 1-based position in file order: the stable `#N` that addresses the
+    /// observation, since display order is by strength.
+    pub number: usize,
     pub observation: &'a Observation,
     pub annotation: Option<String>,
 }
@@ -541,8 +554,8 @@ impl Question {
             None
         };
         obs.into_iter()
-            .map(|(_, o)| o)
-            .map(|o| Ranked {
+            .map(|(i, o)| Ranked {
+                number: i + 1,
                 observation: o,
                 annotation: annotate(self.kind, o, anchor),
             })

@@ -14,7 +14,8 @@ produced it.
 ```
 po verdict add      --records <DIR> --kind compile|runtime --question "..." --answer "..."
                     [--identifier X]... [--follow-up-to <id>]... [--basis <id>]...
-po verdict observe  <id> --records <DIR> --source editor|endpoint|chart
+                    [--key K]
+po verdict observe  <id> --records <DIR> --source editor|endpoint|chart [--key K]
                     (--date YYYY-MM-DD | --date-before YYYY-MM-DD)
                     (--fixture <file.pine> | --no-fixture)
                     compile: (--accepted | --rejected | --crashed "<message>")
@@ -31,8 +32,9 @@ po verdict list     --records <DIR>... [--identifier X] [--code C]
                     [--kind compile|runtime]
 ```
 
-- `add` prints the generated 8-hex question id. Every other verb addresses the
-  question by it.
+- `add` prints the generated 8-hex question id (or, under a capture key
+  already held, the existing one). Every other verb addresses the question by
+  it.
 - `observe` appends one observation. Run it once per measurement: eight chart
   exports that differ only in settings are eight observations. Every
   observation under one question must test the same claim under comparable
@@ -43,12 +45,36 @@ po verdict list     --records <DIR>... [--identifier X] [--code C]
 - The write verbs take one `--records` directory, which must already exist.
   The read verbs accept `--records` more than once.
 - `search` and `list` print `<id>  <status>  <kind>  <question>` rows. `show`
-  prints the full question, strongest observation first. `search` treats
+  prints the full question, strongest observation first, each observation
+  headed by `#N`, its 1-based position in the file (display order is by
+  strength, so `#N` is what stays put). `search` treats
   its query as plain words: Pine and query syntax (`strategy.exit(`, `?:`,
   `NASDAQ:AAPL`) is split into terms, never parsed.
-- Record sequentially. Each write is atomic (temp file + rename), but two
-  concurrent `observe` calls on the same question race, and the last writer
-  wins.
+- Each write verb holds an exclusive lock on `<records>/.lock` from its read
+  of the directory through its last write, and each file write is atomic
+  (temp file + rename), so concurrent writers serialize instead of losing
+  each other's work. The lock file stays in place; leave it (or gitignore
+  it).
+
+### Capture keys
+
+A script that records captures in a loop must be safe to rerun. `--key`
+gives a question (unique in its records directory) or an observation (unique
+in its question) a caller-chosen name, such as the capture's run and probe
+name. Keys match exactly, byte for byte. Adding or observing under a key that is already held compares the
+payload with the stored record:
+
+- identical: nothing is written. `add` prints the existing id, `observe`
+  reports the existing `#N` on stderr (unless `--quiet`);
+- different: the command fails and lists every differing field, so a script
+  that drifted from the record (or still emits a value since amended) is
+  caught instead of silently accepted;
+- a retired question: `add` fails, naming what replaced it, rather than
+  handing a withdrawn id to the observations that follow.
+
+Unkeyed writes always append: two identical unkeyed chart runs are two
+measurements. There is no key-less deduplication by question text, because
+two experiments can ask the same sentence.
 
 `--date` or `--date-before` is required. Use `--date-before` for a capture
 whose date was never recorded, bounded by what is known (for example the date
@@ -206,7 +232,7 @@ records directory (`../fieldwork/...`). Keep evidence inside the same git
 repository, or the stored relative path will not resolve on another checkout.
 
 Besides question files and `fixtures/`, a records directory may hold markdown
-notes (`*.md`) and dot-files (in-flight temp files). Anything else is an error,
+notes (`*.md`) and dot-files (the write lock, in-flight temp files). Anything else is an error,
 so nothing in the directory is silently skipped.
 
 ```toml
@@ -259,7 +285,8 @@ as lineage, so each one needs a decision, usually `follow_up_to`.
 ## Validation
 
 The same rules guard both directions. `add`, `observe` and `retire` refuse to
-write an invalid record and touch nothing on disk. Every read verb loads strictly: one
+write an invalid record and leave every record and fixture untouched (only the
+persistent `.lock` may be created). Every read verb loads strictly: one
 invalid record anywhere under the given directories fails the command, listing
 every problem with its file. A successful `po verdict list --records <DIR>`
 therefore validates the whole directory and serves as a CI gate.
@@ -294,6 +321,8 @@ Errors:
 - a candidate that is undeclared, listed twice, or both selected and refuted,
   or a candidate name that means different models in different observations
   of one question (runs are compared by candidate name);
+- an empty `key`, a question key held by two questions of one directory, or
+  an observation key used twice in one question;
 - a `fixture_name` without a `fixture`;
 - a stored fixture (referenced or not) that is missing or does not hash to
   its name;
