@@ -13,6 +13,8 @@
 
 use anyhow::{Result, bail};
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use super::Citation;
 use super::validate::sha256_hex;
@@ -51,9 +53,32 @@ pub(super) fn section(key: &str) -> Option<&'static Section> {
     manual::get_section(page, anchor)
 }
 
+/// A section subtree as citations need it: its source digest and the plain
+/// text of its blocks.
+struct Projected {
+    digest: String,
+    blocks: Vec<String>,
+}
+
+/// The projection of `s`, computed once per section per process. The manual
+/// is baked into the binary, so it never changes under a running `po`, and
+/// every `resolve` of a cited question consults it.
+fn projected(s: &Section) -> Arc<Projected> {
+    static CACHE: OnceLock<Mutex<HashMap<String, Arc<Projected>>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(Mutex::default);
+    let mut map = cache.lock().unwrap_or_else(PoisonError::into_inner);
+    Arc::clone(map.entry(key(s)).or_insert_with(|| {
+        let markdown = manual::subtree_markdown(s);
+        Arc::new(Projected {
+            digest: sha256_hex(markdown.as_bytes()),
+            blocks: blocks(&markdown),
+        })
+    }))
+}
+
 /// sha256 of the cited subtree's source markdown.
 pub(super) fn digest(s: &Section) -> String {
-    sha256_hex(manual::subtree_markdown(s).as_bytes())
+    projected(s).digest.clone()
 }
 
 /// Whether `quote` lies inside one block of the section subtree's text. The
@@ -64,13 +89,15 @@ pub(super) fn quote_found(s: &Section, quote: &str) -> bool {
     let [needle] = quote_blocks.as_slice() else {
         return false;
     };
-    blocks(&manual::subtree_markdown(s))
+    projected(s)
+        .blocks
         .iter()
         .any(|b| b.contains(needle.as_str()))
 }
 
 /// Why a stored citation no longer counts against this binary's manual, or
-/// `None` while it is current.
+/// `None` while it is current. Quotes are checked even when the digest
+/// matches, so a hand-edited quote cannot ride on an unchanged section.
 pub(super) fn staleness(c: &Citation) -> Option<String> {
     let Some(s) = section(&c.section) else {
         return Some("the section is no longer in the manual".to_string());
@@ -78,7 +105,7 @@ pub(super) fn staleness(c: &Citation) -> Option<String> {
     if let Some(q) = c.quotes.iter().find(|q| !quote_found(s, q)) {
         return Some(format!("the manual no longer says \"{q}\""));
     }
-    if digest(s) != c.digest {
+    if projected(s).digest != c.digest {
         return Some("the section changed since it was cited; review and cite again".to_string());
     }
     None

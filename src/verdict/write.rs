@@ -208,9 +208,10 @@ fn lock(root: &Path) -> Result<std::fs::File> {
 }
 
 /// Retire question `id` under `root`: withdraw it for `reason` (ill-posed,
-/// mis-filed, reworded, abandoned), naming where the investigation continued. Refuses an already-retired
-/// question, and one an active question still uses as a premise (retiring it
-/// must first force a review of that inference).
+/// mis-filed, reworded, abandoned), naming where the investigation
+/// continued. Refuses an already-retired question, and one an active question
+/// still uses as a premise (retiring it must first force a review of that
+/// inference).
 pub fn retire(root: &Path, id: &str, reason: &str, replaced_by: &[String]) -> Result<()> {
     let _lock = lock(root)?;
     let store = load(&[root.to_path_buf()])?;
@@ -433,6 +434,9 @@ pub struct Cited {
     /// An identical active citation already existed, whose number this is;
     /// nothing was written.
     pub existing: bool,
+    /// The question's disposition after the write, then one line per active
+    /// citation that is stale (computed under the write lock).
+    pub outcome: Vec<String>,
 }
 
 /// Cite the manual section `section` (the 8-hex id `po search` prints, or
@@ -466,6 +470,9 @@ pub fn cite(
     let quotes: Vec<String> = quotes.iter().map(|q| q.trim().to_string()).collect();
     if quotes.is_empty() {
         bail!("a citation needs at least one --quote");
+    }
+    if quotes.iter().any(String::is_empty) {
+        bail!("an empty --quote");
     }
     for quote in &quotes {
         if !citation::quote_found(s, quote) {
@@ -502,6 +509,7 @@ pub fn cite(
         return Ok(Cited {
             number: i + 1,
             existing: true,
+            outcome: cite_outcome(&store, &q),
         });
     }
     q.citations.push(new);
@@ -511,7 +519,27 @@ pub fn cite(
     Ok(Cited {
         number: q.citations.len(),
         existing: false,
+        outcome: cite_outcome(&store.with(&q), &q),
     })
+}
+
+/// The question's disposition after a `cite`, plus every active citation
+/// that does not count: one stale member keeps the whole support set from
+/// holding, so the caller learns which to review and void.
+fn cite_outcome(store: &Store, q: &Question) -> Vec<String> {
+    let mut lines = vec![format!("question {} is {}", q.id, store.resolve(q))];
+    for (i, c) in q.citations.iter().enumerate() {
+        if c.void.is_none()
+            && let Some(why) = citation::staleness(c)
+        {
+            lines.push(format!(
+                "citation #{} is stale ({why}): review it, then void it with `void --citation {}`",
+                i + 1,
+                i + 1
+            ));
+        }
+    }
+    lines
 }
 
 /// Observation `number` (1-based file order) of `q`.

@@ -6,8 +6,8 @@
 // line that produced it.
 //
 // A records directory holds one `<id>.toml` per question plus a
-// content-addressed `fixtures/<sha256>.pine` store. po writes both (`add`,
-// `observe`); the read side (`load`) is strict, so any command that succeeds
+// content-addressed `fixtures/<sha256>.pine` store. po writes both (the write
+// verbs in `write`); the read side (`load`) is strict, so any command that succeeds
 // has validated every record under the directories it was given.
 //
 // A question records what TradingView did, per oracle source, and never
@@ -645,10 +645,12 @@ impl Observation {
 }
 
 impl Question {
-    /// Every diagnostic code any observation carries, sorted.
+    /// Every diagnostic code a non-void observation carries, sorted. A void
+    /// observation was mis-recorded, so its codes describe nothing.
     pub fn codes(&self) -> BTreeSet<&str> {
         self.observations
             .iter()
+            .filter(|o| o.void.is_none())
             .flat_map(|o| o.errors.iter().chain(&o.warnings))
             .map(|d| d.code.as_str())
             .collect()

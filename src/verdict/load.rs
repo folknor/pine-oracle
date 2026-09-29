@@ -7,7 +7,7 @@
 // a dot-file (in-flight temp files).
 
 use anyhow::{Context as _, Result, bail};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
 use super::validate::{self, Context, Report};
@@ -245,10 +245,15 @@ impl Store {
     /// documented, and otherwise open via its worst premise (conflict < open
     /// < documented, first in `basis` order on a tie): a conflicting premise
     /// blocks the inference but is not a conflict in it, since nobody
-    /// measured it. Premises may
-    /// themselves be inferred; `load` has refused cycles, and validation
-    /// keeps retired questions out of an active basis.
+    /// measured it. Premises may themselves be inferred; `load` has refused
+    /// cycles, and validation keeps retired questions out of an active basis.
     pub fn resolve(&self, q: &Question) -> Resolved {
+        self.resolve_memo(q, &mut HashMap::new())
+    }
+
+    /// `resolve` with each premise resolved once per call, so a basis graph
+    /// where premises share premises does not re-resolve them per path.
+    fn resolve_memo<'s>(&'s self, q: &Question, memo: &mut HashMap<&'s str, Status>) -> Resolved {
         if let Some(r) = &q.retired {
             return Resolved::Retired {
                 replaced_by: r.replaced_by.clone(),
@@ -264,10 +269,17 @@ impl Store {
         }
         let mut worst: Option<(Status, &str)> = None;
         for id in &q.basis {
-            let status = self
-                .get(id)
-                .and_then(|p| self.resolve(p).status())
-                .unwrap_or(Status::Open);
+            let status = match self.get(id) {
+                Some(p) => match memo.get(p.id.as_str()) {
+                    Some(s) => *s,
+                    None => {
+                        let s = self.resolve_memo(p, memo).status().unwrap_or(Status::Open);
+                        memo.insert(p.id.as_str(), s);
+                        s
+                    }
+                },
+                None => Status::Open,
+            };
             if worst.is_none_or(|(w, _)| status < w) {
                 worst = Some((status, id));
             }

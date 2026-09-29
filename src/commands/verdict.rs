@@ -362,8 +362,13 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
             note,
         } => {
             let cited = verdict::cite(&records, &id, &section, &quotes, note.as_deref())?;
-            if cited.existing && !quiet {
-                eprintln!("already cited as citation #{}: unchanged", cited.number);
+            if !quiet {
+                if cited.existing {
+                    eprintln!("already cited as citation #{}: unchanged", cited.number);
+                }
+                for line in &cited.outcome {
+                    eprintln!("{line}");
+                }
             }
             Ok(())
         }

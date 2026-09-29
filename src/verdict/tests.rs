@@ -1732,6 +1732,27 @@ fn inconclusive_and_void_stop_an_observation_counting() {
     // A rerun script does not quietly re-confirm a voided capture.
     refused(observe(&root, &id, &accept), "which is void");
 
+    // A void observation's codes no longer find the question.
+    let by_code = |root: &Path| {
+        ids_of(
+            &load(&[root.to_path_buf()]).expect("load"),
+            &ListFilter {
+                code: Some("CE10099"),
+                ..Default::default()
+            },
+        )
+    };
+    assert_eq!(by_code(&root), vec![id.clone()]);
+    void(&root, &id, VoidTarget::Observation(2), "wrong fixture").expect("void reject");
+    assert!(by_code(&root).is_empty());
+    assert!(
+        load(std::slice::from_ref(&root))
+            .expect("load")
+            .search("CE10099", 5)
+            .expect("search")
+            .is_empty()
+    );
+
     // A voided mis-recorded candidate model does not block the corrected one.
     let rt = add(&root, &question(Kind::Runtime, &[])).expect("add").id;
     let wrong = NewObservation {
@@ -1910,6 +1931,10 @@ fn citation_quotes_must_be_in_one_block_of_the_section() {
         ),
         "does not say",
     );
+    refused(
+        cite(&root, &id, LOWER_TF, &quotes(&[LOOKAHEAD_ON, "  "]), None),
+        "an empty --quote",
+    );
     // Nor may the quote itself be two paragraphs joined into one.
     refused(
         cite(
@@ -1961,8 +1986,20 @@ fn stale_citations_stop_counting_without_failing_the_load() {
             .is_some_and(|s| s.starts_with("stale, does not count")),
         "{stale:?}"
     );
-    // One stale member stops the whole support set.
-    cite(&root, &id, LOWER_TF, &quotes(&[LOOKAHEAD_OFF]), None).expect("cite other");
+    // One stale member stops the whole support set, and the caller is told
+    // which one to review.
+    let other = cite(&root, &id, LOWER_TF, &quotes(&[LOOKAHEAD_OFF]), None).expect("cite other");
+    assert_eq!(resolved(&root, &id), Resolved::Measured(Status::Open));
+    assert_eq!(other.outcome[0], format!("question {id} is open"));
+    assert!(
+        other.outcome[1].starts_with("citation #1 is stale"),
+        "{:?}",
+        other.outcome
+    );
+    // Re-citing the stale passage appends a fresh citation rather than
+    // confirming the stale one; the stale one still blocks until voided.
+    let recited = cite(&root, &id, LOWER_TF, &quotes(&[LOOKAHEAD_ON]), None).expect("re-cite");
+    assert_eq!((recited.number, recited.existing), (3, false));
     assert_eq!(resolved(&root, &id), Resolved::Measured(Status::Open));
 
     void(
@@ -1974,8 +2011,29 @@ fn stale_citations_stop_counting_without_failing_the_load() {
     .expect("void stale");
     assert_eq!(resolved(&root, &id), Resolved::Documented);
     refused(
-        void(&root, &id, VoidTarget::Citation(3), "r"),
-        "has no citation #3",
+        void(&root, &id, VoidTarget::Citation(4), "r"),
+        "has no citation #4",
+    );
+
+    // A section the manual dropped altogether.
+    let gone = add(&root, &question(Kind::Runtime, &["request.security"]))
+        .expect("add")
+        .id;
+    cite(&root, &gone, LOWER_TF, &quotes(&[LOOKAHEAD_ON]), None).expect("cite");
+    let path = root.join(format!("{gone}.toml"));
+    let text = std::fs::read_to_string(&path).expect("read");
+    std::fs::write(
+        &path,
+        text.replace(
+            "faq/other-data-and-timeframes#lower-timeframes",
+            "faq/removed-page#removed-anchor",
+        ),
+    )
+    .expect("write");
+    assert_eq!(resolved(&root, &gone), Resolved::Measured(Status::Open));
+    assert_eq!(
+        reload(&root, &gone).citations[0].not_counting().as_deref(),
+        Some("stale, does not count: the section is no longer in the manual")
     );
 }
 

@@ -1,8 +1,9 @@
 // BM25 over a loaded verdict store (tantivy, RAM-backed, built per call - the
 // store is loaded per invocation from a caller-named directory, so there is
 // nothing to cache across runs). The title field (question, identifiers,
-// codes) is boosted over the body (answer, results, messages, notes, fixture
-// source), matching the manual / recipe finder.
+// codes) is boosted over the body (answer, results, messages, notes,
+// citation quotes, fixture source), matching the manual / recipe finder. Void
+// observations and citations are left out: they were withdrawn.
 
 use anyhow::Result;
 use tantivy::collector::TopDocs;
@@ -80,12 +81,13 @@ fn title_text(q: &Question) -> String {
 fn content_text(q: &Question) -> String {
     let mut parts: Vec<String> = vec![q.answer.clone()];
     parts.extend(q.retired.as_ref().map(|r| r.reason.clone()));
-    for c in &q.citations {
+    // Void records were withdrawn; a search must not find a question by them.
+    for c in q.citations.iter().filter(|c| c.void.is_none()) {
         parts.extend(c.quotes.iter().cloned());
         parts.extend(c.note.clone());
     }
     let mut fixtures = std::collections::BTreeSet::new();
-    for o in &q.observations {
+    for o in q.observations.iter().filter(|o| o.void.is_none()) {
         parts.extend(
             [
                 &o.result,

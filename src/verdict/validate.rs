@@ -1,4 +1,4 @@
-// Record validation, shared by the write path (`add` / `observe` refuse to
+// Record validation, shared by the write path (every write verb refuses to
 // write an invalid record) and the strict read path (`load` refuses to serve
 // a store holding one). Errors block; warnings are surfaced but allowed.
 

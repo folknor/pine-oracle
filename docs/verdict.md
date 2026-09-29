@@ -77,7 +77,9 @@ payload with the stored record:
   that drifted from the record (or still emits a value since amended) is
   caught instead of silently accepted;
 - a retired question: `add` fails, naming what replaced it, rather than
-  handing a withdrawn id to the observations that follow.
+  handing a withdrawn id to the observations that follow;
+- a void observation: `observe` fails. The key stays with the voided record,
+  so the corrected measurement needs a new key.
 
 Unkeyed writes always append: two identical unkeyed chart runs are two
 measurements. There is no key-less deduplication by question text, because
@@ -95,7 +97,8 @@ indexes current values only.
 What was measured is not amendable: source, dates, fixture, outcome, codes
 and candidates. A wrong measurement is withdrawn with `void`, which keeps the
 observation visible, marks it `void, does not count: <reason>`, and never
-lets it count again; the corrected measurement is then a new `observe`.
+lets it count again; the corrected measurement is then a new `observe`. A
+void observation's codes no longer match `list --code`, and search skips it.
 Marking a run inconclusive after the fact (`amend --inconclusive`) is for a
 run that was measured correctly but did not test the claim; `--clear
 inconclusive` makes it count again. Status is recomputed from the result, and
@@ -240,14 +243,18 @@ and cites again. `void --citation` also withdraws a citation applied in
 error.
 
 Citing the same section with the same quotes while an identical active
-citation is current is a no-op, so a script may rerun it. A citation is not
+citation is current is a no-op, so a script may rerun it; with a different
+`--note` it is an error (void the old citation to cite anew). Against a
+stale citation it appends a new one, and the stale one keeps the question
+`open` until it is voided. `cite` reports the question's resulting status on
+stderr (unless `--quiet`), naming every active citation that is stale. A citation is not
 allowed on an active inferred question (it is an answer route of its own,
 like measurement) or on a retired one. An inferred question whose worst
 premise is `documented` is `inferred (documented via <id>)`.
 
 `show` lists citations before the observations, each headed `#N  manual
 <section id>  <time>` with the section, its breadcrumb, the quotes and the
-note. Search indexes quotes and notes.
+note. Search indexes the quotes and notes of active citations.
 
 ## Relations between questions
 
@@ -265,7 +272,7 @@ may not carry a counting editor or chart observation: answer it either by
 measurement (drop `basis`) or by inference, never silently both. Weaker
 (endpoint) and non-counting observations may sit on it and are shown
 unannotated. Its answer must say why the premises jointly establish it: po
-checks that the premises are settled, not that they imply the answer.
+checks the premises' dispositions, not that they imply the answer.
 
 An inferred question is `inferred (settled)` when every premise resolves
 settled, and `inferred (documented via 5c0ffee1)` when the worst premise is
