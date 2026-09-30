@@ -1,28 +1,2 @@
-# Project config for `review`. Everything here is optional except [_audit].
-# Settings resolve command line, then this file, then the operator's global
-# config (~/.config/review/config.toml, same format). Run `review config` to see
-# the effective result and where each value came from.
-#
-# Archetypes are priming prompts: a name mapped to text prepended to stdin.
-# A run without an archetype sends stdin unchanged.
-#
-# [archetypes]
-# security = "You are a security expert for this project. Read the codebase."
-#
-# Providers to fan out to when --provider is omitted:
-# [_defaults]
-# providers = ["codex"]
-#
-# Groups fan out to multiple archetypes:
-# [_groups]
-# sweep = ["security", "bugs"]
-#
-# Named profiles, selected with --profile, as [<provider>.<profile>]. A profile
-# here replaces a global profile of the same name entirely.
-# [codex.deep]
-# model = "gpt-6-luna"
-# effort = "high"
-# sandbox = "read-only"
-
 [_audit]
 id = "1b97"
