@@ -202,6 +202,21 @@ reason. If the difference is intended, the runs had different inputs and
 belong to separate questions. Nothing supersedes automatically: a stale or
 wrongly recorded observation is voided (see Corrections).
 
+`observe` warns (stderr, unless `--quiet`) when the observation it just
+wrote contradicts counting observations of the same strength already under
+the question, by the agreement rules above. The warning names each
+contradicted `#N` with its outcome and codes (runtime: how the run halts and
+what it selects or refutes) and gives the question's disposition as `show`
+prints it, before and after: `is now conflict (was settled)` (or `was open`:
+runs with only undecided candidates still contradict when they halt
+differently), `stays conflict`, and, between two endpoint observations,
+`weaker source only` with whatever the question stays (`settled`,
+`documented`, `inferred (...)`). The write still happens, since a real
+conflict is a legitimate record. Mixed outcomes are usually fixtures testing
+different claims, though: void the new observation and file it under its own
+question, before more pile up. An endpoint disagreeing with the editor is
+the known gap and is not warned about (`show` annotates it).
+
 ## Manual citations
 
 When the Pine User Manual states a behavior outright, `cite` records the

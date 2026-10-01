@@ -624,6 +624,63 @@ impl Observation {
         self.counts() && self.source.strength() == TOP_STRENGTH
     }
 
+    /// Whether this observation and `other`, both of a `kind` question,
+    /// disagree. Two deciding observations that do make the question a
+    /// conflict; whether either counts is the caller's concern.
+    pub fn contradicts(&self, other: &Observation, kind: Kind) -> bool {
+        match kind {
+            Kind::Compile => !compile_agree(self, other),
+            Kind::Runtime => runtime_disagree(self, other),
+        }
+    }
+
+    /// What this observation measured, in the terms agreement compares:
+    /// compile `rejected (CE10099)`, runtime `halts (RE10044); selects A`.
+    pub fn verdict_summary(&self, kind: Kind) -> String {
+        let listed = |diags: &mut dyn Iterator<Item = &Diag>| {
+            diags
+                .map(|d| d.code.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let mut parts = Vec::new();
+        match kind {
+            Kind::Compile => {
+                let outcome = self.outcome.map_or("no outcome", Outcome::as_str);
+                let all = listed(&mut self.errors.iter().chain(&self.warnings));
+                if codes_unrecorded(self) {
+                    parts.push(format!("{outcome} (codes not recorded)"));
+                } else if all.is_empty() {
+                    parts.push(outcome.to_string());
+                } else {
+                    parts.push(format!("{outcome} ({all})"));
+                }
+            }
+            Kind::Runtime => {
+                if self.errors.is_empty() {
+                    parts.push("runs clean".to_string());
+                } else {
+                    parts.push(format!("halts ({})", listed(&mut self.errors.iter())));
+                }
+                for (state, verb) in [
+                    (CandidateState::Selected, "selects"),
+                    (CandidateState::Refuted, "refutes"),
+                ] {
+                    let names: Vec<&str> = self
+                        .candidates
+                        .iter()
+                        .filter(|c| c.state == state)
+                        .map(|c| c.name.as_str())
+                        .collect();
+                    if !names.is_empty() {
+                        parts.push(format!("{verb} {}", names.join(", ")));
+                    }
+                }
+            }
+        }
+        parts.join("; ")
+    }
+
     /// The date for display: `YYYY-MM-DD`, or `before YYYY-MM-DD` for an
     /// upper bound (validation guarantees exactly one, date-only).
     pub fn date_string(&self) -> String {
@@ -687,21 +744,18 @@ impl Question {
         if top.is_empty() {
             return Status::Open;
         }
+        // Pairwise, not against one reference: a code-less reject agrees
+        // with rejects carrying CE10147 and CE10099 alike, but those two
+        // still conflict with each other.
+        let conflict = top
+            .iter()
+            .enumerate()
+            .any(|(i, a)| top[i + 1..].iter().any(|b| a.contradicts(b, self.kind)));
+        if conflict {
+            return Status::Conflict;
+        }
         match self.kind {
-            Kind::Compile => {
-                // Pairwise, not against one reference: a code-less reject
-                // agrees with rejects carrying CE10147 and CE10099 alike, but
-                // those two still conflict with each other.
-                let all_agree = top
-                    .iter()
-                    .enumerate()
-                    .all(|(i, a)| top[i + 1..].iter().all(|b| compile_agree(a, b)));
-                if all_agree {
-                    Status::Settled
-                } else {
-                    Status::Conflict
-                }
-            }
+            Kind::Compile => Status::Settled,
             Kind::Runtime => runtime_status(&top),
         }
     }
@@ -807,35 +861,29 @@ fn codes(diags: &[Diag]) -> BTreeSet<&str> {
     diags.iter().map(|d| d.code.as_str()).collect()
 }
 
-/// Runtime status over the counting chart runs. Conflict when a candidate is
-/// selected by one run and refuted by another (result text cannot be compared
-/// automatically, so this is the contradiction that matters), or when the runs'
-/// error codes differ (one halts, one runs clean: if intended, the runs had
-/// different inputs and belong to separate questions). Otherwise settled only
-/// if some run decides: it declares no candidates, or it selects or refutes
-/// one. Runs whose candidates are all undecided leave the question open.
+/// Whether two runtime runs contradict each other: a candidate one selects
+/// the other refutes (result text cannot be compared automatically, so this
+/// is the contradiction that matters), or their error codes differ (one
+/// halts, one runs clean: if intended, the runs had different inputs and
+/// belong to separate questions).
+fn runtime_disagree(a: &Observation, b: &Observation) -> bool {
+    let opposed = |x: &Observation, y: &Observation| {
+        x.candidates
+            .iter()
+            .filter(|c| c.state == CandidateState::Selected)
+            .any(|c| {
+                y.candidates
+                    .iter()
+                    .any(|d| d.name == c.name && d.state == CandidateState::Refuted)
+            })
+    };
+    codes(&a.errors) != codes(&b.errors) || opposed(a, b) || opposed(b, a)
+}
+
+/// Runtime status over counting chart runs that contradict nothing: settled
+/// only if some run decides (it declares no candidates, or it selects or
+/// refutes one). Runs whose candidates are all undecided leave it open.
 fn runtime_status(top: &[&Observation]) -> Status {
-    let mut selected = BTreeSet::new();
-    let mut refuted = BTreeSet::new();
-    for o in top {
-        for c in &o.candidates {
-            match c.state {
-                CandidateState::Selected => {
-                    selected.insert(c.name.as_str());
-                }
-                CandidateState::Refuted => {
-                    refuted.insert(c.name.as_str());
-                }
-                CandidateState::Undecided => {}
-            }
-        }
-    }
-    let halts_differ = top
-        .iter()
-        .any(|o| codes(&o.errors) != codes(&top[0].errors));
-    if !selected.is_disjoint(&refuted) || halts_differ {
-        return Status::Conflict;
-    }
     let decides = top.iter().any(|o| {
         o.candidates.is_empty()
             || o.candidates

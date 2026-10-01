@@ -257,6 +257,196 @@ fn runtime_candidates_select_refute_and_conflict() {
 }
 
 #[test]
+fn contradicting_observations_warn_at_observe_time() {
+    let root = scratch("contradiction-warning");
+    let id = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    let quiet = |o: &NewObservation| {
+        let observed = observe(&root, &id, o).expect("observe");
+        assert!(observed.warnings.is_empty(), "{:?}", observed.warnings);
+    };
+    let warned = |o: &NewObservation| -> String {
+        let observed = observe(&root, &id, o).expect("observe");
+        assert_eq!(observed.warnings.len(), 1, "{:?}", observed.warnings);
+        observed.warnings[0].clone()
+    };
+
+    quiet(&compile(Source::Editor, "2026-09-20", Outcome::Accepted));
+    // The endpoint disagreeing with the editor is the known gap, not a
+    // contradiction worth a warning.
+    let reject = NewObservation {
+        errors: vec![parse_diag("CE10099").expect("diag")],
+        ..compile(Source::Editor, "2026-09-21", Outcome::Rejected)
+    };
+    quiet(&NewObservation {
+        source: Source::Endpoint,
+        date: Some("2026-09-20".into()),
+        ..reject.clone()
+    });
+    assert_eq!(
+        warned(&reject),
+        "observation #3 editor rejected (CE10099) contradicts #1 editor accepted: \
+         question {id} is now conflict (was settled). If the fixtures test different \
+         claims, they belong to separate questions: `void --observation 3` and observe \
+         it under its own question. If one was mis-recorded, void that one."
+            .replace("{id}", &id)
+    );
+    // Agreeing with #3 still contradicts #1.
+    let again = NewObservation {
+        key: Some("again".into()),
+        ..reject.clone()
+    };
+    assert!(warned(&again).contains("contradicts #1 editor accepted: question"));
+    assert!(warned_rerun_is_silent(&root, &id, &again));
+    // Same-strength weaker sources contradicting each other warn too.
+    let w = warned(&compile(Source::Endpoint, "2026-09-22", Outcome::Accepted));
+    assert!(
+        w.contains(
+            "contradicts #2 endpoint rejected (CE10099): weaker source only, question \
+             {id} stays conflict"
+                .replace("{id}", &id)
+                .as_str()
+        ),
+        "{w}"
+    );
+    // A non-counting observation decides nothing, so contradicts nothing.
+    quiet(&NewObservation {
+        inconclusive: Some("fixture bug".into()),
+        ..compile(Source::Editor, "2026-09-23", Outcome::Accepted)
+    });
+    // Chart and editor share the top tier; every contradicted row is named.
+    let w = warned(&compile(Source::Chart, "2026-09-24", Outcome::Accepted));
+    assert!(
+        w.contains(
+            "observation #7 chart accepted contradicts #3 editor rejected (CE10099), \
+             #4 editor rejected (CE10099): question"
+        ),
+        "{w}"
+    );
+
+    let rt = add(&root, &question(Kind::Runtime, &[])).expect("add").id;
+    let candidates = vec![parse_candidate("A").expect("A")];
+    observe(
+        &root,
+        &rt,
+        &NewObservation {
+            candidates: candidates.clone(),
+            refuted: vec!["A".into()],
+            ..runtime("2026-09-20")
+        },
+    )
+    .expect("first run");
+    let second = observe(
+        &root,
+        &rt,
+        &NewObservation {
+            candidates,
+            selected: vec!["A".into()],
+            ..runtime("2026-09-21")
+        },
+    )
+    .expect("second run");
+    assert!(
+        second.warnings.last().expect("warning").contains(
+            "observation #2 chart runs clean; selects A contradicts #1 chart runs clean; \
+             refutes A: question"
+        ),
+        "{:?}",
+        second.warnings
+    );
+}
+
+#[test]
+fn contradiction_warning_reports_the_shown_disposition() {
+    let root = scratch("contradiction-disposition");
+    let last_warning = |id: &str, o: &NewObservation| -> String {
+        observe(&root, id, o)
+            .expect("observe")
+            .warnings
+            .last()
+            .cloned()
+            .unwrap_or_default()
+    };
+    let rejected = NewObservation {
+        errors: vec![parse_diag("CE10099").expect("diag")],
+        ..compile(Source::Endpoint, "2026-09-20", Outcome::Rejected)
+    };
+
+    // Documented: endpoint rows never decide, so the citations still hold.
+    let documented = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    cite(&root, &documented, LOWER_TF, &quotes(&[LOOKAHEAD_ON]), None).expect("cite");
+    observe(&root, &documented, &rejected).expect("endpoint reject");
+    let w = last_warning(
+        &documented,
+        &compile(Source::Endpoint, "2026-09-21", Outcome::Accepted),
+    );
+    assert!(
+        w.contains(&format!(
+            "weaker source only, question {documented} stays documented."
+        )),
+        "{w}"
+    );
+
+    // Inferred: it may carry only weaker observations, and they never
+    // decide it.
+    let inferred = add(
+        &root,
+        &NewQuestion {
+            basis: vec![documented.clone()],
+            ..question(Kind::Compile, &["export"])
+        },
+    )
+    .expect("add")
+    .id;
+    observe(&root, &inferred, &rejected).expect("endpoint reject");
+    let w = last_warning(
+        &inferred,
+        &compile(Source::Endpoint, "2026-09-21", Outcome::Accepted),
+    );
+    assert!(
+        w.contains(&format!(
+            "weaker source only, question {inferred} stays inferred (documented via \
+             {documented})."
+        )),
+        "{w}"
+    );
+
+    // Runtime runs with only undecided candidates are open, yet differing
+    // halts still contradict.
+    let rt = add(&root, &question(Kind::Runtime, &["strategy.entry"]))
+        .expect("add")
+        .id;
+    let undecided = NewObservation {
+        candidates: vec![parse_candidate("A").expect("A")],
+        ..runtime("2026-09-20")
+    };
+    observe(&root, &rt, &undecided).expect("clean run");
+    let w = last_warning(
+        &rt,
+        &NewObservation {
+            errors: vec![parse_diag("RE10044||bar=100").expect("diag")],
+            ..undecided.clone()
+        },
+    );
+    assert!(
+        w.contains(&format!(
+            "observation #2 chart halts (RE10044) contradicts #1 chart runs clean: \
+             question {rt} is now conflict (was open)."
+        )),
+        "{w}"
+    );
+}
+
+/// A keyed rerun writes nothing, so it warns about nothing.
+fn warned_rerun_is_silent(root: &Path, id: &str, o: &NewObservation) -> bool {
+    let observed = observe(root, id, o).expect("rerun");
+    observed.existing && observed.warnings.is_empty()
+}
+
+#[test]
 fn runtime_errors_take_re_codes_and_bars() {
     let root = scratch("runtime-errors");
     let id = add(&root, &question(Kind::Runtime, &[])).expect("add").id;

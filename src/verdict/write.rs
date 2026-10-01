@@ -684,7 +684,8 @@ pub fn observe(root: &Path, id: &str, new: &NewObservation) -> Result<Observed> 
         });
     }
     q.observations.push(observation);
-    let warnings = check(&store, &q, fixture_sha.as_deref())?;
+    let mut warnings = check(&store, &q, fixture_sha.as_deref())?;
+    warnings.extend(contradiction(&store, existing, &q));
 
     if let (Some(sha), Some(bytes)) = (&fixture_sha, &fixture_bytes) {
         store_fixture(root, sha, bytes)?;
@@ -696,6 +697,66 @@ pub fn observe(root: &Path, id: &str, new: &NewObservation) -> Result<Observed> 
         existing: false,
         warnings,
     })
+}
+
+/// The warning for an observation (the last of `after`) that contradicts
+/// counting observations of the same source strength already under the
+/// question (`before`). Mixed outcomes under one question usually mean
+/// fixtures testing different claims, which belong to separate questions;
+/// at the top strength they make the question a conflict. Weaker-vs-stronger
+/// disagreement is not warned about: it is the expected endpoint gap, and
+/// `show` annotates it.
+fn contradiction(store: &Store, before: &Question, after: &Question) -> Option<String> {
+    let new = after.observations.last()?;
+    if !new.counts() {
+        return None;
+    }
+    let against: Vec<String> = before
+        .observations
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| {
+            o.counts()
+                && o.source.strength() == new.source.strength()
+                && new.contradicts(o, after.kind)
+        })
+        .map(|(i, o)| {
+            format!(
+                "#{} {} {}",
+                i + 1,
+                o.source.as_str(),
+                o.verdict_summary(after.kind)
+            )
+        })
+        .collect();
+    if against.is_empty() {
+        return None;
+    }
+    let number = after.observations.len();
+    // The disposition `show` prints, not the measurement-only status: a
+    // documented or inferred question need not end up a conflict.
+    let (was, now) = (
+        store.resolve(before).to_string(),
+        store.with(after).resolve(after).to_string(),
+    );
+    let tier = if new.decides() {
+        ""
+    } else {
+        "weaker source only, "
+    };
+    let status = if was == now {
+        format!("{tier}question {} stays {now}", after.id)
+    } else {
+        format!("{tier}question {} is now {now} (was {was})", after.id)
+    };
+    Some(format!(
+        "observation #{number} {} {} contradicts {}: {status}. If the fixtures test \
+         different claims, they belong to separate questions: `void --observation {number}` \
+         and observe it under its own question. If one was mis-recorded, void that one.",
+        new.source.as_str(),
+        new.verdict_summary(after.kind),
+        against.join(", ")
+    ))
 }
 
 /// Put a fixture into the content-addressed store. An existing file is kept
