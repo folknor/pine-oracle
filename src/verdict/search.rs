@@ -7,7 +7,7 @@
 
 use anyhow::Result;
 use tantivy::collector::TopDocs;
-use tantivy::query::{BooleanQuery, BoostQuery, Query, QueryParser};
+use tantivy::query::{BooleanQuery, BoostQuery, Query};
 use tantivy::schema::{STORED, STRING, Schema, TEXT, Value};
 use tantivy::{Index, TantivyDocument};
 
@@ -27,7 +27,6 @@ impl Store {
     /// Ranked questions for `q`. An empty query returns nothing.
     pub fn search(&self, q: &str, limit: usize) -> Result<Vec<SearchHit>> {
         // tantivy's TopDocs panics on a zero limit.
-        let q = &crate::query::plain_terms(q);
         if q.trim().is_empty() || limit == 0 || self.questions().is_empty() {
             return Ok(Vec::new());
         }
@@ -47,10 +46,10 @@ impl Store {
         writer.commit()?;
 
         let searcher = index.reader()?.searcher();
-        // Lenient parsing: verdict queries are full of Pine syntax
-        // (`strategy.exit(`, `?:`, `a:b`) that the strict parser rejects.
-        let (title_q, _) = QueryParser::for_index(&index, vec![title]).parse_query_lenient(q);
-        let (content_q, _) = QueryParser::for_index(&index, vec![content]).parse_query_lenient(q);
+        // Plain words: verdict queries are full of Pine syntax
+        // (`strategy.exit(`, `?:`, `a:b`) and never mean query operators.
+        let title_q = crate::query::field_query(&index, title, q)?;
+        let content_q = crate::query::field_query(&index, content, q)?;
         let boosted: Box<dyn Query> = Box::new(BoostQuery::new(title_q, TITLE_BOOST));
         let query = BooleanQuery::union(vec![boosted, content_q]);
         let top = searcher.search(&query, &TopDocs::with_limit(limit).order_by_score())?;

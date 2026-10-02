@@ -1257,6 +1257,79 @@ fn re_observing_a_stored_fixture_keeps_its_name() {
             Some("editor-export-outside-library.pine")
         );
     }
+
+    // The same bytes captured under a second name: the names now disagree,
+    // so a new observation by store path records none rather than picking.
+    let elsewhere = scratch("fixture-name-copies");
+    let copy = elsewhere.join("copy.pine");
+    std::fs::copy(testdata("editor-export-outside-library.pine"), &copy).expect("copy");
+    let keyed = NewObservation {
+        key: Some("copy".into()),
+        fixture: Some(copy),
+        ..compile(Source::Editor, "2026-09-28", Outcome::Accepted)
+    };
+    observe(&root, &id, &keyed).expect("second name");
+    observe(&root, &id, &again).expect("ambiguous by store path");
+    assert_eq!(reload(&root, &id).observations[3].fixture_name, None);
+
+    // A keyed rerun by store path carries its own observation's name, not
+    // whichever another observation recorded.
+    let rerun = observe(
+        &root,
+        &id,
+        &NewObservation {
+            fixture: Some(root.join("fixtures").join(format!("{RUN26_SHA}.pine"))),
+            ..keyed.clone()
+        },
+    )
+    .expect("keyed rerun by store path");
+    assert!(rerun.existing);
+    // Under its real name another file with the same bytes still differs.
+    let other = elsewhere.join("other.pine");
+    std::fs::copy(testdata("editor-export-outside-library.pine"), &other).expect("copy");
+    refused(
+        observe(
+            &root,
+            &id,
+            &NewObservation {
+                fixture: Some(other),
+                ..keyed
+            },
+        ),
+        "`fixture_name`: stored \"copy.pine\", given \"other.pine\"",
+    );
+}
+
+/// A chart run of a compile question proves the script compiled: a chart
+/// observation there records `accepted`, even one that does not count.
+#[test]
+fn chart_compile_observations_are_accepts() {
+    let root = scratch("chart-compile");
+    let id = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    observe(
+        &root,
+        &id,
+        &compile(Source::Chart, "2026-09-20", Outcome::Accepted),
+    )
+    .expect("chart accept");
+    for o in [
+        NewObservation {
+            errors: vec![parse_diag("CE10099").expect("diag")],
+            ..compile(Source::Chart, "2026-09-21", Outcome::Rejected)
+        },
+        NewObservation {
+            inconclusive: Some("wrong symbol".into()),
+            ..compile(Source::Chart, "2026-09-21", Outcome::Rejected)
+        },
+        NewObservation {
+            crash: Some("chart froze".into()),
+            ..compile(Source::Chart, "2026-09-21", Outcome::Crashed)
+        },
+    ] {
+        refused(observe(&root, &id, &o), "records `accepted`");
+    }
 }
 
 #[test]
@@ -1393,6 +1466,15 @@ fn search_treats_query_syntax_as_plain_text() {
         );
     }
     assert!(store.search("?:", 5).expect("search").is_empty());
+    // Uppercase operator words are plain words too: `NOT` excludes nothing.
+    for q in ["TV did", "TV NOT did", "TV AND nothing", "OR did"] {
+        let hits = store.search(q, 5).expect("search");
+        assert_eq!(
+            hits.first().map(|h| h.id.as_str()),
+            Some(id.as_str()),
+            "{q}"
+        );
+    }
 }
 
 #[test]
@@ -1650,6 +1732,13 @@ fn strict_load_rejects_every_documented_problem() {
     std::fs::create_dir(root.join("sub")).expect("subdir");
     refused(load(&roots), "not a question file");
     std::fs::remove_dir(root.join("sub")).expect("rmdir");
+    // A dot-directory is not a dot-file: it would hide its contents.
+    std::fs::create_dir(root.join(".hidden")).expect("dot dir");
+    refused(load(&roots), "not a question file");
+    std::fs::remove_dir(root.join(".hidden")).expect("rmdir");
+    std::fs::create_dir_all(root.join("fixtures/.hidden")).expect("fixtures dot dir");
+    refused(load(&roots), "not a `<sha256>.pine` fixture");
+    std::fs::remove_dir_all(root.join("fixtures")).expect("rmdir");
     // Markdown notes and dot-files (in-flight temp files) are allowed.
     std::fs::write(root.join("README.md"), "notes").expect("readme");
     std::fs::write(root.join(".x.toml.1.tmp"), "junk").expect("tmp");
@@ -2367,6 +2456,28 @@ fn citation_quotes_must_be_in_one_block_of_the_section() {
         cite(&root, &id, "faq/nope#nope", &quotes(&[LOOKAHEAD_ON]), None),
         "no manual section `faq/nope#nope`",
     );
+    // Pine generics parse as inline HTML; they are quoted text, never
+    // dropped, so an invented type spelling does not shrink to `array`, and
+    // the manual's own declaration syntax matches as written.
+    const ARRAYS: &str = "language/arrays#declaring-arrays";
+    refused(
+        cite(
+            &root,
+            &id,
+            ARRAYS,
+            &quotes(&["array<definitely_not_a_pine_type>"]),
+            None,
+        ),
+        "does not say",
+    );
+    cite(
+        &root,
+        &id,
+        ARRAYS,
+        &quotes(&["[var/varip ][array<type> ]<identifier> = <expression>"]),
+        None,
+    )
+    .expect("declaration syntax is quotable");
     retire(&root, &id, "reworded", &[]).expect("retire");
     refused(
         cite(&root, &id, LOWER_TF, &quotes(&[LOOKAHEAD_ON]), None),

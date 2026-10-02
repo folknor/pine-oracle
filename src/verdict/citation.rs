@@ -9,7 +9,9 @@
 // phrase stitched across unrelated paragraphs never matches. Drift is decided
 // on the source markdown of the cited subtree instead (its sha256 at cite
 // time), so any change to the section - a new qualifier, a changed link -
-// makes the citation stale and forces a review.
+// makes the citation stale and forces a review. Inline HTML (which is how
+// Pine generics like `array<type>` parse outside code) projects as its
+// source text on both sides, never as nothing.
 
 use anyhow::{Result, bail};
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
@@ -131,7 +133,12 @@ fn blocks(markdown: &str) -> Vec<String> {
     };
     for event in Parser::new_ext(markdown, options) {
         match event {
-            Event::Text(t) | Event::Code(t) => current.push_str(&t),
+            // HTML is kept as its source text: Pine syntax like `array<type>`
+            // parses as inline HTML, and dropping it would let a quote with
+            // an invented type spelling match the bare `array`.
+            Event::Text(t) | Event::Code(t) | Event::Html(t) | Event::InlineHtml(t) => {
+                current.push_str(&t);
+            }
             Event::SoftBreak | Event::HardBreak => current.push(' '),
             Event::Start(tag) if !inline_start(&tag) => flush(&mut current),
             Event::End(tag) if !inline_end(tag) => flush(&mut current),

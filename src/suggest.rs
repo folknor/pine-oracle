@@ -15,7 +15,7 @@ use anyhow::Result;
 use serde::Serialize;
 use std::sync::OnceLock;
 use tantivy::collector::TopDocs;
-use tantivy::query::{BooleanQuery, BoostQuery, Query, QueryParser};
+use tantivy::query::{BooleanQuery, BoostQuery, Query};
 use tantivy::schema::{Field, STORED, Schema, TEXT};
 use tantivy::{Index, IndexReader, ReloadPolicy, TantivyDocument};
 
@@ -36,8 +36,8 @@ pub struct Suggestion {
 }
 
 struct Engine {
-    // `index` is retained solely so `QueryParser::for_index(&e.index, ...)` can
-    // be called cheaply inside `suggest()` without re-opening the index.
+    // `index` is retained solely so `suggest()` can reach each field's
+    // tokenizer (`query::field_query`) without re-opening the index.
     index: Index,
     reader: IndexReader,
     name_field: Field,
@@ -95,20 +95,15 @@ fn build() -> Result<Engine> {
 /// whitespace query returns an empty vec without building the index.
 pub fn suggest(q: &str, limit: usize) -> Result<Vec<Suggestion>> {
     // tantivy's TopDocs panics on a zero limit.
-    let q = &crate::query::plain_terms(q);
     if q.trim().is_empty() || limit == 0 {
         return Ok(Vec::new());
     }
     let e = engine();
     let searcher = e.reader.searcher();
 
-    let name_parser = QueryParser::for_index(&e.index, vec![e.name_field]);
-    let content_parser = QueryParser::for_index(&e.index, vec![e.content_query_field]);
-
-    // Lenient: a mistyped Pine name (`strategy.exit(`, `a:b`) must still get
-    // suggestions rather than a parse error.
-    let (name_q, _) = name_parser.parse_query_lenient(q);
-    let (content_q, _) = content_parser.parse_query_lenient(q);
+    // A mistyped Pine name (`strategy.exit(`, `a:b`) is plain words too.
+    let name_q = crate::query::field_query(&e.index, e.name_field, q)?;
+    let content_q = crate::query::field_query(&e.index, e.content_query_field, q)?;
 
     let boosted_name: Box<dyn Query> = Box::new(BoostQuery::new(name_q, NAME_BOOST));
     let scored: Box<dyn Query> = Box::new(BooleanQuery::union(vec![boosted_name, content_q]));

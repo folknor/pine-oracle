@@ -663,14 +663,13 @@ fn observe_in(root: &Path, id: &str, new: &NewObservation, mode: Mode) -> Result
         .and_then(|p| p.file_name())
         .map(|n| n.to_string_lossy().into_owned());
     // Re-observing a fixture by its store path (`fixtures/<sha>.pine`) must
-    // not record the hash file name as the human name: keep the name the
-    // store already knows for that hash, if any.
-    let fixture_name = match (&fixture_sha, passed_name) {
-        (Some(sha), Some(name)) if name == format!("{sha}.pine") => {
-            known_fixture_name(store.questions(), sha)
-        }
-        (_, name) => name,
-    };
+    // not record the hash file name as the human name. Which human name it
+    // gets is decided below, once the capture key is resolved.
+    let by_store_path = matches!(
+        (&fixture_sha, &passed_name),
+        (Some(sha), Some(name)) if *name == format!("{sha}.pine")
+    );
+    let fixture_name = if by_store_path { None } else { passed_name };
 
     let observation = Observation {
         source: new.source,
@@ -715,6 +714,12 @@ fn observe_in(root: &Path, id: &str, new: &NewObservation, mode: Mode) -> Result
         // value is reported, since a script still emitting it is likely the
         // template for the next landing.
         let mut given = observation.clone();
+        // A rerun passing the stored copy of its own fixture carries the
+        // name that observation recorded; any other name is compared as
+        // given, so two files with identical bytes still differ.
+        if by_store_path && stored.fixture == given.fixture {
+            given.fixture_name.clone_from(&stored.fixture_name);
+        }
         let mut warnings = Vec::new();
         for field in AmendField::ALL {
             if let (Some(held), Some(value)) = (stored.field(field), given.field_mut(field))
@@ -745,6 +750,10 @@ fn observe_in(root: &Path, id: &str, new: &NewObservation, mode: Mode) -> Result
             was: now.clone(),
             now,
         });
+    }
+    let mut observation = observation;
+    if by_store_path && let Some(sha) = &fixture_sha {
+        observation.fixture_name = known_fixture_name(store.questions(), sha);
     }
     q.observations.push(observation);
     let mut warnings = check(&store, &q, fixture_sha.as_deref())?;
@@ -924,13 +933,22 @@ fn check(store: &Store, q: &Question, pending_fixture: Option<&str>) -> Result<V
     Ok(report.warnings)
 }
 
-/// The human name some earlier observation recorded for fixture `sha`.
+/// The human name the store's observations agree on for fixture `sha`, if
+/// they agree. Identical bytes may have been captured under several names;
+/// picking one of them would attribute another capture's file, so a
+/// disagreement records no name. Void observations do not vote: a withdrawn
+/// record may carry a mis-recorded name.
 fn known_fixture_name(questions: &[Question], sha: &str) -> Option<String> {
-    questions
+    let names: BTreeSet<&String> = questions
         .iter()
         .flat_map(|q| &q.observations)
-        .filter(|o| o.fixture.as_deref() == Some(sha))
-        .find_map(|o| o.fixture_name.clone())
+        .filter(|o| o.void.is_none() && o.fixture.as_deref() == Some(sha))
+        .filter_map(|o| o.fixture_name.as_ref())
+        .collect();
+    match names.into_iter().collect::<Vec<_>>().as_slice() {
+        [name] => Some((*name).clone()),
+        _ => None,
+    }
 }
 
 /// Parse an optional `YYYY-MM-DD`; validation then checks it is date-only and

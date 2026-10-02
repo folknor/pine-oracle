@@ -526,6 +526,17 @@ fn amendments(
 }
 
 fn compile_fields(o: &Observation, errs: &mut Vec<String>) {
+    // A chart run of a compile question proves acceptance: the script ran.
+    // A rejection seen while adding to a chart is the editor's compile. This
+    // holds for void and inconclusive observations too: not counting does
+    // not change what the source means.
+    if o.source == Source::Chart && o.outcome.is_some_and(|x| x != Outcome::Accepted) {
+        errs.push(
+            "a chart observation of a compile question records `accepted` (the script ran); \
+             a compile rejection is an `editor` observation"
+                .to_string(),
+        );
+    }
     match o.outcome {
         None => errs.push("compile observation needs an outcome".to_string()),
         Some(Outcome::Accepted) if !o.errors.is_empty() => {

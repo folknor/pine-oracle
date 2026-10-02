@@ -112,7 +112,10 @@ fn read_root(root: &Path, questions: &mut Vec<Question>, problems: &mut Vec<Stri
     let mut paths = Vec::new();
     for path in dir_entries(root)? {
         let name = file_name(&path);
-        if name.starts_with('.') || (name.ends_with(".md") && path.is_file()) {
+        // Dot-files (the lock, in-flight temp files) and notes are skipped;
+        // a dot-directory is not a dot-file, and skipping it would hide
+        // whatever it holds from the strict load.
+        if (name.starts_with('.') || name.ends_with(".md")) && path.is_file() {
             continue;
         }
         if name == "fixtures" && path.is_dir() {
@@ -122,7 +125,7 @@ fn read_root(root: &Path, questions: &mut Vec<Question>, problems: &mut Vec<Stri
         match name.strip_suffix(".toml") {
             Some(stem) if validate::is_id(stem) && path.is_file() => paths.push(path),
             _ => problems.push(format!(
-                "{}: not a question file (`<8-hex id>.toml`), the `fixtures` store, or a markdown note",
+                "{}: not a question file (`<8-hex id>.toml`), the `fixtures` store, a markdown note or a dot-file",
                 path.display()
             )),
         }
@@ -150,7 +153,7 @@ fn read_root(root: &Path, questions: &mut Vec<Question>, problems: &mut Vec<Stri
 fn check_fixture_store(dir: &Path, problems: &mut Vec<String>) -> Result<()> {
     for path in dir_entries(dir)? {
         let name = file_name(&path);
-        if name.starts_with('.') {
+        if name.starts_with('.') && path.is_file() {
             continue;
         }
         let Some(sha) = name.strip_suffix(".pine").filter(|_| path.is_file()) else {

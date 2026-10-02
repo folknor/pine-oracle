@@ -56,7 +56,9 @@ po verdict list     --records <DIR>... [--identifier X] [--code C]
   headed by `#N`, its 1-based position in the file (display order is by
   strength, so `#N` is what stays put). `search` treats
   its query as plain words: Pine and query syntax (`strategy.exit(`, `?:`,
-  `NASDAQ:AAPL`) is split into terms, never parsed.
+  `NASDAQ:AAPL`) is split into terms, never parsed, and uppercase `AND`,
+  `OR` and `NOT` are words like any other. A dotted name (`ta.sma`) is
+  matched as a phrase.
 - Each write verb holds an exclusive lock on `<records>/.lock` from its read
   of the directory through its last write, and each file write is atomic
   (temp file + rename), so concurrent writers serialize instead of losing
@@ -259,7 +261,9 @@ passage of the section (its subsections included) in the manual baked into
 this po binary, lying inside one paragraph, list item, heading, table cell
 or code block. Quotes are compared on the plain text of the markdown with
 whitespace collapsed, so text copied from `po show` (emphasis as `*first*`,
-links without their URL) matches the source.
+links without their URL) matches the source. Angle brackets are text, not
+markup: `array<type>` and `<identifier>` must appear in the section as
+written.
 
 All active citations of a question form one support set. Whoever cites
 asserts that they jointly establish the whole answer: po checks provenance
@@ -381,8 +385,11 @@ candidates are shown as selected, refuted or undecided.
 po writes both. `observe --fixture` copies the file into `fixtures/`, named by
 the sha256 po computes from the stored bytes, so a recorded hash always
 matches its file and observations sharing a fixture share one copy. Passing a
-stored fixture again by its store path (`fixtures/<sha256>.pine`) keeps the
-original file name the store already recorded for it. Evidence
+stored fixture again by its store path (`fixtures/<sha256>.pine`) never
+records the hash as the file name: a keyed rerun carries the name its own
+observation recorded, and a new observation takes the name the store's
+non-void observations of those bytes agree on, or none when they recorded
+different names. Evidence
 is not copied: each `--evidence` path must be an existing file (pass each
 export separately, not a directory) and is stored relative to the
 records directory (`../fieldwork/...`). Keep evidence inside the same git
@@ -483,6 +490,9 @@ Errors:
   with both or neither of `date` and `date_before`;
 - an explicitly empty diagnostic message (leave the field out instead);
 - a runtime observation not from `chart`, or without `result` / `settings`;
+- a `chart` observation of a compile question that is not `accepted`
+  (void or inconclusive included: not counting does not change what the
+  source means);
 - compile fields on a runtime observation, or runtime fields on a compile one;
 - accepted with errors, crashed with diagnostics or without a message;
 - a code with the wrong prefix for its kind and severity;
@@ -505,7 +515,8 @@ Errors:
   its name;
 - an evidence path that is not an existing file;
 - a directory entry that is not a question file, `fixtures/`, a markdown note
-  or a dot-file; an id present in two directories.
+  or a dot-file (a dot-directory is an error, in `fixtures/` too); an id
+  present in two directories.
 
 Warnings are printed by `add` / `observe` only (stderr, suppressed by
 `--quiet`): a question with no identifiers, and a rejection with no error
