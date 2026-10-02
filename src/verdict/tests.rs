@@ -454,7 +454,6 @@ fn dry_run_reports_the_resulting_status_and_writes_nothing() {
     };
     observe(&root, &id, &halt).expect("halting run");
     let before = std::fs::read(root.join(format!("{id}.toml"))).expect("read");
-    std::fs::remove_file(root.join(".lock")).expect("drop the writers' lock file");
 
     let missing_code = NewObservation {
         fixture: Some(testdata("editor-export-outside-library.pine")),
@@ -481,8 +480,6 @@ fn dry_run_reports_the_resulting_status_and_writes_nothing() {
         before
     );
     assert!(!root.join("fixtures").exists());
-    // A dry run is a read: it takes no lock, so it creates no `.lock`.
-    assert!(!root.join(".lock").exists());
 
     // An agreeing run reports the status it leaves, and a refused one fails
     // the dry run as it would the write.
@@ -516,6 +513,98 @@ fn dry_run_reports_the_resulting_status_and_writes_nothing() {
     // A retired question refuses the dry run as it would the observation.
     retire(&root, &id, "reworded", &[]).expect("retire");
     refused(observe_dry_run(&root, &id, &halt), "is retired");
+}
+
+/// Reads hold `.lock` shared: a read waits out a writer instead of reading
+/// a directory mid-change. Where the lock file can neither be created nor
+/// opened (a read-only checkout), the read goes unlocked rather than failing.
+#[cfg(unix)]
+#[test]
+fn reads_wait_for_writers_and_read_only_checkouts_still_load() {
+    use std::os::unix::fs::PermissionsExt as _;
+    use std::time::Duration;
+
+    let root = scratch("read-lock");
+    let id = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    let writer = std::fs::OpenOptions::new()
+        .write(true)
+        .open(root.join(".lock"))
+        .expect("open lock");
+    // A load in another thread, which reports when it is about to start and
+    // when it is done.
+    let start_load = |root: PathBuf| {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let reader = std::thread::spawn(move || {
+            tx.send(None).expect("send");
+            tx.send(load(&[root]).map(|s| s.questions().len()).ok())
+                .expect("send");
+        });
+        assert_eq!(rx.recv().expect("started"), None);
+        (reader, rx)
+    };
+
+    // Another reader holding it shared does not block a read.
+    writer.lock_shared().expect("shared");
+    let (reader, rx) = start_load(root.clone());
+    assert_eq!(
+        rx.recv_timeout(Duration::from_secs(10)).expect("read"),
+        Some(1),
+        "a read waited for another reader"
+    );
+    reader.join().expect("reader");
+    writer.unlock().expect("unlock");
+
+    // A writer holding it exclusively does.
+    writer.lock().expect("exclusive");
+    let (reader, rx) = start_load(root.clone());
+    assert!(
+        rx.recv_timeout(Duration::from_millis(300)).is_err(),
+        "the read finished while a writer held the lock"
+    );
+    writer.unlock().expect("unlock");
+    assert_eq!(
+        rx.recv_timeout(Duration::from_secs(10)).expect("read"),
+        Some(1)
+    );
+    reader.join().expect("reader");
+
+    // Read-only copies: one that never had a lock file reads unlocked
+    // (creating nothing), one with a read-only `.lock` locks it read-only.
+    let set_mode = |path: &Path, mode: u32| {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).expect("chmod");
+    };
+    let read_only_copy = |name: &str, with_lock: bool| {
+        let ro = scratch(name);
+        std::fs::copy(
+            root.join(format!("{id}.toml")),
+            ro.join(format!("{id}.toml")),
+        )
+        .expect("copy");
+        if with_lock {
+            std::fs::write(ro.join(".lock"), "").expect("lock file");
+            set_mode(&ro.join(".lock"), 0o444);
+        }
+        set_mode(&ro, 0o555);
+        ro
+    };
+    let fresh = read_only_copy("read-lock-ro", false);
+    // A privileged test run ignores the permissions; the fallback cannot be
+    // reached then, only the load checked.
+    let enforced = std::fs::File::create(fresh.join(".probe")).is_err();
+    let loaded = load(std::slice::from_ref(&fresh)).map(|s| s.questions().len());
+    let created = fresh.join(".lock").exists();
+    set_mode(&fresh, 0o755);
+    assert_eq!(loaded.expect("read-only load"), 1);
+    if enforced {
+        assert!(!created, "a read in a read-only directory created .lock");
+    }
+    let locked = read_only_copy("read-lock-ro-locked", true);
+    let loaded = load(std::slice::from_ref(&locked)).map(|s| s.questions().len());
+    set_mode(&locked, 0o755);
+    set_mode(&locked.join(".lock"), 0o644);
+    assert_eq!(loaded.expect("read-only lock file"), 1);
 }
 
 /// A keyed rerun writes nothing, so it warns about nothing.

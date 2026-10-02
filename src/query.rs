@@ -96,4 +96,21 @@ mod tests {
         assert_ne!(shape("RSI rsi"), shape("rsi"));
         assert_eq!(shape("?: ()"), format!("{EmptyQuery:?}"));
     }
+
+    #[test]
+    fn phrases_keep_the_positions_the_tokenizer_emitted() {
+        // The default tokenizer drops tokens over 40 bytes but keeps their
+        // position, so `foo` and `bar` are two apart, not adjacent.
+        let long = "x".repeat(50);
+        let mut builder = Schema::builder();
+        let f = builder.add_text_field("f", TEXT);
+        let index = Index::create_in_ram(builder.build());
+        let query = field_query(&index, f, &format!("foo.{long}.bar")).expect("query");
+        let phrase: Box<dyn Query> = Box::new(PhraseQuery::new_with_offset(vec![
+            (0, Term::from_field_text(f, "foo")),
+            (2, Term::from_field_text(f, "bar")),
+        ]));
+        let expected = BooleanQuery::union(vec![phrase]);
+        assert_eq!(format!("{query:?}"), format!("{expected:?}"));
+    }
 }

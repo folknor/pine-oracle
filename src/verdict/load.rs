@@ -43,15 +43,31 @@ pub struct ListFilter<'a> {
 /// record or unexpected entry fails the whole load, listing every problem.
 /// Warnings (e.g. empty identifiers) are a write-time concern and are not
 /// reported here, so reads over a deliberate corpus stay quiet.
+///
+/// Each root's `.lock` is held shared for the whole load, so a writer (which
+/// holds it exclusively) cannot change the directory between the listing and
+/// the reads and checks: an unlocked reader can assemble a state that never
+/// existed (a retirement naming a replacement added after the listing) and
+/// fail a valid directory. See `shared_lock` for when a read goes unlocked.
 pub fn load(roots: &[PathBuf]) -> Result<Store> {
+    load_roots(roots, true)
+}
+
+/// `load` of one root without taking its lock, for a writer that already
+/// holds it exclusively (a second lock on the same file from the same
+/// process would deadlock).
+pub(super) fn load_unlocked(root: &Path) -> Result<Store> {
+    load_roots(&[root.to_path_buf()], false)
+}
+
+fn load_roots(roots: &[PathBuf], coordinate: bool) -> Result<Store> {
     if roots.is_empty() {
         bail!("no records directory given (pass --records <DIR>)");
     }
-    let mut questions: Vec<Question> = Vec::new();
-    let mut problems = Vec::new();
     // The same directory named twice (or by two spellings) is one root, not
-    // a source of duplicate ids.
-    let mut canonical_roots = BTreeSet::new();
+    // a source of duplicate ids, nor a second lock.
+    let mut canonical_roots = BTreeMap::new();
+    let mut unique: Vec<&PathBuf> = Vec::new();
     for root in roots {
         if !root.is_dir() {
             bail!("records directory {} does not exist", root.display());
@@ -59,9 +75,23 @@ pub fn load(roots: &[PathBuf]) -> Result<Store> {
         let canonical = root
             .canonicalize()
             .with_context(|| format!("resolving {}", root.display()))?;
-        if canonical_roots.insert(canonical) {
-            read_root(root, &mut questions, &mut problems)?;
+        if let std::collections::btree_map::Entry::Vacant(e) = canonical_roots.entry(canonical) {
+            e.insert(root);
+            unique.push(root);
         }
+    }
+    // Held until the load returns. Taken in canonical order.
+    let mut locks = Vec::new();
+    if coordinate {
+        for root in canonical_roots.values() {
+            locks.extend(shared_lock(root)?);
+        }
+    }
+
+    let mut questions: Vec<Question> = Vec::new();
+    let mut problems = Vec::new();
+    for root in unique {
+        read_root(root, &mut questions, &mut problems)?;
     }
 
     let mut seen = BTreeSet::new();
@@ -103,6 +133,42 @@ pub fn load(roots: &[PathBuf]) -> Result<Store> {
     }
     questions.sort_by(|a, b| a.id.cmp(&b.id));
     Ok(Store { questions })
+}
+
+/// The shared lock on `root`'s `.lock`, creating the file if this reader
+/// can. Where it can neither create nor open it (a read-only checkout or
+/// mount of a directory never written through this path), the read goes
+/// unlocked: reads are coordinated with writers only when the reader can
+/// open the lock file. A lock file that exists but cannot be opened or
+/// locked is an error, never a silent unlocked read.
+fn shared_lock(root: &Path) -> Result<Option<std::fs::File>> {
+    use std::io::ErrorKind;
+    let path = root.join(".lock");
+    let file = match std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&path)
+    {
+        Ok(f) => f,
+        Err(e)
+            if matches!(
+                e.kind(),
+                ErrorKind::PermissionDenied | ErrorKind::ReadOnlyFilesystem
+            ) =>
+        {
+            match std::fs::File::open(&path) {
+                Ok(f) => f,
+                Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
+                Err(e) => return Err(e).with_context(|| format!("opening {}", path.display())),
+            }
+        }
+        Err(e) => return Err(e).with_context(|| format!("opening {}", path.display())),
+    };
+    file.lock_shared()
+        .with_context(|| format!("locking {}", path.display()))?;
+    Ok(Some(file))
 }
 
 /// Parse every question file under `root` and vet every other entry.

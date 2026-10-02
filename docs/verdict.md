@@ -64,6 +64,21 @@ po verdict list     --records <DIR>... [--identifier X] [--code C]
   (temp file + rename), so concurrent writers serialize instead of losing
   each other's work. The lock file stays in place; leave it (or gitignore
   it).
+- Each read (the read verbs and `observe --dry-run`) holds `.lock` shared
+  for its whole load, creating the file if it can, so it never reads a
+  directory halfway through a write. Where it can neither create nor open
+  `.lock` (a read-only checkout or mount of a directory never written
+  through that path), it reads unlocked: reads are coordinated with writers
+  only when the reader can open the lock file. A `.lock` that exists but
+  cannot be opened or locked fails the read.
+- A write verb that reports success has synced every file it wrote and (on
+  Unix; elsewhere directory entries are left to the filesystem) the
+  directory entries that publish them, and a fixture is synced before the
+  record referencing it is put in place, so a machine crash cannot leave a
+  record whose fixture is missing. A no-op (a keyed rerun, an identical
+  citation) writes and syncs nothing. If a write fails after its record was
+  put in place, the error says so: check with `show` before retrying an
+  unkeyed write, which would otherwise land twice.
 
 ### Capture keys
 
@@ -227,8 +242,9 @@ question, before more pile up. An endpoint disagreeing with the editor is
 the known gap and is not warned about (`show` annotates it).
 
 `observe --dry-run` makes every check and warning `observe` makes and
-writes nothing: no record, no fixture, and no `.lock` (like the read verbs
-it takes no lock, so it works on a read-only checkout). It prints the
+writes no record and no fixture. It is a read: it loads under the shared
+lock like the read verbs (creating `.lock` if it can), and works on a
+read-only checkout. It prints the
 question's resulting disposition on stdout, even under `--quiet`: `dry run:
 observation #3 would make question d4892d70 conflict (is settled)`, `dry
 run: observation #3 would leave question d4892d70 settled`, or, under a key
@@ -455,7 +471,7 @@ as lineage, so each one needs a decision, usually `follow_up_to`.
 
 The same rules guard both directions. Every write verb refuses to
 write an invalid record and leave every record and fixture untouched (only the
-persistent `.lock` may be created). Every read verb loads strictly: one
+persistent `.lock` may be created, as any read may create it). Every read verb loads strictly: one
 invalid record anywhere under the given directories fails the command, listing
 every problem with its file. A successful `po verdict list --records <DIR>`
 therefore validates the whole directory and serves as a CI gate.

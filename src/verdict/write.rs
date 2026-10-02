@@ -2,12 +2,20 @@
 // `retire` withdraws a question, `amend` corrects an answer or an
 // observation's prose keeping the history, `cite` records a manual passage
 // supporting the answer, `void` withdraws an observation or a citation.
-// Each takes the records directory's lock,
+// Each takes the records directory's lock exclusively,
 // strictly loads it (never write into a store that is already invalid),
 // validates the new state with the same rules the read side enforces, and
 // only then touches disk. po computes fixture hashes itself from the bytes it
 // stores, so a recorded hash cannot disagree with its file. `add` and
 // `observe` take an optional capture key that makes a rerun a no-op.
+//
+// Durability: every file a verb writes is synced, and so (on Unix, see
+// `sync_dir`) is the directory entry that publishes it, before the verb
+// reports success; a fixture (file,
+// `fixtures/`, root) is synced before the record that references it is
+// renamed into place, whether this verb stored it or found it already
+// stored. A no-op (keyed rerun, identical citation) writes nothing and
+// certifies nothing.
 
 use anyhow::{Context as _, Result, bail};
 use std::collections::BTreeSet;
@@ -15,6 +23,7 @@ use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use toml::value::Datetime;
 
+use super::load::load_unlocked;
 use super::validate::{self, Context, Report, fixture_path, question_path, sha256_hex};
 use super::{
     AmendField, Amendment, Candidate, CandidateState, Citation, Diag, Kind, Observation, Outcome,
@@ -103,7 +112,7 @@ pub struct NewObservation {
 /// Create a question under `root` and return its generated id.
 pub fn add(root: &Path, new: &NewQuestion) -> Result<Added> {
     let _lock = lock(root)?;
-    let store = load(&[root.to_path_buf()])?;
+    let store = load_unlocked(root)?;
     let mut q = Question {
         id: String::new(),
         root: root.to_path_buf(),
@@ -190,8 +199,7 @@ pub fn add(root: &Path, new: &NewQuestion) -> Result<Added> {
     let taken: BTreeSet<String> = store.questions().iter().map(|x| x.id.clone()).collect();
     q.id = fresh_id(&q.question, &taken, root);
     let warnings = check(&store, &q, None)?;
-    let text = toml::to_string(&q).context("serializing question")?;
-    write_atomic(&question_path(root, &q.id), text.as_bytes())?;
+    write_question(&q)?;
     Ok(Added {
         id: q.id,
         existing: false,
@@ -256,7 +264,7 @@ fn lock(root: &Path) -> Result<std::fs::File> {
 /// inference).
 pub fn retire(root: &Path, id: &str, reason: &str, replaced_by: &[String]) -> Result<()> {
     let _lock = lock(root)?;
-    let store = load(&[root.to_path_buf()])?;
+    let store = load_unlocked(root)?;
     let Some(existing) = store.get(id) else {
         bail!("no question `{id}` in {}", root.display());
     };
@@ -282,8 +290,7 @@ pub fn retire(root: &Path, id: &str, reason: &str, replaced_by: &[String]) -> Re
         replaced_by: ids(replaced_by),
     });
     check(&store, &q, None)?;
-    let text = toml::to_string(&q).context("serializing question")?;
-    write_atomic(&question_path(root, &q.id), text.as_bytes())
+    write_question(&q)
 }
 
 /// What `amend` corrects: the question's answer, or one prose field of the
@@ -309,7 +316,7 @@ pub fn amend(
     reason: &str,
 ) -> Result<Option<String>> {
     let _lock = lock(root)?;
-    let store = load(&[root.to_path_buf()])?;
+    let store = load_unlocked(root)?;
     let Some(existing) = store.get(id) else {
         bail!("no question `{id}` in {}", root.display());
     };
@@ -356,8 +363,7 @@ pub fn amend(
         }
     }
     check(&store, &q, None)?;
-    let text = toml::to_string(&q).context("serializing question")?;
-    write_atomic(&question_path(root, &q.id), text.as_bytes())?;
+    write_question(&q)?;
     // Computed from the state just written, under the lock, so it describes
     // what was written and not what another writer made of it since.
     Ok(matches!(target, AmendTarget::Answer).then(|| answer_support(&store.with(&q), &q)))
@@ -442,7 +448,7 @@ pub enum VoidTarget {
 /// again; for one applied in error: void it. Not reversible by po.
 pub fn void(root: &Path, id: &str, target: VoidTarget, reason: &str) -> Result<()> {
     let _lock = lock(root)?;
-    let store = load(&[root.to_path_buf()])?;
+    let store = load_unlocked(root)?;
     let Some(existing) = store.get(id) else {
         bail!("no question `{id}` in {}", root.display());
     };
@@ -465,8 +471,7 @@ pub fn void(root: &Path, id: &str, target: VoidTarget, reason: &str) -> Result<(
         reason: reason.trim().to_string(),
     });
     check(&store, &q, None)?;
-    let text = toml::to_string(&q).context("serializing question")?;
-    write_atomic(&question_path(root, &q.id), text.as_bytes())
+    write_question(&q)
 }
 
 /// Where `cite` put the citation: its 1-based position in file order.
@@ -497,7 +502,7 @@ pub fn cite(
     note: Option<&str>,
 ) -> Result<Cited> {
     let _lock = lock(root)?;
-    let store = load(&[root.to_path_buf()])?;
+    let store = load_unlocked(root)?;
     let Some(existing) = store.get(id) else {
         bail!("no question `{id}` in {}", root.display());
     };
@@ -556,8 +561,7 @@ pub fn cite(
     }
     q.citations.push(new);
     check(&store, &q, None)?;
-    let text = toml::to_string(&q).context("serializing question")?;
-    write_atomic(&question_path(root, &q.id), text.as_bytes())?;
+    write_question(&q)?;
     Ok(Cited {
         number: q.citations.len(),
         existing: false,
@@ -627,14 +631,13 @@ pub fn observe_dry_run(root: &Path, id: &str, new: &NewObservation) -> Result<Ob
 }
 
 fn observe_in(root: &Path, id: &str, new: &NewObservation, mode: Mode) -> Result<Observed> {
-    // A dry run is a read: like the read verbs it takes no lock, so it works
-    // on a read-only checkout. The snapshot it reports may be overtaken by a
-    // concurrent writer, as any read's may.
-    let _lock = match mode {
-        Mode::Write => Some(lock(root)?),
-        Mode::DryRun => None,
+    // A dry run is a read: like the read verbs it loads under the shared
+    // lock (so it works on a read-only checkout), and what it reports may be
+    // overtaken by a writer once the load returns, as any read's may.
+    let (_lock, store) = match mode {
+        Mode::Write => (Some(lock(root)?), load_unlocked(root)?),
+        Mode::DryRun => (None, load(&[root.to_path_buf()])?),
     };
-    let store = load(&[root.to_path_buf()])?;
     let Some(existing) = store.get(id) else {
         bail!("no question `{id}` in {}", root.display());
     };
@@ -764,8 +767,7 @@ fn observe_in(root: &Path, id: &str, new: &NewObservation, mode: Mode) -> Result
         if let (Some(sha), Some(bytes)) = (&fixture_sha, &fixture_bytes) {
             store_fixture(root, sha, bytes)?;
         }
-        let text = toml::to_string(&q).context("serializing question")?;
-        write_atomic(&question_path(root, &q.id), text.as_bytes())?;
+        write_question(&q)?;
     }
     Ok(Observed {
         id: q.id.clone(),
@@ -882,33 +884,87 @@ fn contradiction(
     ))
 }
 
-/// Put a fixture into the content-addressed store. An existing file is kept
+/// Put a fixture into the content-addressed store and make it durable: file,
+/// `fixtures/` and the root's entry for `fixtures/`. An existing file is kept
 /// only if it really hashes to its name; anything else (e.g. a truncated
-/// leftover from an interrupted write) is replaced.
+/// leftover from an interrupted write) is replaced. A kept file is synced
+/// too: correct bytes do not prove an earlier writer's sync succeeded.
 fn store_fixture(root: &Path, sha: &str, bytes: &[u8]) -> Result<()> {
     let path = fixture_path(root, sha);
+    let dir = path.parent().unwrap_or(root);
     if std::fs::read(&path).is_ok_and(|existing| sha256_hex(&existing) == sha) {
-        return Ok(());
-    }
-    if let Some(dir) = path.parent() {
+        sync_file(&path)?;
+        sync_dir(dir)?;
+    } else {
         std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+        write_atomic(
+            &path,
+            bytes,
+            "the fixture is stored, but no record references it yet",
+        )?;
     }
-    write_atomic(&path, bytes)
+    sync_dir(root)
+}
+
+/// Write the question record `q` durably.
+fn write_question(q: &Question) -> Result<()> {
+    let text = toml::to_string(q).context("serializing question")?;
+    write_atomic(
+        &question_path(&q.root, &q.id),
+        text.as_bytes(),
+        "the record is in place, so check it with `po verdict show` before retrying an unkeyed write",
+    )
 }
 
 /// Write `bytes` to a dot-prefixed temp file beside `path` (unique per
-/// process), then rename it into place, so an interrupted write never leaves
-/// a partial record or fixture under its real name. The loader ignores
+/// process), sync it, rename it into place and sync the directory, so an
+/// interrupted write or a crash never leaves a partial file under its real
+/// name, and a success means the file survives a crash. The loader ignores
 /// dot-files. Callers hold the directory lock, so concurrent writers
-/// serialize rather than race.
-fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+/// serialize rather than race. `landed` explains the state when only the
+/// directory sync after the rename fails.
+fn write_atomic(path: &Path, bytes: &[u8], landed: &str) -> Result<()> {
+    use std::io::Write as _;
     let name = path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
     let tmp = path.with_file_name(format!(".{name}.{}.tmp", std::process::id()));
-    std::fs::write(&tmp, bytes).with_context(|| format!("writing {}", tmp.display()))?;
-    std::fs::rename(&tmp, path).with_context(|| format!("replacing {}", path.display()))
+    let mut file =
+        std::fs::File::create(&tmp).with_context(|| format!("writing {}", tmp.display()))?;
+    file.write_all(bytes)
+        .and_then(|()| file.sync_all())
+        .with_context(|| format!("writing {}", tmp.display()))?;
+    drop(file);
+    std::fs::rename(&tmp, path).with_context(|| format!("replacing {}", path.display()))?;
+    let dir = path.parent().unwrap_or(Path::new("."));
+    sync_dir(dir).with_context(|| {
+        format!(
+            "{} was replaced but may not survive a crash: {landed}",
+            path.display()
+        )
+    })
+}
+
+fn sync_file(path: &Path) -> Result<()> {
+    std::fs::File::open(path)
+        .and_then(|f| f.sync_all())
+        .with_context(|| format!("syncing {}", path.display()))
+}
+
+/// Make the entries of directory `dir` durable. Unix only: elsewhere a
+/// directory cannot be opened for syncing, and rename durability is the
+/// filesystem's.
+fn sync_dir(dir: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        sync_file(dir)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = dir;
+        Ok(())
+    }
 }
 
 /// Validate `q` as it would be written into `store` (new or replacing its
