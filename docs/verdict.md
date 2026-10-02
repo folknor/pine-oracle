@@ -23,7 +23,7 @@ po verdict observe  <id> --records <DIR> --source editor|endpoint|chart [--key K
                     runtime: --result "..." --settings "..." [--error SPEC]...
                              [--candidate "name|model"]... [--selected name]... [--refuted name]...
                     [--inconclusive "<reason>"] [--evidence <path>]...
-                    [--environment "..."] [--note "..."]
+                    [--environment "..."] [--note "..."] [--dry-run]
 po verdict retire   <id> --records <DIR> --reason "..." [--replaced-by <id>]...
 po verdict amend    <id> --records <DIR> --reason "..."
                     (--answer "..." | --observation N (--note "..." | --result "..."
@@ -74,8 +74,11 @@ payload with the stored record:
 - identical: nothing is written. `add` prints the existing id, `observe`
   reports the existing `#N` on stderr (unless `--quiet`);
 - different: the command fails and lists every differing field, so a script
-  that drifted from the record (or still emits a value since amended) is
-  caught instead of silently accepted;
+  that drifted from the record is caught instead of silently accepted;
+- an amended field (see Corrections) matches any value it has held: the
+  value first landed, or any amendment of it. Amending a keyed record
+  therefore never breaks the script that landed it, nor one updated to the
+  corrected wording, and the rerun leaves the amended value in place;
 - a retired question: `add` fails, naming what replaced it, rather than
   handing a withdrawn id to the observations that follow;
 - a void observation: `observe` fails. The key stays with the voided record,
@@ -216,6 +219,15 @@ conflict is a legitimate record. Mixed outcomes are usually fixtures testing
 different claims, though: void the new observation and file it under its own
 question, before more pile up. An endpoint disagreeing with the editor is
 the known gap and is not warned about (`show` annotates it).
+
+`observe --dry-run` makes every check and warning `observe` makes, writes
+nothing (no record, no fixture), and prints the question's resulting
+disposition on stdout: `dry run: observation #3 would make question
+d4892d70 conflict (is settled)`, or `would leave question ... settled`. A
+refused observation fails the dry run as it would the write; a keyed rerun
+reports the existing `#N` as usual. A landing script can dry-run each
+observation first and stop on a stray conflict (say, a run landed without
+the error code its siblings carry) before it becomes a record to void.
 
 ## Manual citations
 

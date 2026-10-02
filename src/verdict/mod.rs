@@ -49,7 +49,7 @@ pub use spec::{parse_candidate, parse_diag};
 pub use validate::identifier_known;
 pub use write::{
     Added, AmendTarget, Cited, NewObservation, NewQuestion, Observed, VoidTarget, add, amend, cite,
-    observe, retire, void,
+    observe, observe_dry_run, retire, void,
 };
 
 /// Whether a question is about compilation (accept / reject) or about what a

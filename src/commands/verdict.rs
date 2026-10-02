@@ -230,6 +230,10 @@ pub(crate) struct ObserveArgs {
     environment: Option<String>,
     #[arg(long)]
     note: Option<String>,
+    /// Check the observation and print the question's resulting status,
+    /// writing nothing.
+    #[arg(long)]
+    dry_run: bool,
 }
 
 #[derive(clap::Args)]
@@ -311,13 +315,33 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
             replaced_by,
         } => verdict::retire(&records, &id, &reason, &replaced_by),
         VerdictCommand::Observe(args) => {
-            let observed = verdict::observe(&args.records, &args.id, &new_observation(&args)?)?;
+            let new = new_observation(&args)?;
+            let observed = if args.dry_run {
+                verdict::observe_dry_run(&args.records, &args.id, &new)?
+            } else {
+                verdict::observe(&args.records, &args.id, &new)?
+            };
             print_warnings(&observed.warnings, quiet);
             if observed.existing && !quiet {
                 eprintln!(
                     "already recorded as observation #{}: unchanged",
                     observed.number
                 );
+            }
+            // The answer a dry run was asked for, so stdout and never quieted.
+            if args.dry_run && !observed.existing {
+                let (was, now) = (&observed.was, &observed.now);
+                if was == now {
+                    println!(
+                        "dry run: observation #{} would leave question {} {now}",
+                        observed.number, args.id
+                    );
+                } else {
+                    println!(
+                        "dry run: observation #{} would make question {} {now} (is {was})",
+                        observed.number, args.id
+                    );
+                }
             }
             Ok(())
         }

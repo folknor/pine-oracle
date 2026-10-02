@@ -440,6 +440,65 @@ fn contradiction_warning_reports_the_shown_disposition() {
     );
 }
 
+/// The d4892d70 case: a run landed without the structured RE10134 its
+/// siblings carry. A dry run shows the stray conflict and writes nothing.
+#[test]
+fn dry_run_reports_the_resulting_status_and_writes_nothing() {
+    let root = scratch("dry-run");
+    let id = add(&root, &question(Kind::Runtime, &["strategy.entry"]))
+        .expect("add")
+        .id;
+    let halt = NewObservation {
+        errors: vec![parse_diag("RE10134||bar=5").expect("diag")],
+        ..runtime("2026-09-20")
+    };
+    observe(&root, &id, &halt).expect("halting run");
+    let before = std::fs::read(root.join(format!("{id}.toml"))).expect("read");
+
+    let missing_code = NewObservation {
+        fixture: Some(testdata("editor-export-outside-library.pine")),
+        ..runtime("2026-09-21")
+    };
+    let dry = observe_dry_run(&root, &id, &missing_code).expect("dry run");
+    assert_eq!((dry.number, dry.existing), (2, false));
+    assert_eq!(
+        (dry.was.to_string(), dry.now.to_string()),
+        ("settled".to_string(), "conflict".to_string())
+    );
+    assert_eq!(
+        dry.warnings,
+        vec![
+            "observation #2 chart runs clean contradicts #1 chart halts (RE10134): question \
+             {id} would be conflict (is settled). If the fixtures test different claims, they \
+             belong to separate questions: observe it under its own question instead. If one \
+             was mis-recorded, void that one."
+                .replace("{id}", &id)
+        ]
+    );
+    assert_eq!(
+        std::fs::read(root.join(format!("{id}.toml"))).expect("read"),
+        before
+    );
+    assert!(!root.join("fixtures").exists());
+
+    // An agreeing run reports the status it leaves, and a refused one fails
+    // the dry run as it would the write.
+    let agreeing = observe_dry_run(&root, &id, &halt).expect("agreeing");
+    assert!(agreeing.warnings.is_empty(), "{:?}", agreeing.warnings);
+    assert_eq!(agreeing.now, Resolved::Measured(Status::Settled));
+    refused(
+        observe_dry_run(
+            &root,
+            &id,
+            &NewObservation {
+                result: None,
+                ..halt
+            },
+        ),
+        "needs a `result`",
+    );
+}
+
 /// A keyed rerun writes nothing, so it warns about nothing.
 fn warned_rerun_is_silent(root: &Path, id: &str, o: &NewObservation) -> bool {
     let observed = observe(root, id, o).expect("rerun");
@@ -1749,6 +1808,95 @@ fn capture_keys_make_reruns_idempotent() {
     let text = std::fs::read_to_string(&path).expect("read");
     std::fs::write(&path, format!("key = \"run26/export\"\n{text}")).expect("write");
     refused(load(&[root]), "key `run26/export` is held by questions");
+}
+
+/// The 6293fd8b case: amending a keyed record's wording must not break the
+/// landing script that wrote it. A rerun matches any value an amended field
+/// has held; the stored value stands.
+#[test]
+fn amending_keeps_keyed_reruns_idempotent() {
+    let root = scratch("amend-keyed");
+    let keyed = NewQuestion {
+        key: Some("grid".into()),
+        ..question(Kind::Runtime, &[])
+    };
+    let id = add(&root, &keyed).expect("add").id;
+    let run = NewObservation {
+        key: Some("grid/1000".into()),
+        result: Some("all but 0 off the 1000 grid".into()),
+        ..runtime("2026-09-20")
+    };
+    observe(&root, &id, &run).expect("observe");
+
+    let result = AmendTarget::Observation {
+        number: 1,
+        field: AmendField::Result,
+    };
+    let reworded = "every integral cell of the 1000 grid except x = 0";
+    amend(&root, &id, result, Some(reworded), "unclear wording").expect("amend result");
+    amend(&root, &id, AmendTarget::Answer, Some("B."), "sharper").expect("amend answer");
+
+    // The original script, and one updated to the corrected values, rerun
+    // as no-ops.
+    let rerun = observe(&root, &id, &run).expect("original rerun");
+    assert_eq!((rerun.number, rerun.existing), (1, true));
+    let updated = NewObservation {
+        result: Some(reworded.into()),
+        ..run.clone()
+    };
+    assert!(
+        observe(&root, &id, &updated)
+            .expect("updated rerun")
+            .existing
+    );
+    assert!(add(&root, &keyed).expect("original add rerun").existing);
+    let updated_add = NewQuestion {
+        answer: "B.".into(),
+        ..keyed.clone()
+    };
+    assert!(
+        add(&root, &updated_add)
+            .expect("updated add rerun")
+            .existing
+    );
+    let q = reload(&root, &id);
+    assert_eq!(q.answer, "B.");
+    assert_eq!(q.observations[0].result.as_deref(), Some(reworded));
+
+    // A value the field never held still differs, and an unamended field
+    // is compared as before.
+    refused(
+        observe(
+            &root,
+            &id,
+            &NewObservation {
+                result: Some("something else".into()),
+                ..run.clone()
+            },
+        ),
+        "`result`: stored",
+    );
+    refused(
+        observe(
+            &root,
+            &id,
+            &NewObservation {
+                note: Some("new".into()),
+                ..run
+            },
+        ),
+        "`note`: stored (absent)",
+    );
+    refused(
+        add(
+            &root,
+            &NewQuestion {
+                answer: "C.".into(),
+                ..keyed
+            },
+        ),
+        "`answer`: stored \"B.\", given \"C.\"",
+    );
 }
 
 /// The piners cases: a note with wrong counts, and an answer that claimed

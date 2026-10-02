@@ -18,7 +18,7 @@ use toml::value::Datetime;
 use super::validate::{self, Context, Report, fixture_path, question_path, sha256_hex};
 use super::{
     AmendField, Amendment, Candidate, CandidateState, Citation, Diag, Kind, Observation, Outcome,
-    Question, Relation, Retired, Source, Store, Void, citation, load,
+    Question, Relation, Resolved, Retired, Source, Store, Void, citation, load,
 };
 
 /// A question to create.
@@ -54,6 +54,17 @@ pub struct Observed {
     /// this is; nothing was written.
     pub existing: bool,
     pub warnings: Vec<String>,
+    /// The question's disposition before and after the observation (equal
+    /// for a keyed rerun), as `show` prints it.
+    pub was: Resolved,
+    pub now: Resolved,
+}
+
+/// Whether `observe` writes, or only reports what writing would do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    Write,
+    DryRun,
 }
 
 /// An observation to append. Paths (`fixture`, `evidence`) are as the caller
@@ -121,17 +132,28 @@ pub fn add(root: &Path, new: &NewQuestion) -> Result<Added> {
                 replaced_hint(r)
             );
         }
-        // Only the current values of the fields `add` sets are compared:
-        // observations, citations, amendments and retirement come later, not
-        // part of the add payload. A script still emitting an answer since
-        // amended fails here, which is the point.
+        // Only the fields `add` sets are compared: observations, citations,
+        // amendments and retirement come later, not part of the add payload.
+        // An amended answer matches any value it has held, so amending does
+        // not break the script that added the question.
         let stored = Question {
             observations: Vec::new(),
             amendments: Vec::new(),
             citations: Vec::new(),
             ..existing.clone()
         };
-        let diff = field_diff(&stored, &q)?;
+        let mut given = Some(q.answer.clone());
+        accept_held(
+            &mut given,
+            &Some(stored.answer.clone()),
+            AmendField::Answer,
+            &existing.amendments,
+        );
+        let given = Question {
+            answer: given.unwrap_or_default(),
+            ..q.clone()
+        };
+        let diff = field_diff(&stored, &given)?;
         if !diff.is_empty() {
             bail!(
                 "key `{key}` belongs to question {}, which differs:\n  {}",
@@ -586,6 +608,17 @@ fn ids(given: &[String]) -> Vec<String> {
 /// Append one observation to question `id` under `root`, or, under a key the
 /// question already holds, confirm the identical stored one.
 pub fn observe(root: &Path, id: &str, new: &NewObservation) -> Result<Observed> {
+    observe_in(root, id, new, Mode::Write)
+}
+
+/// What `observe` would do, with every check and warning it makes, writing
+/// nothing: a capture script can see the resulting disposition (a stray
+/// conflict, say) before the observation becomes a record that must be voided.
+pub fn observe_dry_run(root: &Path, id: &str, new: &NewObservation) -> Result<Observed> {
+    observe_in(root, id, new, Mode::DryRun)
+}
+
+fn observe_in(root: &Path, id: &str, new: &NewObservation, mode: Mode) -> Result<Observed> {
     let _lock = lock(root)?;
     let store = load(&[root.to_path_buf()])?;
     let Some(existing) = store.get(id) else {
@@ -662,13 +695,26 @@ pub fn observe(root: &Path, id: &str, new: &NewObservation) -> Result<Observed> 
                 v.reason
             );
         }
-        // Current values only: amendment history is not part of the payload,
-        // and a script still emitting a since-amended value fails here.
+        // Amendment history is not part of the payload. An amended field
+        // matches any value it has held, so the landing script that wrote
+        // the original stays idempotent after the correction.
+        let mut given = observation.clone();
+        for field in [
+            AmendField::Note,
+            AmendField::Result,
+            AmendField::Settings,
+            AmendField::Environment,
+            AmendField::Inconclusive,
+        ] {
+            if let (Some(held), Some(value)) = (stored.field(field), given.field_mut(field)) {
+                accept_held(value, held, field, &stored.amendments);
+            }
+        }
         let current = Observation {
             amendments: Vec::new(),
             ..stored.clone()
         };
-        let diff = field_diff(&current, &observation)?;
+        let diff = field_diff(&current, &given)?;
         if !diff.is_empty() {
             bail!(
                 "key `{key}` belongs to observation #{} of question {}, which differs:\n  {}",
@@ -677,26 +723,53 @@ pub fn observe(root: &Path, id: &str, new: &NewObservation) -> Result<Observed> 
                 diff.join("\n  ")
             );
         }
+        let now = store.resolve(existing);
         return Ok(Observed {
             number: i + 1,
             existing: true,
             warnings: Vec::new(),
+            was: now.clone(),
+            now,
         });
     }
     q.observations.push(observation);
     let mut warnings = check(&store, &q, fixture_sha.as_deref())?;
-    warnings.extend(contradiction(&store, existing, &q));
+    warnings.extend(contradiction(&store, existing, &q, mode));
+    let (was, now) = (store.resolve(existing), store.with(&q).resolve(&q));
 
-    if let (Some(sha), Some(bytes)) = (&fixture_sha, &fixture_bytes) {
-        store_fixture(root, sha, bytes)?;
+    if mode == Mode::Write {
+        if let (Some(sha), Some(bytes)) = (&fixture_sha, &fixture_bytes) {
+            store_fixture(root, sha, bytes)?;
+        }
+        let text = toml::to_string(&q).context("serializing question")?;
+        write_atomic(&question_path(root, &q.id), text.as_bytes())?;
     }
-    let text = toml::to_string(&q).context("serializing question")?;
-    write_atomic(&question_path(root, &q.id), text.as_bytes())?;
     Ok(Observed {
         number: q.observations.len(),
         existing: false,
         warnings,
+        was,
+        now,
     })
+}
+
+/// For a keyed rerun: a given value of amendable `field` that the field has
+/// held at some point (its original, or any later amendment) is taken as the
+/// current value, so amending never breaks the script that landed the record.
+/// The stored value stands; the rerun writes nothing either way.
+fn accept_held(
+    given: &mut Option<String>,
+    current: &Option<String>,
+    field: AmendField,
+    amendments: &[Amendment],
+) {
+    let held = amendments
+        .iter()
+        .filter(|a| a.field == field)
+        .any(|a| a.was == *given || a.now == *given);
+    if held {
+        given.clone_from(current);
+    }
 }
 
 /// The warning for an observation (the last of `after`) that contradicts
@@ -706,7 +779,7 @@ pub fn observe(root: &Path, id: &str, new: &NewObservation) -> Result<Observed> 
 /// at the top strength they make the question a conflict. Weaker-vs-stronger
 /// disagreement is not warned about: it is the expected endpoint gap, and
 /// `show` annotates it.
-fn contradiction(store: &Store, before: &Question, after: &Question) -> Option<String> {
+fn contradiction(store: &Store, before: &Question, after: &Question, mode: Mode) -> Option<String> {
     let new = after.observations.last()?;
     if !new.counts() {
         return None;
@@ -744,15 +817,23 @@ fn contradiction(store: &Store, before: &Question, after: &Question) -> Option<S
     } else {
         "weaker source only, "
     };
-    let status = if was == now {
-        format!("{tier}question {} stays {now}", after.id)
-    } else {
-        format!("{tier}question {} is now {now} (was {was})", after.id)
+    let id = &after.id;
+    let status = match (mode, was == now) {
+        (Mode::Write, true) => format!("{tier}question {id} stays {now}"),
+        (Mode::Write, false) => format!("{tier}question {id} is now {now} (was {was})"),
+        (Mode::DryRun, true) => format!("{tier}question {id} would stay {now}"),
+        (Mode::DryRun, false) => format!("{tier}question {id} would be {now} (is {was})"),
+    };
+    let split = match mode {
+        Mode::Write => {
+            format!("`void --observation {number}` and observe it under its own question")
+        }
+        Mode::DryRun => "observe it under its own question instead".to_string(),
     };
     Some(format!(
         "observation #{number} {} {} contradicts {}: {status}. If the fixtures test \
-         different claims, they belong to separate questions: `void --observation {number}` \
-         and observe it under its own question. If one was mis-recorded, void that one.",
+         different claims, they belong to separate questions: {split}. If one was \
+         mis-recorded, void that one.",
         new.source.as_str(),
         new.verdict_summary(after.kind),
         against.join(", ")
