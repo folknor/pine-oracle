@@ -574,6 +574,15 @@ impl FromStr for Status {
 }
 
 impl AmendField {
+    pub const ALL: [AmendField; 6] = [
+        AmendField::Answer,
+        AmendField::Note,
+        AmendField::Result,
+        AmendField::Settings,
+        AmendField::Environment,
+        AmendField::Inconclusive,
+    ];
+
     pub fn as_str(self) -> &'static str {
         match self {
             AmendField::Answer => "answer",

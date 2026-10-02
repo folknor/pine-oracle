@@ -78,7 +78,11 @@ payload with the stored record:
 - an amended field (see Corrections) matches any value it has held: the
   value first landed, or any amendment of it. Amending a keyed record
   therefore never breaks the script that landed it, nor one updated to the
-  corrected wording, and the rerun leaves the amended value in place;
+  corrected wording, and the rerun leaves the amended value in place. A
+  rerun that gave a superseded value warns (stderr, unless `--quiet`): the
+  script is likely the template for the next landing, so fix it there too.
+  Each field is matched on its own, so a mix of values from different
+  points in the history is accepted as well;
 - a retired question: `add` fails, naming what replaced it, rather than
   handing a withdrawn id to the observations that follow;
 - a void observation: `observe` fails. The key stays with the voided record,
@@ -220,14 +224,21 @@ different claims, though: void the new observation and file it under its own
 question, before more pile up. An endpoint disagreeing with the editor is
 the known gap and is not warned about (`show` annotates it).
 
-`observe --dry-run` makes every check and warning `observe` makes, writes
-nothing (no record, no fixture), and prints the question's resulting
-disposition on stdout: `dry run: observation #3 would make question
-d4892d70 conflict (is settled)`, or `would leave question ... settled`. A
-refused observation fails the dry run as it would the write; a keyed rerun
-reports the existing `#N` as usual. A landing script can dry-run each
-observation first and stop on a stray conflict (say, a run landed without
-the error code its siblings carry) before it becomes a record to void.
+`observe --dry-run` makes every check and warning `observe` makes and
+writes nothing: no record, no fixture, and no `.lock` (like the read verbs
+it takes no lock, so it works on a read-only checkout). It prints the
+question's resulting disposition on stdout, even under `--quiet`: `dry run:
+observation #3 would make question d4892d70 conflict (is settled)`, `dry
+run: observation #3 would leave question d4892d70 settled`, or, under a key
+already held, `dry run: already recorded as observation #2; question
+d4892d70 stays settled`. The contradiction warning speaks in the
+conditional (`would be conflict (is settled)`) and, since nothing was
+written, advises correcting the observation before landing rather than
+voiding it. A refused observation fails the dry run as it would the write.
+A landing script can dry-run each observation first and stop on a stray
+conflict (say, a run landed without the error code its siblings carry)
+before it becomes a record to void. The exit status is 0 whatever the
+predicted disposition.
 
 ## Manual citations
 

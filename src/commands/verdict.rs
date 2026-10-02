@@ -322,26 +322,20 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
                 verdict::observe(&args.records, &args.id, &new)?
             };
             print_warnings(&observed.warnings, quiet);
-            if observed.existing && !quiet {
-                eprintln!(
-                    "already recorded as observation #{}: unchanged",
-                    observed.number
-                );
-            }
+            let (id, n, was, now) = (&observed.id, observed.number, &observed.was, &observed.now);
             // The answer a dry run was asked for, so stdout and never quieted.
-            if args.dry_run && !observed.existing {
-                let (was, now) = (&observed.was, &observed.now);
-                if was == now {
+            if args.dry_run {
+                if observed.existing {
                     println!(
-                        "dry run: observation #{} would leave question {} {now}",
-                        observed.number, args.id
+                        "dry run: already recorded as observation #{n}; question {id} stays {now}"
                     );
+                } else if was == now {
+                    println!("dry run: observation #{n} would leave question {id} {now}");
                 } else {
-                    println!(
-                        "dry run: observation #{} would make question {} {now} (is {was})",
-                        observed.number, args.id
-                    );
+                    println!("dry run: observation #{n} would make question {id} {now} (is {was})");
                 }
+            } else if observed.existing && !quiet {
+                eprintln!("already recorded as observation #{n}: unchanged");
             }
             Ok(())
         }

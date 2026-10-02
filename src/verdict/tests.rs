@@ -454,6 +454,7 @@ fn dry_run_reports_the_resulting_status_and_writes_nothing() {
     };
     observe(&root, &id, &halt).expect("halting run");
     let before = std::fs::read(root.join(format!("{id}.toml"))).expect("read");
+    std::fs::remove_file(root.join(".lock")).expect("drop the writers' lock file");
 
     let missing_code = NewObservation {
         fixture: Some(testdata("editor-export-outside-library.pine")),
@@ -470,8 +471,8 @@ fn dry_run_reports_the_resulting_status_and_writes_nothing() {
         vec![
             "observation #2 chart runs clean contradicts #1 chart halts (RE10134): question \
              {id} would be conflict (is settled). If the fixtures test different claims, they \
-             belong to separate questions: observe it under its own question instead. If one \
-             was mis-recorded, void that one."
+             belong to separate questions: observe it under its own question instead. If an \
+             earlier one was mis-recorded, void it; if this one is, correct it before landing."
                 .replace("{id}", &id)
         ]
     );
@@ -480,6 +481,8 @@ fn dry_run_reports_the_resulting_status_and_writes_nothing() {
         before
     );
     assert!(!root.join("fixtures").exists());
+    // A dry run is a read: it takes no lock, so it creates no `.lock`.
+    assert!(!root.join(".lock").exists());
 
     // An agreeing run reports the status it leaves, and a refused one fails
     // the dry run as it would the write.
@@ -492,11 +495,27 @@ fn dry_run_reports_the_resulting_status_and_writes_nothing() {
             &id,
             &NewObservation {
                 result: None,
-                ..halt
+                ..halt.clone()
             },
         ),
         "needs a `result`",
     );
+
+    // Under a held key the dry run reports the existing observation and the
+    // status it leaves; the id comes back as stored, whatever its case.
+    let keyed = NewObservation {
+        key: Some("k".into()),
+        ..halt.clone()
+    };
+    observe(&root, &id, &keyed).expect("keyed");
+    let rerun = observe_dry_run(&root, &id.to_ascii_uppercase(), &keyed).expect("keyed dry");
+    assert_eq!((rerun.number, rerun.existing), (2, true));
+    assert_eq!(rerun.id, id);
+    assert_eq!(rerun.now, Resolved::Measured(Status::Settled));
+
+    // A retired question refuses the dry run as it would the observation.
+    retire(&root, &id, "reworded", &[]).expect("retire");
+    refused(observe_dry_run(&root, &id, &halt), "is retired");
 }
 
 /// A keyed rerun writes nothing, so it warns about nothing.
@@ -1837,28 +1856,73 @@ fn amending_keeps_keyed_reruns_idempotent() {
     amend(&root, &id, AmendTarget::Answer, Some("B."), "sharper").expect("amend answer");
 
     // The original script, and one updated to the corrected values, rerun
-    // as no-ops.
+    // as no-ops; the original is told its value is superseded.
     let rerun = observe(&root, &id, &run).expect("original rerun");
     assert_eq!((rerun.number, rerun.existing), (1, true));
+    assert_eq!(
+        rerun.warnings,
+        vec![
+            "the given `result` is a superseded value of observation #1; the amended value \
+             stands. Update the script that emits it."
+        ]
+    );
     let updated = NewObservation {
         result: Some(reworded.into()),
         ..run.clone()
     };
-    assert!(
-        observe(&root, &id, &updated)
-            .expect("updated rerun")
-            .existing
+    let rerun = observe(&root, &id, &updated).expect("updated rerun");
+    assert!(rerun.existing && rerun.warnings.is_empty());
+    let rerun = add(&root, &keyed).expect("original add rerun");
+    assert!(rerun.existing);
+    assert_eq!(
+        rerun.warnings,
+        vec![format!(
+            "the given `answer` is a superseded value of question {id}; the amended value \
+             stands. Update the script that emits it."
+        )]
     );
-    assert!(add(&root, &keyed).expect("original add rerun").existing);
     let updated_add = NewQuestion {
         answer: "B.".into(),
         ..keyed.clone()
     };
+    let rerun = add(&root, &updated_add).expect("updated add rerun");
+    assert!(rerun.existing && rerun.warnings.is_empty());
+
+    // Optional fields: a note set from absent and an inconclusive reason
+    // set then cleared both have an absent value in their history, which a
+    // script that never passed them matches. Every step of a chain counts.
+    let note = AmendTarget::Observation {
+        number: 1,
+        field: AmendField::Note,
+    };
+    amend(&root, &id, note, Some("n1"), "r").expect("note");
+    amend(&root, &id, note, Some("n2"), "r").expect("note again");
+    let inconclusive = AmendTarget::Observation {
+        number: 1,
+        field: AmendField::Inconclusive,
+    };
+    amend(&root, &id, inconclusive, Some("confounded"), "r").expect("inconclusive");
+    for given in [None, Some("n1"), Some("n2")] {
+        let o = NewObservation {
+            note: given.map(Into::into),
+            ..run.clone()
+        };
+        assert!(observe(&root, &id, &o).expect("note rerun").existing);
+    }
+    // The stored inconclusive reason stands: the original rerun cannot
+    // make the observation count again.
+    assert!(reload(&root, &id).observations[0].inconclusive.is_some());
+    amend(&root, &id, inconclusive, None, "r").expect("clear");
+    let o = NewObservation {
+        inconclusive: Some("confounded".into()),
+        ..run.clone()
+    };
     assert!(
-        add(&root, &updated_add)
-            .expect("updated add rerun")
+        observe(&root, &id, &o)
+            .expect("inconclusive rerun")
             .existing
     );
+    assert!(reload(&root, &id).observations[0].inconclusive.is_none());
     let q = reload(&root, &id);
     assert_eq!(q.answer, "B.");
     assert_eq!(q.observations[0].result.as_deref(), Some(reworded));
@@ -1881,11 +1945,22 @@ fn amending_keeps_keyed_reruns_idempotent() {
             &root,
             &id,
             &NewObservation {
-                note: Some("new".into()),
+                note: Some("n3".into()),
+                ..run.clone()
+            },
+        ),
+        "`note`: stored \"n2\", given \"n3\"",
+    );
+    refused(
+        observe(
+            &root,
+            &id,
+            &NewObservation {
+                environment: Some("new".into()),
                 ..run
             },
         ),
-        "`note`: stored (absent)",
+        "`environment`: stored (absent)",
     );
     refused(
         add(

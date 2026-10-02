@@ -49,6 +49,8 @@ pub struct Added {
 /// (the `#N` `show` prints).
 #[derive(Debug, Clone)]
 pub struct Observed {
+    /// The question's id as stored (the caller's may differ in case).
+    pub id: String,
     pub number: usize,
     /// The key was already held by an identical observation, whose number
     /// this is; nothing was written.
@@ -143,12 +145,18 @@ pub fn add(root: &Path, new: &NewQuestion) -> Result<Added> {
             ..existing.clone()
         };
         let mut given = Some(q.answer.clone());
-        accept_held(
+        let mut warnings = Vec::new();
+        if accept_held(
             &mut given,
             &Some(stored.answer.clone()),
             AmendField::Answer,
             &existing.amendments,
-        );
+        ) {
+            warnings.push(superseded(
+                AmendField::Answer,
+                &format!("question {}", existing.id),
+            ));
+        }
         let given = Question {
             answer: given.unwrap_or_default(),
             ..q.clone()
@@ -164,7 +172,7 @@ pub fn add(root: &Path, new: &NewQuestion) -> Result<Added> {
         return Ok(Added {
             id: existing.id.clone(),
             existing: true,
-            warnings: Vec::new(),
+            warnings,
         });
     }
     // Only now, creating a question, are its identifiers checked against
@@ -619,7 +627,13 @@ pub fn observe_dry_run(root: &Path, id: &str, new: &NewObservation) -> Result<Ob
 }
 
 fn observe_in(root: &Path, id: &str, new: &NewObservation, mode: Mode) -> Result<Observed> {
-    let _lock = lock(root)?;
+    // A dry run is a read: like the read verbs it takes no lock, so it works
+    // on a read-only checkout. The snapshot it reports may be overtaken by a
+    // concurrent writer, as any read's may.
+    let _lock = match mode {
+        Mode::Write => Some(lock(root)?),
+        Mode::DryRun => None,
+    };
     let store = load(&[root.to_path_buf()])?;
     let Some(existing) = store.get(id) else {
         bail!("no question `{id}` in {}", root.display());
@@ -697,17 +711,16 @@ fn observe_in(root: &Path, id: &str, new: &NewObservation, mode: Mode) -> Result
         }
         // Amendment history is not part of the payload. An amended field
         // matches any value it has held, so the landing script that wrote
-        // the original stays idempotent after the correction.
+        // the original stays idempotent after the correction; a superseded
+        // value is reported, since a script still emitting it is likely the
+        // template for the next landing.
         let mut given = observation.clone();
-        for field in [
-            AmendField::Note,
-            AmendField::Result,
-            AmendField::Settings,
-            AmendField::Environment,
-            AmendField::Inconclusive,
-        ] {
-            if let (Some(held), Some(value)) = (stored.field(field), given.field_mut(field)) {
-                accept_held(value, held, field, &stored.amendments);
+        let mut warnings = Vec::new();
+        for field in AmendField::ALL {
+            if let (Some(held), Some(value)) = (stored.field(field), given.field_mut(field))
+                && accept_held(value, held, field, &stored.amendments)
+            {
+                warnings.push(superseded(field, &format!("observation #{}", i + 1)));
             }
         }
         let current = Observation {
@@ -725,17 +738,18 @@ fn observe_in(root: &Path, id: &str, new: &NewObservation, mode: Mode) -> Result
         }
         let now = store.resolve(existing);
         return Ok(Observed {
+            id: q.id.clone(),
             number: i + 1,
             existing: true,
-            warnings: Vec::new(),
+            warnings,
             was: now.clone(),
             now,
         });
     }
     q.observations.push(observation);
     let mut warnings = check(&store, &q, fixture_sha.as_deref())?;
-    warnings.extend(contradiction(&store, existing, &q, mode));
     let (was, now) = (store.resolve(existing), store.with(&q).resolve(&q));
+    warnings.extend(contradiction(existing, &q, (&was, &now), mode));
 
     if mode == Mode::Write {
         if let (Some(sha), Some(bytes)) = (&fixture_sha, &fixture_bytes) {
@@ -745,6 +759,7 @@ fn observe_in(root: &Path, id: &str, new: &NewObservation, mode: Mode) -> Result
         write_atomic(&question_path(root, &q.id), text.as_bytes())?;
     }
     Ok(Observed {
+        id: q.id.clone(),
         number: q.observations.len(),
         existing: false,
         warnings,
@@ -756,13 +771,17 @@ fn observe_in(root: &Path, id: &str, new: &NewObservation, mode: Mode) -> Result
 /// For a keyed rerun: a given value of amendable `field` that the field has
 /// held at some point (its original, or any later amendment) is taken as the
 /// current value, so amending never breaks the script that landed the record.
-/// The stored value stands; the rerun writes nothing either way.
+/// The stored value stands; the rerun writes nothing either way. Returns
+/// whether the given value was a superseded one.
 fn accept_held(
     given: &mut Option<String>,
     current: &Option<String>,
     field: AmendField,
     amendments: &[Amendment],
-) {
+) -> bool {
+    if given == current {
+        return false;
+    }
     let held = amendments
         .iter()
         .filter(|a| a.field == field)
@@ -770,6 +789,16 @@ fn accept_held(
     if held {
         given.clone_from(current);
     }
+    held
+}
+
+/// The note for a keyed rerun that gave a superseded value of `field`.
+fn superseded(field: AmendField, of: &str) -> String {
+    format!(
+        "the given `{}` is a superseded value of {of}; the amended value stands. \
+         Update the script that emits it.",
+        field.as_str()
+    )
 }
 
 /// The warning for an observation (the last of `after`) that contradicts
@@ -779,7 +808,12 @@ fn accept_held(
 /// at the top strength they make the question a conflict. Weaker-vs-stronger
 /// disagreement is not warned about: it is the expected endpoint gap, and
 /// `show` annotates it.
-fn contradiction(store: &Store, before: &Question, after: &Question, mode: Mode) -> Option<String> {
+fn contradiction(
+    before: &Question,
+    after: &Question,
+    (was, now): (&Resolved, &Resolved),
+    mode: Mode,
+) -> Option<String> {
     let new = after.observations.last()?;
     if !new.counts() {
         return None;
@@ -806,12 +840,9 @@ fn contradiction(store: &Store, before: &Question, after: &Question, mode: Mode)
         return None;
     }
     let number = after.observations.len();
-    // The disposition `show` prints, not the measurement-only status: a
-    // documented or inferred question need not end up a conflict.
-    let (was, now) = (
-        store.resolve(before).to_string(),
-        store.with(after).resolve(after).to_string(),
-    );
+    // `was` / `now` are the disposition `show` prints, not the
+    // measurement-only status: a documented or inferred question need not
+    // end up a conflict.
     let tier = if new.decides() {
         ""
     } else {
@@ -824,16 +855,18 @@ fn contradiction(store: &Store, before: &Question, after: &Question, mode: Mode)
         (Mode::DryRun, true) => format!("{tier}question {id} would stay {now}"),
         (Mode::DryRun, false) => format!("{tier}question {id} would be {now} (is {was})"),
     };
-    let split = match mode {
-        Mode::Write => {
-            format!("`void --observation {number}` and observe it under its own question")
-        }
-        Mode::DryRun => "observe it under its own question instead".to_string(),
+    let advice = match mode {
+        Mode::Write => format!(
+            "`void --observation {number}` and observe it under its own question. If one \
+             was mis-recorded, void that one."
+        ),
+        Mode::DryRun => "observe it under its own question instead. If an earlier one was \
+             mis-recorded, void it; if this one is, correct it before landing."
+            .to_string(),
     };
     Some(format!(
         "observation #{number} {} {} contradicts {}: {status}. If the fixtures test \
-         different claims, they belong to separate questions: {split}. If one was \
-         mis-recorded, void that one.",
+         different claims, they belong to separate questions: {advice}",
         new.source.as_str(),
         new.verdict_summary(after.kind),
         against.join(", ")
