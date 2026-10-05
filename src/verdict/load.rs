@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
 use super::validate::{self, Context, Report};
-use super::{Kind, Question, Resolved, Status};
+use super::{Disposition, Kind, Question, Resolved, Status};
 
 /// Every question loaded from the given records directories, validated.
 #[derive(Debug)]
@@ -29,8 +29,14 @@ pub struct ListFilter<'a> {
     /// Matches the resolved status of non-retired questions, so an inferred
     /// question whose premises are all settled matches `Settled`, and a
     /// documented one matches `Documented`, never `Open` or `Settled`.
-    /// Retired questions have no status and never match.
+    /// Retired questions have no status and never match. `Open` is the
+    /// owed-work view, so it leaves out questions whose closure is in
+    /// effect (`closed` lists those).
     pub status: Option<Status>,
+    /// Only questions whose closure is in effect (closed and open).
+    pub closed: bool,
+    /// Only active questions whose answer is marked negative.
+    pub negative: bool,
     /// Only inferred questions.
     pub inferred: bool,
     /// Only retired questions.
@@ -297,10 +303,13 @@ impl Store {
                     .is_none_or(|c| q.codes().iter().any(|x| x.eq_ignore_ascii_case(c)))
             })
             .filter(|q| {
-                filter
-                    .status
-                    .is_none_or(|s| self.resolve(q).status() == Some(s))
+                filter.status.is_none_or(|s| {
+                    let d = self.disposition(q);
+                    d.resolved.status() == Some(s) && !(s == Status::Open && d.closed)
+                })
             })
+            .filter(|q| !filter.closed || self.disposition(q).closed)
+            .filter(|q| !filter.negative || self.disposition(q).negative)
             .filter(|q| !filter.inferred || q.is_inferred())
             .filter(|q| !filter.retired || q.is_retired())
             .filter(|q| filter.kind.is_none_or(|k| q.kind == k))
@@ -318,6 +327,24 @@ impl Store {
     /// cycles, and validation keeps retired questions out of an active basis.
     pub fn resolve(&self, q: &Question) -> Resolved {
         self.resolve_memo(q, &mut HashMap::new())
+    }
+
+    /// What read verbs show for `q`: `resolve` plus the authored qualifiers.
+    /// A closure is in effect only while the question resolves open: a
+    /// disposition that changes at read time (a citation turning current
+    /// under another baked manual) suspends it, and it resumes when the
+    /// question is open again. Writes that leave a closed question decided
+    /// end the closure for good (see `write`).
+    pub fn disposition(&self, q: &Question) -> Disposition {
+        let resolved = self.resolve(q);
+        let closed = q.is_closed() && resolved.status() == Some(Status::Open);
+        // A retired question's answer is history, and so is its
+        // classification: `show` prints it under the former answer.
+        Disposition {
+            negative: q.negative && !q.is_retired(),
+            resolved,
+            closed,
+        }
     }
 
     /// `resolve` with each premise resolved once per call, so a basis graph

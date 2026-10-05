@@ -14,7 +14,7 @@ produced it.
 ```
 po verdict add      --records <DIR> --kind compile|runtime --question "..." --answer "..."
                     [--identifier X]... [--follow-up-to <id>]... [--basis <id>]...
-                    [--key K]
+                    [--negative] [--key K]
 po verdict observe  <id> --records <DIR> --source editor|endpoint|chart [--key K]
                     (--date YYYY-MM-DD | --date-before YYYY-MM-DD)
                     (--fixture <file.pine> | --no-fixture)
@@ -25,8 +25,11 @@ po verdict observe  <id> --records <DIR> --source editor|endpoint|chart [--key K
                     [--inconclusive "<reason>"] [--evidence <path>]...
                     [--environment "..."] [--note "..."] [--dry-run]
 po verdict retire   <id> --records <DIR> --reason "..." [--replaced-by <id>]...
+po verdict close    <id> --records <DIR> --reason "..."
+po verdict reopen   <id> --records <DIR> --reason "..."
 po verdict amend    <id> --records <DIR> --reason "..."
-                    (--answer "..." | --observation N (--note "..." | --result "..."
+                    ([--answer "..."] [--negative | --clear negative]
+                     | --observation N (--note "..." | --result "..."
                      | --settings "..." | --environment "..." | --inconclusive "..."
                      | --clear note|environment|inconclusive))
 po verdict cite     <id> --records <DIR> --section <manual id | page#anchor>
@@ -35,8 +38,8 @@ po verdict void     <id> --records <DIR> (--observation N | --citation N) --reas
 po verdict search   <query> --records <DIR>... [--limit N]
 po verdict show     <id>... --records <DIR>...
 po verdict list     --records <DIR>... [--identifier X] [--code C]
-                    [--status settled|documented|conflict|open] [--inferred] [--retired]
-                    [--kind compile|runtime]
+                    [--status settled|documented|conflict|open] [--closed] [--negative]
+                    [--inferred] [--retired] [--kind compile|runtime]
 ```
 
 - `add` prints the generated 8-hex question id (or, under a capture key
@@ -49,6 +52,9 @@ po verdict list     --records <DIR>... [--identifier X] [--code C]
   testing different claims belong to two questions.
 - `retire` withdraws a question (see below). It refuses a question that is
   already retired, or that an active question uses as a premise.
+- `close` / `reopen` stop and resume the investigation of an open question,
+  and `--negative` marks an answer that identifies nothing (see Negative
+  answers and closed investigations).
 - The write verbs take one `--records` directory, which must already exist.
   The read verbs accept `--records` more than once.
 - `search` and `list` print `<id>  <status>  <kind>  <question>` rows. `show`
@@ -112,10 +118,13 @@ two experiments can ask the same sentence.
 ### Corrections
 
 `amend` corrects what was written down, keeping the history beside it: the
-question's `answer`, or an observation's `note`, `result`, `settings`,
-`environment` or `inconclusive` reason. Each amendment records the UTC time,
-the reason, and the value before and after (either absent when the field was
-added or cleared). `show` prints the history under the current value. Search
+question's `answer` and `negative` mark, or an observation's `note`,
+`result`, `settings`, `environment` or `inconclusive` reason. `--answer`
+combines with `--negative` or `--clear negative`, so an answer and its
+classification change in one write (two amendments with the same reason),
+never through a contradictory intermediate record. Each amendment records
+the UTC time, the reason, and the value before and after (either absent
+when the field was added or cleared; a negative mark's value is `"true"`). `show` prints the history under the current value. Search
 indexes current values only.
 
 What was measured is not amendable: source, dates, fixture, outcome, codes
@@ -258,6 +267,67 @@ conflict (say, a run landed without the error code its siblings carry)
 before it becomes a record to void. The exit status is 0 whatever the
 predicted disposition.
 
+## Negative answers and closed investigations
+
+Status says whether the evidence agrees, never what the answer says. Two
+authored facts sit beside it and never change it; `search`, `list` and
+`show` print them after the status: `settled, negative`, `open, closed`.
+
+**Negative.** `add --negative` or `amend --negative` marks an answer that
+reports that the behavior asked about was **not identified**: "none of
+three running-sum orders, four fresh sums, Kahan or Neumaier reproduces
+ta.sma". What it excludes is scoped to what was tested. Without the mark a
+`settled` question that only ruled models out reads like a positive answer.
+The mark is the author's classification of the answer, as the answer is the
+author's: po does not derive it from candidates, because candidates often
+model why a behavior occurs while the question asks what occurs (a run that
+refutes every model of a halt still measured the halt bar), and the same
+knowledge can be recorded as a refuted candidate or a selected one. A No to
+a yes/no question ("does TradingView use X?") is a positive fact, not a
+negative answer. Neither the mark nor its absence says whether an answer
+licenses an implementation: po never checks that evidence implies an answer.
+Absence asserts nothing (it is not a claim that the answer identifies the
+behavior). The mark is allowed whatever the status, and an inferred question
+on a negative premise resolves through the premise's status as usual.
+`amend --clear negative` removes it. `list --negative` lists marked
+questions that are not retired. On a retired question the mark is history,
+like the answer: the disposition carries no `negative` qualifier, and `show`
+prints the mark under the former answer.
+
+`show` also prints `candidates: every declared candidate refuted, none
+selected` when the counting editor/chart runs do not conflict, declare at
+least one candidate, select none and refute every declared one. It is a
+fact about the runs, not a status and not a classification of the answer.
+It is never printed for a retired question, whose observations are not
+compared.
+
+**Closed.** `close` records that the investigation of an open question
+stopped without an answer: every capture was inconclusive, say, and nobody
+will pursue it. Nothing was learned, so the question stays open and shows as
+`open, closed`. `list --status open` is the owed-work view and leaves closed
+questions out; `list --closed` lists them. This differs from retiring: a
+retired question is withdrawn (its answer becomes history), while a closed
+one still stands, its record of what was tried still citable. `close` is
+refused on a retired question, on an inferred one (its openness names the
+premise that owes the work: close or pursue that premise instead), on one
+already closed, and on one that does not resolve open. `reopen` resumes the
+investigation; it is allowed whenever the last entry is a close, and refused
+on a retired question, whose closure is history.
+
+A closure is in effect only while the question resolves open. A write by
+`observe`, `amend`, `void` or `cite` that leaves a closed, active, measured
+question settled, conflicting or documented appends an automatic reopen in
+the same write (`the question is now settled after adding observation #2`),
+so voiding what decided it later leaves the question open, owed work again,
+rather than silently closed. A no-op (a keyed rerun, an identical citation)
+writes nothing, and `observe --dry-run` predicts the reopen. A disposition
+that changes without a write (a citation turning current or stale under
+another baked manual, a hand edit) only suspends the closure: `show` prints
+`closure suspended`, and the closure applies again once the question is
+open. Retiring a closed question, or amending a retired one, appends
+nothing. `show` prints the closure history (`closed`, `reopened`,
+`reopened automatically`) under the answer.
+
 ## Manual citations
 
 When the Pine User Manual states a behavior outright, `cite` records the
@@ -358,7 +428,8 @@ question may not rest on a retired premise, so `retire` refuses a question
 an active one uses in `basis`: rework that inference first.
 
 `list --status` matches the resolved status of questions that are not
-retired, so `open` and `conflict` are the owed-work views, and `documented`
+retired, so `open` (closed investigations left out) and `conflict` are the
+owed-work views, and `documented`
 lists questions with no deciding measurement that current manual citations
 support, directly or (inferred) through a documented premise. `--inferred` lists
 inferred questions and combines with `--status`. `--retired` lists retired
@@ -460,7 +531,10 @@ tables (`at`, `field`, `was`, `now`, `reason`), a voided one an
 `[observation.void]` table (`at`, `reason`); answer amendments are
 question-level `[[amendment]]` tables. Citations are question-level
 `[[citation]]` tables (`section`, `quotes`, `digest`, `at`, optional `note`,
-optional `[citation.void]`).
+optional `[citation.void]`). A negative answer carries `negative = true`
+among the plain fields (absent when unmarked), and the investigation history
+is question-level `[[closure]]` tables (`at`, `action` = `close` or
+`reopen`, `reason`, and `automatic = true` on a reopen po appended).
 
 Records written before the relations split carry `derived_from = []`. The
 empty list is accepted and dropped the next time po rewrites the file. A
@@ -523,7 +597,11 @@ Errors:
 - an amendment of a field not amendable at its level, with an empty reason,
   empty `was` / `now`, `was` equal to `now`, or a time that is not a UTC
   timestamp; a field whose amendments do not chain or do not end at its
-  current value; a `void` with an empty reason or a non-UTC time;
+  current value; a `negative` amendment whose `was` / `now` is neither
+  `"true"` nor absent; a `void` with an empty reason or a non-UTC time;
+- a closure history that does not start with a close and alternate, an
+  entry with an empty reason or a non-UTC time, an automatic close; an
+  active closure on an active inferred question;
 - an empty `key`, a question key held by two questions of one directory, or
   an observation key used twice in one question;
 - a `fixture_name` without a `fixture`;

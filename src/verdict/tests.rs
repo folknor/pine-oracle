@@ -38,6 +38,7 @@ fn question(kind: Kind, identifiers: &[&str]) -> NewQuestion {
         identifiers: identifiers.iter().map(ToString::to_string).collect(),
         follow_up_to: Vec::new(),
         basis: Vec::new(),
+        negative: false,
     }
 }
 
@@ -485,7 +486,7 @@ fn dry_run_reports_the_resulting_status_and_writes_nothing() {
     // the dry run as it would the write.
     let agreeing = observe_dry_run(&root, &id, &halt).expect("agreeing");
     assert!(agreeing.warnings.is_empty(), "{:?}", agreeing.warnings);
-    assert_eq!(agreeing.now, Resolved::Measured(Status::Settled));
+    assert_eq!(agreeing.now.resolved, Resolved::Measured(Status::Settled));
     refused(
         observe_dry_run(
             &root,
@@ -508,7 +509,7 @@ fn dry_run_reports_the_resulting_status_and_writes_nothing() {
     let rerun = observe_dry_run(&root, &id.to_ascii_uppercase(), &keyed).expect("keyed dry");
     assert_eq!((rerun.number, rerun.existing), (2, true));
     assert_eq!(rerun.id, id);
-    assert_eq!(rerun.now, Resolved::Measured(Status::Settled));
+    assert_eq!(rerun.now.resolved, Resolved::Measured(Status::Settled));
 
     // A retired question refuses the dry run as it would the observation.
     retire(&root, &id, "reworded", &[]).expect("retire");
@@ -2740,4 +2741,246 @@ fn list_filters() {
         }),
         vec![a]
     );
+}
+
+fn disposition(root: &Path, id: &str) -> String {
+    let store = load(&[root.to_path_buf()]).expect("load");
+    let q = store.get(id).expect("question").clone();
+    store.disposition(&q).to_string()
+}
+
+/// The piners 0ac37cd3 shape: every tested model refuted, none selected.
+/// Status stays settled (the runs agree); the authored negative mark is
+/// what tells a reader the answer identifies nothing.
+#[test]
+fn negative_marks_the_answer_without_changing_status() {
+    let root = scratch("negative");
+    let refuting = NewObservation {
+        candidates: vec![
+            parse_candidate("r1|running sum").expect("r1"),
+            parse_candidate("f1|fresh sum").expect("f1"),
+        ],
+        refuted: vec!["r1".into(), "f1".into()],
+        ..runtime("2026-10-05")
+    };
+    let id = add(
+        &root,
+        &NewQuestion {
+            key: Some("sma".into()),
+            ..question(Kind::Runtime, &["ta.sma"])
+        },
+    )
+    .expect("add")
+    .id;
+    observe(&root, &id, &refuting).expect("observe");
+    let q = reload(&root, &id);
+    assert_eq!(q.own_status(), Status::Settled);
+    assert!(q.every_candidate_refuted());
+    assert_eq!(disposition(&root, &id), "settled");
+
+    amend(
+        &root,
+        &id,
+        AmendTarget::Negative,
+        Some("true"),
+        "identifies nothing",
+    )
+    .expect("mark negative");
+    assert_eq!(disposition(&root, &id), "settled, negative");
+    refused(
+        amend(&root, &id, AmendTarget::Negative, Some("true"), "again"),
+        "already marked negative",
+    );
+    let store = load(std::slice::from_ref(&root)).expect("load");
+    let negative = ListFilter {
+        negative: true,
+        ..Default::default()
+    };
+    assert_eq!(ids_of(&store, &negative), vec![id.clone()]);
+
+    // The keyed add rerun that landed it unmarked still matches, with a
+    // superseded-value warning; one emitting the mark matches silently.
+    let rerun = NewQuestion {
+        key: Some("sma".into()),
+        ..question(Kind::Runtime, &["ta.sma"])
+    };
+    let again = add(&root, &rerun).expect("rerun");
+    assert!(again.existing);
+    assert_eq!(again.warnings.len(), 1, "{:?}", again.warnings);
+    let marked = add(
+        &root,
+        &NewQuestion {
+            negative: true,
+            ..rerun
+        },
+    )
+    .expect("marked rerun");
+    assert!(marked.warnings.is_empty(), "{:?}", marked.warnings);
+
+    // An answer and its classification change in one write.
+    amend_all(
+        &root,
+        &id,
+        &[
+            (AmendTarget::Answer, Some("r1, after all.")),
+            (AmendTarget::Negative, None),
+        ],
+        "a later fit",
+    )
+    .expect("amend both");
+    let q = reload(&root, &id);
+    assert!(!q.negative);
+    let fields: Vec<AmendField> = q.amendments.iter().map(|a| a.field).collect();
+    assert_eq!(
+        fields,
+        vec![
+            AmendField::Negative,
+            AmendField::Answer,
+            AmendField::Negative
+        ]
+    );
+
+    // A negative history value other than "true" is refused.
+    let path = root.join(format!("{id}.toml"));
+    let text = std::fs::read_to_string(&path).expect("read");
+    std::fs::write(&path, text.replacen("now = \"true\"", "now = \"yes\"", 1)).expect("write");
+    let err = load(std::slice::from_ref(&root))
+        .expect_err("tampered")
+        .to_string();
+    assert!(err.contains("must be \"true\" or absent"), "{err}");
+}
+
+/// A retired question's classification and coverage are history: no
+/// `negative` qualifier, no coverage summary over withdrawn comparisons.
+#[test]
+fn retired_questions_carry_no_negative_qualifier_or_coverage() {
+    let root = scratch("negative-retired");
+    let id = add(
+        &root,
+        &NewQuestion {
+            negative: true,
+            ..question(Kind::Runtime, &[])
+        },
+    )
+    .expect("add")
+    .id;
+    let refuting = NewObservation {
+        candidates: vec![parse_candidate("A").expect("A")],
+        refuted: vec!["A".into()],
+        ..runtime("2026-10-05")
+    };
+    observe(&root, &id, &refuting).expect("observe");
+    assert_eq!(disposition(&root, &id), "settled, negative");
+    retire(&root, &id, "mis-filed", &[]).expect("retire");
+    assert_eq!(disposition(&root, &id), "retired");
+    assert!(!reload(&root, &id).every_candidate_refuted());
+    let store = load(std::slice::from_ref(&root)).expect("load");
+    let negative = ListFilter {
+        negative: true,
+        ..Default::default()
+    };
+    assert!(ids_of(&store, &negative).is_empty());
+}
+
+#[test]
+fn partial_refutation_is_not_full_coverage() {
+    let root = scratch("partial-refutation");
+    let id = add(&root, &question(Kind::Runtime, &[])).expect("add").id;
+    let partial = NewObservation {
+        candidates: vec![
+            parse_candidate("A").expect("A"),
+            parse_candidate("B").expect("B"),
+        ],
+        refuted: vec!["A".into()],
+        ..runtime("2026-10-05")
+    };
+    observe(&root, &id, &partial).expect("observe");
+    let q = reload(&root, &id);
+    assert_eq!(q.own_status(), Status::Settled);
+    assert!(!q.every_candidate_refuted());
+}
+
+/// The piners 0f412442 shape: every run inconclusive, the investigation
+/// stopped. The question stays open; closure is a workflow fact.
+#[test]
+fn closing_an_open_question_and_ending_the_closure() {
+    let root = scratch("closure");
+    let id = add(&root, &question(Kind::Runtime, &[])).expect("add").id;
+    let misfire = NewObservation {
+        inconclusive: Some("the terminal cannot be isolated".into()),
+        ..runtime("2026-10-02")
+    };
+    observe(&root, &id, &misfire).expect("inconclusive");
+    refused(reopen(&root, &id, "r"), "is not closed");
+    close(&root, &id, "no basis reproduces every cycle").expect("close");
+    assert_eq!(disposition(&root, &id), "open, closed");
+    refused(close(&root, &id, "again"), "already closed");
+
+    let store = load(std::slice::from_ref(&root)).expect("load");
+    let open = ListFilter {
+        status: Some(Status::Open),
+        ..Default::default()
+    };
+    let closed = ListFilter {
+        closed: true,
+        ..Default::default()
+    };
+    assert!(ids_of(&store, &open).is_empty(), "closed is not owed work");
+    assert_eq!(ids_of(&store, &closed), vec![id.clone()]);
+
+    // A dry run predicts the automatic reopen; the write records it.
+    let dry = observe_dry_run(&root, &id, &runtime("2026-10-06")).expect("dry");
+    assert_eq!(dry.was.to_string(), "open, closed");
+    assert_eq!(dry.now.to_string(), "settled");
+    observe(&root, &id, &runtime("2026-10-06")).expect("deciding run");
+    let q = reload(&root, &id);
+    assert!(!q.is_closed());
+    let last = q.closures.last().expect("reopen");
+    assert!(last.automatic);
+    assert_eq!(
+        last.reason,
+        "the question is now settled after adding observation #2"
+    );
+    // Voiding what decided it leaves it open, owed work again: the closure
+    // does not silently resume.
+    void(&root, &id, VoidTarget::Observation(2), "mis-recorded").expect("void");
+    assert_eq!(disposition(&root, &id), "open");
+
+    // Only open, measured, active questions close.
+    let settled = add(&root, &question(Kind::Runtime, &[])).expect("add").id;
+    observe(&root, &settled, &runtime("2026-10-06")).expect("run");
+    refused(close(&root, &settled, "r"), "only an open question");
+    let inferred = add(
+        &root,
+        &NewQuestion {
+            basis: vec![id.clone()],
+            ..question(Kind::Runtime, &[])
+        },
+    )
+    .expect("add")
+    .id;
+    refused(close(&root, &inferred, "r"), "is inferred");
+
+    // A retired question's closure is history: amending it appends nothing,
+    // and it cannot be reopened.
+    let retiring = add(&root, &question(Kind::Runtime, &[])).expect("add").id;
+    close(&root, &retiring, "stopped").expect("close");
+    retire(&root, &retiring, "reworded", &[]).expect("retire");
+    amend(&root, &retiring, AmendTarget::Answer, Some("B."), "r").expect("amend");
+    assert_eq!(reload(&root, &retiring).closures.len(), 1);
+    refused(reopen(&root, &retiring, "r"), "retired");
+    refused(close(&root, &settled, "r"), "only an open question");
+
+    // A hand-edited history that does not alternate fails the load.
+    let path = root.join(format!("{id}.toml"));
+    let text = std::fs::read_to_string(&path).expect("read");
+    std::fs::write(
+        &path,
+        text.replace("action = \"reopen\"", "action = \"close\""),
+    )
+    .expect("w");
+    let err = load(std::slice::from_ref(&root))
+        .expect_err("tampered")
+        .to_string();
+    assert!(err.contains("expected a reopen"), "{err}");
 }

@@ -1,8 +1,9 @@
 use anyhow::{Result, bail};
 use clap::{ArgGroup, Subcommand};
 use pine_oracle::verdict::{
-    self, AmendField, AmendTarget, Amendment, Citation, Kind, ListFilter, NewObservation,
-    NewQuestion, Outcome, Question, Ranked, Relation, Source, Status, Store, VoidTarget,
+    self, AmendField, AmendTarget, Amendment, Citation, ClosureAction, Kind, ListFilter,
+    NewObservation, NewQuestion, Outcome, Question, Ranked, Relation, Source, Status, Store,
+    VoidTarget,
 };
 use std::path::PathBuf;
 
@@ -44,6 +45,10 @@ pub(crate) enum VerdictCommand {
         /// inferred: settled only when every premise is. Repeatable.
         #[arg(long = "basis", value_name = "ID")]
         basis: Vec<String>,
+        /// Mark the answer negative: it reports that the behavior asked
+        /// about was not identified (only what was tested is excluded).
+        #[arg(long)]
+        negative: bool,
     },
 
     /// Append one observation to a question.
@@ -64,9 +69,34 @@ pub(crate) enum VerdictCommand {
         replaced_by: Vec<String>,
     },
 
-    /// Correct a question's answer, or an observation's note, result,
-    /// settings, environment or inconclusive reason. The old value, the
-    /// time and the reason are kept beside the field; `show` prints them.
+    /// Stop the investigation of an open question nobody will resolve. It
+    /// stays open (nothing was learned), shows as `open, closed`, and drops
+    /// out of `list --status open`.
+    Close {
+        id: String,
+        /// Records directory holding the question.
+        #[arg(long)]
+        records: PathBuf,
+        /// Why the investigation stops.
+        #[arg(long)]
+        reason: String,
+    },
+
+    /// Resume the investigation of a closed question.
+    Reopen {
+        id: String,
+        /// Records directory holding the question.
+        #[arg(long)]
+        records: PathBuf,
+        /// Why the investigation resumes.
+        #[arg(long)]
+        reason: String,
+    },
+
+    /// Correct a question's answer or negative mark, or an observation's
+    /// note, result, settings, environment or inconclusive reason. The old
+    /// value, the time and the reason are kept beside the field; `show`
+    /// prints them.
     Amend(Box<AmendArgs>),
 
     /// Cite a Pine User Manual passage as support for the answer. The
@@ -144,8 +174,15 @@ pub(crate) enum VerdictCommand {
         #[arg(long)]
         code: Option<String>,
         /// Resolved status; retired questions have none and never match.
+        /// `open` is the owed-work view and leaves out closed questions.
         #[arg(long, value_parser = ["settled", "documented", "conflict", "open"])]
         status: Option<String>,
+        /// Only open questions whose investigation is closed.
+        #[arg(long, conflicts_with_all = ["status", "retired"])]
+        closed: bool,
+        /// Only questions whose answer is marked negative.
+        #[arg(long)]
+        negative: bool,
         /// Only inferred questions (answered from `basis` premises).
         #[arg(long)]
         inferred: bool,
@@ -237,8 +274,8 @@ pub(crate) struct ObserveArgs {
 }
 
 #[derive(clap::Args)]
-#[command(group(ArgGroup::new("change").required(true).args([
-    "answer", "note", "result", "settings", "environment", "inconclusive", "clear",
+#[command(group(ArgGroup::new("change").required(true).multiple(true).args([
+    "answer", "negative", "note", "result", "settings", "environment", "inconclusive", "clear",
 ])))]
 pub(crate) struct AmendArgs {
     /// Question id.
@@ -249,11 +286,16 @@ pub(crate) struct AmendArgs {
     /// Why the old value was wrong.
     #[arg(long)]
     reason: String,
-    /// The corrected answer.
+    /// The corrected answer. Combines with `--negative` or `--clear
+    /// negative`, so an answer and its classification change in one write.
     #[arg(long, conflicts_with = "observation")]
     answer: Option<String>,
+    /// Mark the answer negative: it reports that the behavior asked about
+    /// was not identified.
+    #[arg(long, conflicts_with = "observation")]
+    negative: bool,
     /// The observation to correct: its `#N`, as `show` prints it.
-    #[arg(long, value_name = "N", required_unless_present = "answer")]
+    #[arg(long, value_name = "N")]
     observation: Option<usize>,
     /// The corrected note.
     #[arg(long)]
@@ -271,9 +313,10 @@ pub(crate) struct AmendArgs {
     /// counting.
     #[arg(long, value_name = "REASON")]
     inconclusive: Option<String>,
-    /// Remove an optional field: `note`, `environment`, or `inconclusive`
-    /// (the run counts again).
-    #[arg(long, value_name = "FIELD", value_parser = ["note", "environment", "inconclusive"])]
+    /// Remove an optional field: the question's `negative` mark, or an
+    /// observation's `note`, `environment`, or `inconclusive` (the run
+    /// counts again).
+    #[arg(long, value_name = "FIELD", value_parser = ["negative", "note", "environment", "inconclusive"])]
     clear: Option<String>,
 }
 
@@ -288,6 +331,7 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
             identifiers,
             follow_up_to,
             basis,
+            negative,
         } => {
             let added = verdict::add(
                 &records,
@@ -299,6 +343,7 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
                     identifiers,
                     follow_up_to,
                     basis,
+                    negative,
                 },
             )?;
             print_warnings(&added.warnings, quiet);
@@ -339,32 +384,22 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
             }
             Ok(())
         }
+        VerdictCommand::Close {
+            id,
+            records,
+            reason,
+        } => verdict::close(&records, &id, &reason),
+        VerdictCommand::Reopen {
+            id,
+            records,
+            reason,
+        } => verdict::reopen(&records, &id, &reason),
         VerdictCommand::Amend(args) => {
             let a = *args;
-            let (target, value) = match (a.observation, a.answer) {
-                (_, Some(answer)) => (AmendTarget::Answer, Some(answer)),
-                (Some(number), None) => {
-                    let (field, value) = match (
-                        a.note,
-                        a.result,
-                        a.settings,
-                        a.environment,
-                        a.inconclusive,
-                        a.clear,
-                    ) {
-                        (Some(v), ..) => (AmendField::Note, Some(v)),
-                        (_, Some(v), ..) => (AmendField::Result, Some(v)),
-                        (_, _, Some(v), ..) => (AmendField::Settings, Some(v)),
-                        (_, _, _, Some(v), ..) => (AmendField::Environment, Some(v)),
-                        (_, _, _, _, Some(v), _) => (AmendField::Inconclusive, Some(v)),
-                        (.., Some(field)) => (field.parse()?, None),
-                        _ => bail!("nothing to amend"),
-                    };
-                    (AmendTarget::Observation { number, field }, value)
-                }
-                (None, None) => bail!("name --answer or --observation N"),
-            };
-            let support = verdict::amend(&a.records, &a.id, target, value.as_deref(), &a.reason)?;
+            let changes = amend_changes(&a)?;
+            let borrowed: Vec<(AmendTarget, Option<&str>)> =
+                changes.iter().map(|(t, v)| (*t, v.as_deref())).collect();
+            let support = verdict::amend_all(&a.records, &a.id, &borrowed, &a.reason)?;
             if let Some(support) = support
                 && !quiet
             {
@@ -436,6 +471,8 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
             identifier,
             code,
             status,
+            closed,
+            negative,
             inferred,
             retired,
             kind,
@@ -445,6 +482,8 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
                 identifier: identifier.as_deref(),
                 code: code.as_deref(),
                 status: status.as_deref().map(str::parse::<Status>).transpose()?,
+                closed,
+                negative,
                 inferred,
                 retired,
                 kind: kind.as_deref().map(str::parse::<Kind>).transpose()?,
@@ -456,6 +495,66 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
             print_rows(&store, &rows, style);
             Ok(())
         }
+    }
+}
+
+/// The changes one `amend` call makes. Question level: `--answer` and/or the
+/// negative mark (`--negative` / `--clear negative`), in one write. With
+/// `--observation N`: exactly one of its prose fields.
+fn amend_changes(a: &AmendArgs) -> Result<Vec<(AmendTarget, Option<String>)>> {
+    let clear_negative = a.clear.as_deref() == Some("negative");
+    let observation_fields: Vec<(AmendField, Option<String>)> = [
+        (AmendField::Note, a.note.clone()),
+        (AmendField::Result, a.result.clone()),
+        (AmendField::Settings, a.settings.clone()),
+        (AmendField::Environment, a.environment.clone()),
+        (AmendField::Inconclusive, a.inconclusive.clone()),
+    ]
+    .into_iter()
+    .filter(|(_, v)| v.is_some())
+    .chain(
+        a.clear
+            .as_deref()
+            .filter(|_| !clear_negative)
+            .map(|f| f.parse().map(|field| (field, None)))
+            .transpose()?,
+    )
+    .collect();
+    let Some(number) = a.observation else {
+        if !observation_fields.is_empty() {
+            bail!("an observation field needs --observation N");
+        }
+        if a.negative && clear_negative {
+            bail!("--negative and --clear negative contradict each other");
+        }
+        let mut changes = Vec::new();
+        if let Some(answer) = &a.answer {
+            changes.push((AmendTarget::Answer, Some(answer.clone())));
+        }
+        if a.negative {
+            changes.push((AmendTarget::Negative, Some("true".to_string())));
+        }
+        if clear_negative {
+            changes.push((AmendTarget::Negative, None));
+        }
+        if changes.is_empty() {
+            bail!("name --answer, --negative, --clear negative or --observation N");
+        }
+        return Ok(changes);
+    };
+    if clear_negative {
+        bail!("`negative` is a question field: drop --observation");
+    }
+    match observation_fields.as_slice() {
+        [(field, value)] => Ok(vec![(
+            AmendTarget::Observation {
+                number,
+                field: *field,
+            },
+            value.clone(),
+        )]),
+        [] => bail!("nothing to amend on observation #{number}"),
+        _ => bail!("amend one observation field at a time"),
     }
 }
 
@@ -507,7 +606,7 @@ fn print_warnings(warnings: &[String], quiet: bool) {
 fn print_rows(store: &Store, questions: &[&Question], style: Style) {
     let statuses: Vec<String> = questions
         .iter()
-        .map(|q| store.resolve(q).to_string())
+        .map(|q| store.disposition(q).to_string())
         .collect();
     let width = statuses.iter().map(String::len).max().unwrap_or(0);
     for (q, status) in questions.iter().zip(&statuses) {
@@ -525,7 +624,7 @@ fn print_question(store: &Store, q: &Question, style: Style) {
         "{}  {}  {}",
         style.bold(&q.id),
         q.kind.as_str(),
-        style.bold(&store.resolve(q).to_string())
+        style.bold(&store.disposition(q).to_string())
     );
     println!("  {}", q.question);
     match &q.retired {
@@ -539,6 +638,30 @@ fn print_question(store: &Store, q: &Question, style: Style) {
             println!("  {}", q.answer);
             print_amendments("    ", &q.amendments);
         }
+    }
+    if q.negative {
+        let which = if q.is_retired() {
+            "former answer"
+        } else {
+            "answer"
+        };
+        println!("  negative: the {which} does not identify the behavior asked about");
+    }
+    for c in &q.closures {
+        let action = match c.action {
+            ClosureAction::Close => "closed",
+            ClosureAction::Reopen if c.automatic => "reopened automatically",
+            ClosureAction::Reopen => "reopened",
+        };
+        println!("  {action} {}: {}", c.at, c.reason);
+    }
+    // A closure po never ended (hand edits, or a read-time change such as a
+    // citation turning current) is suspended while the question is decided.
+    if q.is_closed() && !q.is_retired() && !store.disposition(q).closed {
+        println!("  closure suspended: the question does not resolve open");
+    }
+    if q.every_candidate_refuted() {
+        println!("  candidates: every declared candidate refuted, none selected");
     }
     if q.identifiers.is_empty() {
         println!("  identifiers: none");
@@ -565,7 +688,7 @@ fn print_question(store: &Store, q: &Question, style: Style) {
     let with_disposition = |ids: &[String]| -> String {
         ids.iter()
             .map(|id| match store.get(id) {
-                Some(linked) => format!("{id} ({})", store.resolve(linked)),
+                Some(linked) => format!("{id} ({})", store.disposition(linked)),
                 None => id.clone(),
             })
             .collect::<Vec<_>>()

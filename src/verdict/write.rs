@@ -1,6 +1,7 @@
 // Write side: `add` creates a question, `observe` appends one observation,
-// `retire` withdraws a question, `amend` corrects an answer or an
-// observation's prose keeping the history, `cite` records a manual passage
+// `retire` withdraws a question, `close` / `reopen` stop and resume an open
+// question's investigation, `amend` corrects an answer, its negative mark or
+// an observation's prose keeping the history, `cite` records a manual passage
 // supporting the answer, `void` withdraws an observation or a citation.
 // Each takes the records directory's lock exclusively,
 // strictly loads it (never write into a store that is already invalid),
@@ -26,8 +27,9 @@ use toml::value::Datetime;
 use super::load::load_unlocked;
 use super::validate::{self, Context, Report, fixture_path, question_path, sha256_hex};
 use super::{
-    AmendField, Amendment, Candidate, CandidateState, Citation, Diag, Kind, Observation, Outcome,
-    Question, Relation, Resolved, Retired, Source, Store, Void, citation, load,
+    AmendField, Amendment, Candidate, CandidateState, Citation, Closure, ClosureAction, Diag,
+    Disposition, Kind, Observation, Outcome, Question, Relation, Retired, Source, Status, Store,
+    Void, citation, load,
 };
 
 /// A question to create.
@@ -42,6 +44,8 @@ pub struct NewQuestion {
     pub identifiers: Vec<String>,
     pub follow_up_to: Vec<String>,
     pub basis: Vec<String>,
+    /// The answer reports that the behavior asked about was not identified.
+    pub negative: bool,
 }
 
 /// The id `add` assigned plus any non-blocking warnings about the question.
@@ -67,8 +71,8 @@ pub struct Observed {
     pub warnings: Vec<String>,
     /// The question's disposition before and after the observation (equal
     /// for a keyed rerun), as `show` prints it.
-    pub was: Resolved,
-    pub now: Resolved,
+    pub was: Disposition,
+    pub now: Disposition,
 }
 
 /// Whether `observe` writes, or only reports what writing would do.
@@ -124,8 +128,10 @@ pub fn add(root: &Path, new: &NewQuestion) -> Result<Added> {
         identifiers: new.identifiers.clone(),
         follow_up_to: ids(&new.follow_up_to),
         basis: ids(&new.basis),
+        negative: new.negative,
         legacy_derived_from: None,
         retired: None,
+        closures: Vec::new(),
         amendments: Vec::new(),
         citations: Vec::new(),
         observations: Vec::new(),
@@ -144,30 +150,31 @@ pub fn add(root: &Path, new: &NewQuestion) -> Result<Added> {
             );
         }
         // Only the fields `add` sets are compared: observations, citations,
-        // amendments and retirement come later, not part of the add payload.
-        // An amended answer matches any value it has held, so amending does
-        // not break the script that added the question.
+        // amendments, closures and retirement come later, not part of the
+        // add payload. An amended answer or negative mark matches any value
+        // it has held, so amending does not break the script that added the
+        // question.
         let stored = Question {
             observations: Vec::new(),
             amendments: Vec::new(),
             citations: Vec::new(),
+            closures: Vec::new(),
             ..existing.clone()
         };
-        let mut given = Some(q.answer.clone());
+        let mut answer = Some(q.answer.clone());
+        let mut negative = q.negative_value();
         let mut warnings = Vec::new();
-        if accept_held(
-            &mut given,
-            &Some(stored.answer.clone()),
-            AmendField::Answer,
-            &existing.amendments,
-        ) {
-            warnings.push(superseded(
-                AmendField::Answer,
-                &format!("question {}", existing.id),
-            ));
+        for (field, given, held) in [
+            (AmendField::Answer, &mut answer, Some(stored.answer.clone())),
+            (AmendField::Negative, &mut negative, stored.negative_value()),
+        ] {
+            if accept_held(given, &held, field, &existing.amendments) {
+                warnings.push(superseded(field, &format!("question {}", existing.id)));
+            }
         }
         let given = Question {
-            answer: given.unwrap_or_default(),
+            answer: answer.unwrap_or_default(),
+            negative: negative.is_some(),
             ..q.clone()
         };
         let diff = field_diff(&stored, &given)?;
@@ -293,21 +300,120 @@ pub fn retire(root: &Path, id: &str, reason: &str, replaced_by: &[String]) -> Re
     write_question(&q)
 }
 
-/// What `amend` corrects: the question's answer, or one prose field of the
-/// observation numbered `number` (1-based file order, the `#N` `show` prints).
+/// Stop the investigation of open question `id` for `reason`: it stays open
+/// (nothing was learned) and shows as `open, closed`, and `list --status
+/// open`, the owed-work view, leaves it out. Refused on a retired question,
+/// on an inferred one (its openness names the premise that owes the work:
+/// close or pursue that premise instead), on one already closed, and on one
+/// that does not resolve open.
+pub fn close(root: &Path, id: &str, reason: &str) -> Result<()> {
+    let _lock = lock(root)?;
+    let store = load_unlocked(root)?;
+    let Some(existing) = store.get(id) else {
+        bail!("no question `{id}` in {}", root.display());
+    };
+    if let Some(r) = &existing.retired {
+        bail!(
+            "question {} is retired{}: it has no investigation to close",
+            existing.id,
+            replaced_hint(r)
+        );
+    }
+    if existing.is_inferred() {
+        bail!(
+            "question {} is inferred: its openness names the premise that owes the work, so close or pursue that premise instead",
+            existing.id
+        );
+    }
+    if existing.is_closed() {
+        bail!("question {} is already closed", existing.id);
+    }
+    let resolved = store.resolve(existing);
+    if resolved.status() != Some(Status::Open) {
+        bail!(
+            "question {} is {resolved}: only an open question's investigation can be closed",
+            existing.id
+        );
+    }
+    let mut q = existing.clone();
+    q.closures.push(Closure {
+        at: now_utc()?,
+        action: ClosureAction::Close,
+        reason: reason.trim().to_string(),
+        automatic: false,
+    });
+    check(&store, &q, None)?;
+    write_question(&q)
+}
+
+/// Resume the investigation of closed question `id`. Allowed whenever the
+/// last closure entry is a close, even while the closure is suspended (the
+/// question currently resolves decided), so a dormant closure can be ended
+/// before it resumes. Refused on a retired question, whose closure is history.
+pub fn reopen(root: &Path, id: &str, reason: &str) -> Result<()> {
+    let _lock = lock(root)?;
+    let store = load_unlocked(root)?;
+    let Some(existing) = store.get(id) else {
+        bail!("no question `{id}` in {}", root.display());
+    };
+    if existing.is_retired() {
+        bail!(
+            "question {} is retired: its closure is history",
+            existing.id
+        );
+    }
+    if !existing.is_closed() {
+        bail!("question {} is not closed", existing.id);
+    }
+    let mut q = existing.clone();
+    q.closures.push(Closure {
+        at: now_utc()?,
+        action: ClosureAction::Reopen,
+        reason: reason.trim().to_string(),
+        automatic: false,
+    });
+    check(&store, &q, None)?;
+    write_question(&q)
+}
+
+/// End the closure of `q` (as it is about to be written into `store`) when
+/// the write leaves it decided: an active, measured, closed question that no
+/// longer resolves open gets an automatic reopen in the same write, so voiding
+/// whatever decided it later leaves it open (owed work) rather than silently
+/// closed again. `did` says what the write did, for the reason. Retired
+/// questions are left alone: their closure is history.
+fn end_closure_if_decided(store: &Store, q: &mut Question, did: &str) -> Result<()> {
+    if q.is_retired() || q.is_inferred() || !q.is_closed() {
+        return Ok(());
+    }
+    let resolved = store.with(q).resolve(q);
+    if resolved.status() == Some(Status::Open) {
+        return Ok(());
+    }
+    q.closures.push(Closure {
+        at: now_utc()?,
+        action: ClosureAction::Reopen,
+        reason: format!("the question is now {resolved} after {did}"),
+        automatic: true,
+    });
+    Ok(())
+}
+
+/// What `amend` corrects: the question's answer or negative mark, or one
+/// prose field of the observation numbered `number` (1-based file order, the
+/// `#N` `show` prints).
 #[derive(Debug, Clone, Copy)]
 pub enum AmendTarget {
     Answer,
-    Observation { number: usize, field: AmendField },
+    /// A value marks the answer negative; `None` clears the mark.
+    Negative,
+    Observation {
+        number: usize,
+        field: AmendField,
+    },
 }
 
-/// Correct question `id`'s answer or an observation's prose field to `value`
-/// (`None` clears an optional field), recording the old and new value, the
-/// time and `reason` beside the field. Allowed on retired questions too: it
-/// is a correction of the record, not a measurement. Validation then runs as
-/// for any write, so e.g. marking a run inconclusive recomputes its status
-/// and clearing a required runtime `result` is refused. For an answer
-/// amendment, returns what the answer now rests on (see `answer_support`).
+/// `amend_all` with one change.
 pub fn amend(
     root: &Path,
     id: &str,
@@ -315,58 +421,103 @@ pub fn amend(
     value: Option<&str>,
     reason: &str,
 ) -> Result<Option<String>> {
+    amend_all(root, id, &[(target, value)], reason)
+}
+
+/// Correct question `id`'s answer or negative mark, or observations' prose
+/// fields, each to its value (`None` clears an optional field), recording the
+/// old and new value, the time and `reason` beside each field, in one write
+/// (an answer rewrite and its classification change together, never through
+/// a contradictory intermediate record). Allowed on retired questions too:
+/// it is a correction of the record, not a measurement. Validation then runs
+/// as for any write, so e.g. marking a run inconclusive recomputes its status
+/// and clearing a required runtime `result` is refused. For a question-level
+/// amendment, returns what the answer now rests on (see `answer_support`).
+pub fn amend_all(
+    root: &Path,
+    id: &str,
+    changes: &[(AmendTarget, Option<&str>)],
+    reason: &str,
+) -> Result<Option<String>> {
     let _lock = lock(root)?;
     let store = load_unlocked(root)?;
     let Some(existing) = store.get(id) else {
         bail!("no question `{id}` in {}", root.display());
     };
+    if changes.is_empty() {
+        bail!("nothing to amend");
+    }
     let mut q = existing.clone();
-    let now = value.map(|v| v.trim().to_string());
     let at = now_utc()?;
     let reason = reason.trim().to_string();
-    match target {
-        AmendTarget::Answer => {
-            let Some(answer) = &now else {
-                bail!("the answer cannot be cleared, only replaced");
-            };
-            if *answer == q.answer {
-                bail!("the answer already reads that");
+    let mut question_level = false;
+    for (target, value) in changes {
+        let now = value.map(|v| v.trim().to_string());
+        match *target {
+            AmendTarget::Answer => {
+                question_level = true;
+                let Some(answer) = &now else {
+                    bail!("the answer cannot be cleared, only replaced");
+                };
+                if *answer == q.answer {
+                    bail!("the answer already reads that");
+                }
+                let was = std::mem::replace(&mut q.answer, answer.clone());
+                q.amendments.push(Amendment {
+                    at,
+                    field: AmendField::Answer,
+                    was: Some(was),
+                    now,
+                    reason: reason.clone(),
+                });
             }
-            let was = std::mem::replace(&mut q.answer, answer.clone());
-            q.amendments.push(Amendment {
-                at,
-                field: AmendField::Answer,
-                was: Some(was),
-                now,
-                reason,
-            });
-        }
-        AmendTarget::Observation { number, field } => {
-            let o = observation_mut(&mut q, number)?;
-            let Some(current) = o.field_mut(field) else {
-                bail!(
-                    "`{}` is a question field, not an observation field",
-                    field.as_str()
-                );
-            };
-            if *current == now {
-                bail!("`{}` already reads that", field.as_str());
+            AmendTarget::Negative => {
+                question_level = true;
+                let negative = now.is_some();
+                if negative == q.negative {
+                    bail!(
+                        "the answer is already {}marked negative",
+                        if negative { "" } else { "not " }
+                    );
+                }
+                let was = q.negative_value();
+                q.negative = negative;
+                q.amendments.push(Amendment {
+                    at,
+                    field: AmendField::Negative,
+                    was,
+                    now: q.negative_value(),
+                    reason: reason.clone(),
+                });
             }
-            let was = std::mem::replace(current, now.clone());
-            o.amendments.push(Amendment {
-                at,
-                field,
-                was,
-                now,
-                reason,
-            });
+            AmendTarget::Observation { number, field } => {
+                let o = observation_mut(&mut q, number)?;
+                let Some(current) = o.field_mut(field) else {
+                    bail!(
+                        "`{}` is a question field, not an observation field",
+                        field.as_str()
+                    );
+                };
+                if *current == now {
+                    bail!("`{}` already reads that", field.as_str());
+                }
+                let was = std::mem::replace(current, now.clone());
+                o.amendments.push(Amendment {
+                    at,
+                    field,
+                    was,
+                    now,
+                    reason: reason.clone(),
+                });
+            }
         }
     }
+    end_closure_if_decided(&store, &mut q, "an amendment")?;
     check(&store, &q, None)?;
     write_question(&q)?;
     // Computed from the state just written, under the lock, so it describes
     // what was written and not what another writer made of it since.
-    Ok(matches!(target, AmendTarget::Answer).then(|| answer_support(&store.with(&q), &q)))
+    Ok(question_level.then(|| answer_support(&store.with(&q), &q)))
 }
 
 /// What an amended answer now rests on, for the person asserting it: po
@@ -381,13 +532,13 @@ fn answer_support(store: &Store, q: &Question) -> String {
             q.id
         );
     }
-    let resolved = store.resolve(q);
+    let resolved = store.disposition(q);
     let support = if q.is_inferred() {
         let premises: Vec<String> = q
             .basis
             .iter()
             .map(|id| match store.get(id) {
-                Some(p) => format!("{id} ({})", store.resolve(p)),
+                Some(p) => format!("{id} ({})", store.disposition(p)),
                 None => id.clone(),
             })
             .collect();
@@ -470,6 +621,11 @@ pub fn void(root: &Path, id: &str, target: VoidTarget, reason: &str) -> Result<(
         at: now_utc()?,
         reason: reason.trim().to_string(),
     });
+    let did = match target {
+        VoidTarget::Observation(n) => format!("voiding observation #{n}"),
+        VoidTarget::Citation(n) => format!("voiding citation #{n}"),
+    };
+    end_closure_if_decided(&store, &mut q, &did)?;
     check(&store, &q, None)?;
     write_question(&q)
 }
@@ -560,6 +716,8 @@ pub fn cite(
         });
     }
     q.citations.push(new);
+    let did = format!("adding citation #{}", q.citations.len());
+    end_closure_if_decided(&store, &mut q, &did)?;
     check(&store, &q, None)?;
     write_question(&q)?;
     Ok(Cited {
@@ -573,7 +731,7 @@ pub fn cite(
 /// that does not count: one stale member keeps the whole support set from
 /// holding, so the caller learns which to review and void.
 fn cite_outcome(store: &Store, q: &Question) -> Vec<String> {
-    let mut lines = vec![format!("question {} is {}", q.id, store.resolve(q))];
+    let mut lines = vec![format!("question {} is {}", q.id, store.disposition(q))];
     for (i, c) in q.citations.iter().enumerate() {
         if c.void.is_none()
             && let Some(why) = citation::staleness(c)
@@ -744,7 +902,7 @@ fn observe_in(root: &Path, id: &str, new: &NewObservation, mode: Mode) -> Result
                 diff.join("\n  ")
             );
         }
-        let now = store.resolve(existing);
+        let now = store.disposition(existing);
         return Ok(Observed {
             id: q.id.clone(),
             number: i + 1,
@@ -759,8 +917,10 @@ fn observe_in(root: &Path, id: &str, new: &NewObservation, mode: Mode) -> Result
         observation.fixture_name = known_fixture_name(store.questions(), sha);
     }
     q.observations.push(observation);
+    let did = format!("adding observation #{}", q.observations.len());
+    end_closure_if_decided(&store, &mut q, &did)?;
     let mut warnings = check(&store, &q, fixture_sha.as_deref())?;
-    let (was, now) = (store.resolve(existing), store.with(&q).resolve(&q));
+    let (was, now) = (store.disposition(existing), store.with(&q).disposition(&q));
     warnings.extend(contradiction(existing, &q, (&was, &now), mode));
 
     if mode == Mode::Write {
@@ -822,7 +982,7 @@ fn superseded(field: AmendField, of: &str) -> String {
 fn contradiction(
     before: &Question,
     after: &Question,
-    (was, now): (&Resolved, &Resolved),
+    (was, now): (&Disposition, &Disposition),
     mode: Mode,
 ) -> Option<String> {
     let new = after.observations.last()?;

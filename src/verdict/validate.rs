@@ -10,7 +10,8 @@ use toml::value::{Datetime, Offset};
 
 use super::load::Relation;
 use super::{
-    AmendField, Amendment, Citation, Diag, Kind, Observation, Outcome, Question, Source, Void,
+    AmendField, Amendment, Citation, Closure, ClosureAction, Diag, Kind, Observation, Outcome,
+    Question, Source, Void,
 };
 use crate::behavior;
 
@@ -144,9 +145,28 @@ pub(super) fn question(q: &Question, cx: &Context<'_>, out: &mut Report) {
             errs.push(format!("citation {}: {msg}", i + 1));
         }
     }
-    errs.extend(amendments(&q.amendments, |f| {
-        (f == AmendField::Answer).then(|| Some(q.answer.clone()))
+    errs.extend(amendments(&q.amendments, |f| match f {
+        AmendField::Answer => Some(Some(q.answer.clone())),
+        AmendField::Negative => Some(q.negative_value()),
+        _ => None,
     }));
+    for (i, a) in q.amendments.iter().enumerate() {
+        if a.field == AmendField::Negative
+            && [&a.was, &a.now].into_iter().flatten().any(|v| v != "true")
+        {
+            errs.push(format!(
+                "amendment {} (negative): `was` / `now` must be \"true\" or absent",
+                i + 1
+            ));
+        }
+    }
+    errs.extend(closures(&q.closures));
+    if q.is_inferred() && q.is_closed() {
+        errs.push(
+            "an inferred question (non-empty `basis`) carries an active closure: its openness names the premise that owes the work, so close or pursue that premise instead"
+                .to_string(),
+        );
+    }
     // Runtime status compares candidates across runs by name, so a name must
     // mean the same model everywhere in the question. A void observation is
     // out of the comparison: voiding a mis-recorded model is how it is fixed.
@@ -458,6 +478,39 @@ pub(super) fn void(v: &Void) -> Vec<String> {
     }
     if !is_utc_timestamp(&v.at) {
         errs.push(format!("`void.at` `{}` must be a UTC timestamp", v.at));
+    }
+    errs
+}
+
+/// Errors in an investigation history: it starts with a close, actions
+/// alternate, and only a reopen may be automatic.
+fn closures(list: &[Closure]) -> Vec<String> {
+    let mut errs = Vec::new();
+    let mut expected = ClosureAction::Close;
+    for (i, c) in list.iter().enumerate() {
+        let label = format!("closure {}", i + 1);
+        if c.action != expected {
+            errs.push(format!(
+                "{label}: expected a {} (a history starts with a close and alternates)",
+                match expected {
+                    ClosureAction::Close => "close",
+                    ClosureAction::Reopen => "reopen",
+                }
+            ));
+        }
+        expected = match c.action {
+            ClosureAction::Close => ClosureAction::Reopen,
+            ClosureAction::Reopen => ClosureAction::Close,
+        };
+        if c.reason.trim().is_empty() {
+            errs.push(format!("{label}: `reason` is empty"));
+        }
+        if !is_utc_timestamp(&c.at) {
+            errs.push(format!("{label}: `at` `{}` must be a UTC timestamp", c.at));
+        }
+        if c.automatic && c.action == ClosureAction::Close {
+            errs.push(format!("{label}: only a reopen can be automatic"));
+        }
     }
     errs
 }

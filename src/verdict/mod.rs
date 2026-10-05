@@ -25,6 +25,17 @@
 // `retired` withdraws an ill-posed or mis-filed question (`replaced_by` names
 // where the investigation continued). A retired question has no status at
 // all: its successors' statuses are theirs, never its answer.
+//
+// Two authored facts sit beside the derived status and never change it.
+// `negative` classifies the answer: it reports that the behavior asked about
+// was not identified (what it excludes is scoped to what was tested), so a
+// `settled` question that only ruled models out does not read as a positive
+// answer. Polarity cannot be derived from candidates: candidates often model
+// why a behavior occurs while the question asks what occurs, and the same
+// knowledge can be encoded either way. `[[closure]]` records that the
+// investigation of an open question was stopped (and reopened); it is a
+// workflow fact, not evidence, so the question stays open and shows as
+// `open, closed`.
 
 use serde::{Deserialize, Serialize};
 use std::cmp::Reverse;
@@ -48,8 +59,8 @@ pub use search::SearchHit;
 pub use spec::{parse_candidate, parse_diag};
 pub use validate::identifier_known;
 pub use write::{
-    Added, AmendTarget, Cited, NewObservation, NewQuestion, Observed, VoidTarget, add, amend, cite,
-    observe, observe_dry_run, retire, void,
+    Added, AmendTarget, Cited, NewObservation, NewQuestion, Observed, VoidTarget, add, amend,
+    amend_all, cite, close, observe, observe_dry_run, reopen, retire, void,
 };
 
 /// Whether a question is about compilation (accept / reject) or about what a
@@ -170,6 +181,55 @@ impl fmt::Display for Resolved {
     }
 }
 
+/// What every read verb shows for a question: its resolved disposition plus
+/// the two authored qualifiers, `open, closed` / `settled, negative`. The
+/// qualifiers never change the status: negative classifies the answer, and a
+/// closure is in effect only while the question resolves open.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Disposition {
+    pub resolved: Resolved,
+    /// The answer is marked negative (`Question::negative`).
+    pub negative: bool,
+    /// The investigation is closed and the question resolves open.
+    pub closed: bool,
+}
+
+impl fmt::Display for Disposition {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.resolved)?;
+        if self.negative {
+            f.write_str(", negative")?;
+        }
+        if self.closed {
+            f.write_str(", closed")?;
+        }
+        Ok(())
+    }
+}
+
+/// One step of a question's investigation history: `close` stops the
+/// investigation of an open question, `reopen` resumes it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ClosureAction {
+    Close,
+    Reopen,
+}
+
+/// A closure or reopening, kept as history. Entries alternate starting with
+/// a close; the last one is the current state. A reopen po appended itself
+/// (a write left the question decided) is `automatic`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Closure {
+    /// UTC timestamp.
+    pub at: Datetime,
+    pub action: ClosureAction,
+    pub reason: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub automatic: bool,
+}
+
 /// A withdrawn question, with the reason it was withdrawn: for example
 /// ill-posed (no valid form can answer it), mis-filed (observations that
 /// test different claims), reworded, or abandoned. Its observations stay as
@@ -185,14 +245,17 @@ pub struct Retired {
     pub replaced_by: Vec<String>,
 }
 
-/// A field `po verdict amend` may correct. The question's `answer`, and an
-/// observation's transcribed prose. What was measured (source, dates,
-/// fixture, outcome, codes, candidates) is not amendable: a wrong measurement
-/// is voided and the corrected one observed again.
+/// A field `po verdict amend` may correct. The question's `answer` and its
+/// `negative` classification, and an observation's transcribed prose. What
+/// was measured (source, dates, fixture, outcome, codes, candidates) is not
+/// amendable: a wrong measurement is voided and the corrected one observed
+/// again.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AmendField {
     Answer,
+    /// History values are `"true"` (marked) or absent (not marked).
+    Negative,
     Note,
     Result,
     Settings,
@@ -388,6 +451,11 @@ pub struct Question {
     /// Premises: a non-empty basis makes the question inferred.
     #[serde(default)]
     pub basis: Vec<String>,
+    /// The answer reports that the behavior asked about was not identified;
+    /// what it excludes is scoped to what was tested. Absent asserts
+    /// nothing: it is not a claim that the answer identifies the behavior.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub negative: bool,
     /// The retired field `derived_from`, which meant status inheritance but
     /// was used as lineage. Never written, so po drops it on the next rewrite.
     /// The empty list every old record carries is accepted; a populated one
@@ -397,7 +465,10 @@ pub struct Question {
     pub legacy_derived_from: Option<toml::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retired: Option<Retired>,
-    /// Corrections of `answer`, oldest first.
+    /// Investigation history: closures and reopenings, oldest first.
+    #[serde(default, rename = "closure", skip_serializing_if = "Vec::is_empty")]
+    pub closures: Vec<Closure>,
+    /// Corrections of `answer` and `negative`, oldest first.
     #[serde(default, rename = "amendment", skip_serializing_if = "Vec::is_empty")]
     pub amendments: Vec<Amendment>,
     /// Manual passages supporting the answer; see `Citation`.
@@ -542,6 +613,7 @@ impl FromStr for AmendField {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "answer" => Ok(AmendField::Answer),
+            "negative" => Ok(AmendField::Negative),
             "note" => Ok(AmendField::Note),
             "result" => Ok(AmendField::Result),
             "settings" => Ok(AmendField::Settings),
@@ -550,7 +622,7 @@ impl FromStr for AmendField {
             _ => Err(unknown(
                 "field",
                 s,
-                "answer, note, result, settings, environment or inconclusive",
+                "answer, negative, note, result, settings, environment or inconclusive",
             )),
         }
     }
@@ -574,8 +646,9 @@ impl FromStr for Status {
 }
 
 impl AmendField {
-    pub const ALL: [AmendField; 6] = [
+    pub const ALL: [AmendField; 7] = [
         AmendField::Answer,
+        AmendField::Negative,
         AmendField::Note,
         AmendField::Result,
         AmendField::Settings,
@@ -586,6 +659,7 @@ impl AmendField {
     pub fn as_str(self) -> &'static str {
         match self {
             AmendField::Answer => "answer",
+            AmendField::Negative => "negative",
             AmendField::Note => "note",
             AmendField::Result => "result",
             AmendField::Settings => "settings",
@@ -602,11 +676,11 @@ impl Observation {
         self.void.is_none() && self.inconclusive.is_none() && self.outcome != Some(Outcome::Crashed)
     }
 
-    /// The current value of amendable field `field` (`None` for `Answer`, a
-    /// question field).
+    /// The current value of amendable field `field` (`None` for `Answer` and
+    /// `Negative`, question fields).
     pub fn field(&self, field: AmendField) -> Option<&Option<String>> {
         match field {
-            AmendField::Answer => None,
+            AmendField::Answer | AmendField::Negative => None,
             AmendField::Note => Some(&self.note),
             AmendField::Result => Some(&self.result),
             AmendField::Settings => Some(&self.settings),
@@ -615,10 +689,10 @@ impl Observation {
         }
     }
 
-    /// Amendable field `field`, for writing (`None` for `Answer`).
+    /// Amendable field `field`, for writing (`None` for the question fields).
     pub fn field_mut(&mut self, field: AmendField) -> Option<&mut Option<String>> {
         match field {
-            AmendField::Answer => None,
+            AmendField::Answer | AmendField::Negative => None,
             AmendField::Note => Some(&mut self.note),
             AmendField::Result => Some(&mut self.result),
             AmendField::Settings => Some(&mut self.settings),
@@ -731,6 +805,48 @@ impl Question {
 
     pub fn is_retired(&self) -> bool {
         self.retired.is_some()
+    }
+
+    /// Whether the last closure entry is a close. The closure is in effect
+    /// only while the question also resolves open (`Store::disposition`).
+    pub fn is_closed(&self) -> bool {
+        self.closures
+            .last()
+            .is_some_and(|c| c.action == ClosureAction::Close)
+    }
+
+    /// `negative` in its amendment-history form: `"true"` or absent.
+    pub fn negative_value(&self) -> Option<String> {
+        self.negative.then(|| "true".to_string())
+    }
+
+    /// Whether the counting top runs, without conflicting, declare at least
+    /// one candidate, select none and refute every declared one. A factual
+    /// summary `show` prints; it is not a status and says nothing about the
+    /// answer's polarity (candidates often model why, while the question
+    /// asks what). Never for a retired question: comparing its observations
+    /// is what retirement withdraws.
+    pub fn every_candidate_refuted(&self) -> bool {
+        if self.kind != Kind::Runtime || self.is_retired() || self.own_status() == Status::Conflict
+        {
+            return false;
+        }
+        let top = self.top_observations();
+        let declared: BTreeSet<&str> = top
+            .iter()
+            .flat_map(|o| &o.candidates)
+            .map(|c| c.name.as_str())
+            .collect();
+        let state = |s: CandidateState| -> BTreeSet<&str> {
+            top.iter()
+                .flat_map(|o| &o.candidates)
+                .filter(|c| c.state == s)
+                .map(|c| c.name.as_str())
+                .collect()
+        };
+        !declared.is_empty()
+            && state(CandidateState::Selected).is_empty()
+            && state(CandidateState::Refuted) == declared
     }
 
     /// Whether the citations support the answer: at least one active (not
