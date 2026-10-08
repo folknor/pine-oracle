@@ -14,7 +14,7 @@ produced it.
 ```
 po verdict add      --records <DIR> --kind compile|runtime --question "..." --answer "..."
                     [--identifier X]... [--follow-up-to <id>]... [--basis <id>]...
-                    [--negative] [--key K]
+                    [--negative] [--exclusive] [--key K]
 po verdict observe  <id> --records <DIR> --source editor|endpoint|chart [--key K]
                     (--date YYYY-MM-DD | --date-before YYYY-MM-DD)
                     (--fixture <file.pine> | --no-fixture)
@@ -30,6 +30,7 @@ po verdict close    <id> --records <DIR> --reason "..."
 po verdict reopen   <id> --records <DIR> --reason "..."
 po verdict amend    <id> --records <DIR> --reason "..."
                     ([--question "..."] [--answer "..."] [--negative | --clear negative]
+                     [--exclusive | --clear exclusive]
                      | --observation N (--note "..." | --result "..."
                      | --settings "..." | --environment "..." | --inconclusive "..."
                      | --clear note|environment|inconclusive))
@@ -110,12 +111,14 @@ payload with the stored record:
   script is likely the template for the next landing, so fix it there too.
   Each field is matched on its own, so a mix of values from different
   points in the history is accepted as well;
-- except the question text: an `add` rerun giving a superseded question text
-  fails, naming the amendment and the current wording. The text is the
-  claim's identity, so matching the old wording would hand a script written
-  for the old claim (both halves of a since-split question, say) the
-  reworded question's id, and its observations would land under a claim
-  they do not test;
+- except the question text and the exclusive mark: an `add` rerun giving a
+  superseded value of either fails, naming the amendment and the current
+  value (the current value is matched first, so a mark set and cleared
+  again accepts its absence). The text is the claim's identity, so matching
+  the old wording would hand a script written for the old claim (both
+  halves of a since-split question, say) the reworded question's id, and
+  its observations would land under a claim they do not test. Exclusivity
+  likewise decides how the script's next runs are compared;
 - a retired question: `add` fails, naming what replaced it, rather than
   handing a withdrawn id to the observations that follow;
 - a void observation: `observe` fails. The key stays with the voided record,
@@ -128,13 +131,14 @@ two experiments can ask the same sentence.
 ### Corrections
 
 `amend` corrects what was written down, keeping the history beside it: the
-question's text, `answer` and `negative` mark, or an observation's `note`,
-`result`, `settings`, `environment` or `inconclusive` reason. `--question`,
-`--answer` and `--negative` or `--clear negative` combine, so a question
-and its answer and classification change in one write (one amendment each,
-with the same reason), never through a contradictory intermediate record. Each amendment records
-the UTC time, the reason, and the value before and after (either absent
-when the field was added or cleared; a negative mark's value is `"true"`). `show` prints the history under the current value. Search
+question's text, `answer`, `negative` and `exclusive` marks, or an
+observation's `note`, `result`, `settings`, `environment` or `inconclusive`
+reason. `--question`, `--answer`, `--negative` or `--clear negative` and
+`--exclusive` or `--clear exclusive` combine, so a question and its answer
+and classification change in one write (one amendment each, with the same
+reason), never through a contradictory intermediate record. Each amendment
+records the UTC time, the reason, and the value before and after (either
+absent when the field was added or cleared; a mark's value is `"true"`). `show` prints the history under the current value. Search
 indexes current values only.
 
 What was measured is not amendable: source, dates, fixture, outcome, codes
@@ -144,9 +148,12 @@ lets it count again; the corrected measurement is then a new `observe`. A
 void observation's codes no longer match `list --code`, and search skips it.
 Marking a run inconclusive after the fact (`amend --inconclusive`) is for a
 run that was measured correctly but did not test the claim; `--clear
-inconclusive` makes it count again, and it then gets the contradiction
-warning `observe` gives a new observation (see Sources, strength and
-status), led by `after clearing inconclusive on #N`. Status is recomputed
+inconclusive` makes it count again. Reviving a run, or marking the
+question exclusive, can add disagreements, even to a pair that already
+conflicted; `amend` then warns as `observe` does (see Sources, strength and
+status), led by what it did (`after clearing inconclusive on #2`, `after
+marking the question exclusive`) and naming each pair with only its new
+axes (`observations newly contradict: #1 ... and #2 ... [...]`). Status is recomputed
 from the result, and the write is validated like any other, so clearing a
 runtime `result` is refused.
 
@@ -240,7 +247,7 @@ Status is decided by the counting editor/chart observations (the top tier):
 | Status | Compile question | Runtime question |
 |---|---|---|
 | `settled` | Top observations agree on the outcome, the set of error codes and the set of warning codes | Top runs don't conflict, and at least one decides: it declares no candidates, or it selects or refutes one |
-| `conflict` | Top observations differ on the outcome, the error codes or the warning codes | A candidate selected by one run and refuted by another, or runs whose error codes differ (one halts, one runs clean) |
+| `conflict` | Top observations differ on the outcome, the error codes or the warning codes | A candidate selected by one run and refuted by another, runs whose error codes differ (one halts, one runs clean), or, under an exclusive question, runs selecting different candidates |
 | `open` | No top observation (endpoint only, only crashes, or nothing yet) | No top run, or only runs whose candidates are all consistent or undecided |
 
 ### Candidates
@@ -260,11 +267,32 @@ A run that cannot separate A from B marks both `consistent`, not both
 `selected`: a later run that does separate them (selects A, refutes B) then
 settles the question, where two selections would make it a conflict. A
 `consistent` A and a later run refuting A are both true, so they do not
-conflict. Candidates are not assumed mutually exclusive: one run may select
-two (a run establishing "adds left to right" and "skips na" at once), and
-exclusivity is said only by refuting. A run whose candidates are all
-`consistent` or `undecided` still counts, so its halt codes are compared
-with the other runs' as usual.
+conflict. A run whose candidates are all `consistent` or `undecided` still
+counts, so its halt codes are compared with the other runs' as usual.
+
+**Exclusive candidates.** By default candidates are not assumed mutually
+exclusive: one run may select two (a run establishing "adds left to right"
+and "skips na" at once), and runs selecting different candidates do not
+conflict. When the candidates are true alternatives (which bar stamp rule,
+which fill timing, which rounding), declare it: `add --exclusive`, or
+`amend --exclusive` on an existing runtime question (`--clear exclusive`
+undoes it; refused on compile questions). Then:
+
+- two counting top runs selecting different candidates conflict (`#2
+  selects B where #1 selects A (exclusive)`), whether or not each run
+  declared the other's candidate;
+- a counting run may select at most one candidate. A void or inconclusive
+  run is out of the comparison, so a run that selected two never blocks
+  marking the question exclusive once it is voided or marked inconclusive,
+  but clearing its inconclusive is then refused;
+- the alternatives are not assumed exhaustive (the true rule may be none of
+  them), so a run refuting all but one does not select the last;
+- `consistent` and `undecided` mean what they always do: selecting A in
+  one run and being consistent with B in another, or in the same run, is no
+  conflict, since a false model can fit a run's results.
+
+`show` prints `exclusive: the candidates are mutually exclusive
+alternatives` with the mark's history.
 
 A question that would be `open` is `documented` instead when its manual
 citations hold (see Manual citations). `documented` is never a measurement:
@@ -496,7 +524,9 @@ themselves.
 
 A **retired** question was withdrawn, with a required reason: for example
 ill-posed (no valid form can answer it), mis-filed (its observations test
-different claims), reworded, or abandoned. It keeps its observations and its
+different claims), reworded into a different claim (a wording fix that
+keeps the claim is `amend --question`, see Corrections), or abandoned. It
+keeps its observations and its
 answer as history, shows the answer as the former answer, takes no more
 observations, and has no status:
 `retired (replaced by 9fa2f155, 120605ec)`, or `retired` when nothing
@@ -616,7 +646,8 @@ tables (`at`, `field`, `was`, `now`, `reason`), a voided one an
 amendments are question-level `[[amendment]]` tables. Citations are question-level
 `[[citation]]` tables (`section`, `quotes`, `digest`, `at`, optional `note`,
 optional `[citation.void]`). A negative answer carries `negative = true`
-among the plain fields (absent when unmarked), and the investigation history
+and an exclusive question `exclusive = true` among the plain fields (each
+absent when unmarked), and the investigation history
 is question-level `[[closure]]` tables (`at`, `action` = `close` or
 `reopen`, `reason`, and `automatic = true` on a reopen po appended).
 
@@ -674,6 +705,8 @@ Errors:
 - a candidate that is undeclared, listed twice, or given two states,
   or a candidate name that means different models in different observations
   of one question (runs are compared by candidate name);
+- `exclusive` on a compile question, or a counting observation of an
+  exclusive question selecting more than one candidate;
 - a citation whose section is not `page#anchor`, with no quotes or an empty
   one, a digest that is not a sha256, a non-UTC time or an empty note; an
   active citation on an active inferred question (a stale citation is not
@@ -681,7 +714,7 @@ Errors:
 - an amendment of a field not amendable at its level, with an empty reason,
   empty `was` / `now`, `was` equal to `now`, or a time that is not a UTC
   timestamp; a field whose amendments do not chain or do not end at its
-  current value; a `negative` amendment whose `was` / `now` is neither
+  current value; a `negative` or `exclusive` amendment whose `was` / `now` is neither
   `"true"` nor absent; a `void` with an empty reason or a non-UTC time;
 - a closure history that does not start with a close and alternate, an
   entry with an empty reason or a non-UTC time, an automatic close; an

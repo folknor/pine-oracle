@@ -49,13 +49,19 @@ pub(crate) enum VerdictCommand {
         /// about was not identified (only what was tested is excluded).
         #[arg(long)]
         negative: bool,
+        /// Runtime: the candidates are mutually exclusive alternatives (not
+        /// necessarily exhaustive). Runs selecting different ones conflict,
+        /// and a counting run may select at most one.
+        #[arg(long)]
+        exclusive: bool,
     },
 
     /// Append one observation to a question.
     Observe(Box<ObserveArgs>),
 
-    /// Withdraw a question (ill-posed, mis-filed, reworded, abandoned). It
-    /// keeps its observations as history and has no status from then on.
+    /// Withdraw a question (ill-posed, mis-filed, reworded into a different
+    /// claim, abandoned; a wording fix is `amend --question`). It keeps its
+    /// observations as history and has no status from then on.
     Retire {
         id: String,
         /// Records directory holding the question.
@@ -93,7 +99,7 @@ pub(crate) enum VerdictCommand {
         reason: String,
     },
 
-    /// Correct a question's answer or negative mark, or an observation's
+    /// Correct a question's wording, answer, negative or exclusive mark, or an observation's
     /// note, result, settings, environment or inconclusive reason. The old
     /// value, the time and the reason are kept beside the field; `show`
     /// prints them.
@@ -280,7 +286,7 @@ pub(crate) struct ObserveArgs {
 
 #[derive(clap::Args)]
 #[command(group(ArgGroup::new("change").required(true).multiple(true).args([
-    "question", "answer", "negative", "note", "result", "settings", "environment", "inconclusive", "clear",
+    "question", "answer", "negative", "exclusive", "note", "result", "settings", "environment", "inconclusive", "clear",
 ])))]
 pub(crate) struct AmendArgs {
     /// Question id.
@@ -304,6 +310,11 @@ pub(crate) struct AmendArgs {
     /// was not identified.
     #[arg(long, conflicts_with = "observation")]
     negative: bool,
+    /// Mark the runtime candidates exclusive alternatives: runs selecting
+    /// different ones then conflict. Refused while a counting run selects
+    /// two.
+    #[arg(long, conflicts_with = "observation")]
+    exclusive: bool,
     /// The observation to correct: its `#N`, as `show` prints it.
     #[arg(long, value_name = "N")]
     observation: Option<usize>,
@@ -323,10 +334,10 @@ pub(crate) struct AmendArgs {
     /// counting.
     #[arg(long, value_name = "REASON")]
     inconclusive: Option<String>,
-    /// Remove an optional field: the question's `negative` mark, or an
-    /// observation's `note`, `environment`, or `inconclusive` (the run
-    /// counts again).
-    #[arg(long, value_name = "FIELD", value_parser = ["negative", "note", "environment", "inconclusive"])]
+    /// Remove an optional field: the question's `negative` or `exclusive`
+    /// mark, or an observation's `note`, `environment`, or `inconclusive`
+    /// (the run counts again).
+    #[arg(long, value_name = "FIELD", value_parser = ["negative", "exclusive", "note", "environment", "inconclusive"])]
     clear: Option<String>,
 }
 
@@ -342,6 +353,7 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
             follow_up_to,
             basis,
             negative,
+            exclusive,
         } => {
             let added = verdict::add(
                 &records,
@@ -354,6 +366,7 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
                     follow_up_to,
                     basis,
                     negative,
+                    exclusive,
                 },
             )?;
             print_warnings(&added.warnings, quiet);
@@ -368,7 +381,13 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
             records,
             reason,
             replaced_by,
-        } => verdict::retire(&records, &id, &reason, &replaced_by),
+        } => {
+            print_warnings(
+                &verdict::retire(&records, &id, &reason, &replaced_by)?,
+                quiet,
+            );
+            Ok(())
+        }
         VerdictCommand::Observe(args) => {
             let new = new_observation(&args)?;
             let observed = if args.dry_run {
@@ -398,12 +417,18 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
             id,
             records,
             reason,
-        } => verdict::close(&records, &id, &reason),
+        } => {
+            print_warnings(&verdict::close(&records, &id, &reason)?, quiet);
+            Ok(())
+        }
         VerdictCommand::Reopen {
             id,
             records,
             reason,
-        } => verdict::reopen(&records, &id, &reason),
+        } => {
+            print_warnings(&verdict::reopen(&records, &id, &reason)?, quiet);
+            Ok(())
+        }
         VerdictCommand::Amend(args) => {
             let a = *args;
             let changes = amend_changes(&a)?;
@@ -426,6 +451,7 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
             note,
         } => {
             let cited = verdict::cite(&records, &id, &section, &quotes, note.as_deref())?;
+            print_warnings(&cited.warnings, quiet);
             if !quiet {
                 if cited.existing {
                     eprintln!("already cited as citation #{}: unchanged", cited.number);
@@ -448,7 +474,8 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
                 (None, Some(n)) => VoidTarget::Citation(n),
                 (None, None) => bail!("name --observation N or --citation N"),
             };
-            verdict::void(&records, &id, target, &reason)
+            print_warnings(&verdict::void(&records, &id, target, &reason)?, quiet);
+            Ok(())
         }
         VerdictCommand::Search {
             query,
@@ -510,10 +537,13 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
 }
 
 /// The changes one `amend` call makes. Question level: `--question`,
-/// `--answer` and/or the negative mark (`--negative` / `--clear negative`), in one write. With
+/// `--answer`, the negative mark (`--negative` / `--clear negative`) and the
+/// exclusive mark (`--exclusive` / `--clear exclusive`), in one write. With
 /// `--observation N`: exactly one of its prose fields.
 fn amend_changes(a: &AmendArgs) -> Result<Vec<(AmendTarget, Option<String>)>> {
     let clear_negative = a.clear.as_deref() == Some("negative");
+    let clear_exclusive = a.clear.as_deref() == Some("exclusive");
+    let question_clear = clear_negative || clear_exclusive;
     let observation_fields: Vec<(AmendField, Option<String>)> = [
         (AmendField::Note, a.note.clone()),
         (AmendField::Result, a.result.clone()),
@@ -526,7 +556,7 @@ fn amend_changes(a: &AmendArgs) -> Result<Vec<(AmendTarget, Option<String>)>> {
     .chain(
         a.clear
             .as_deref()
-            .filter(|_| !clear_negative)
+            .filter(|_| !question_clear)
             .map(|f| f.parse().map(|field| (field, None)))
             .transpose()?,
     )
@@ -551,13 +581,24 @@ fn amend_changes(a: &AmendArgs) -> Result<Vec<(AmendTarget, Option<String>)>> {
         if clear_negative {
             changes.push((AmendTarget::Negative, None));
         }
+        if a.exclusive && clear_exclusive {
+            bail!("--exclusive and --clear exclusive contradict each other");
+        }
+        if a.exclusive {
+            changes.push((AmendTarget::Exclusive, Some("true".to_string())));
+        }
+        if clear_exclusive {
+            changes.push((AmendTarget::Exclusive, None));
+        }
         if changes.is_empty() {
-            bail!("name --question, --answer, --negative, --clear negative or --observation N");
+            bail!(
+                "name --question, --answer, --negative, --exclusive, --clear negative, --clear exclusive or --observation N"
+            );
         }
         return Ok(changes);
     };
-    if clear_negative {
-        bail!("`negative` is a question field: drop --observation");
+    if let Some(field) = a.clear.as_deref().filter(|_| question_clear) {
+        bail!("`{field}` is a question field: drop --observation");
     }
     match observation_fields.as_slice() {
         [(field, value)] => Ok(vec![(
@@ -661,6 +702,17 @@ fn print_question(store: &Store, q: &Question, style: Style) {
             "answer"
         };
         println!("  negative: the {which} does not identify the behavior asked about");
+    }
+    if q.exclusive {
+        // A retired question's observations are no longer compared, so its
+        // mark is history, like a retired negative mark.
+        if q.is_retired() {
+            println!("  exclusive: the candidates were declared mutually exclusive alternatives");
+        } else {
+            println!(
+                "  exclusive: the candidates are mutually exclusive alternatives (runs selecting different ones conflict)"
+            );
+        }
     }
     for c in &q.closures {
         let action = match c.action {

@@ -268,6 +268,10 @@ pub enum AmendField {
     Answer,
     /// History values are `"true"` (marked) or absent (not marked).
     Negative,
+    /// History values as for `Negative`. Like the question text it changes
+    /// how future measurements are read, so a keyed `add` rerun giving a
+    /// superseded value fails rather than matching.
+    Exclusive,
     Note,
     Result,
     Settings,
@@ -468,6 +472,11 @@ pub struct Question {
     /// nothing: it is not a claim that the answer identifies the behavior.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub negative: bool,
+    /// Runtime: the declared candidates are mutually exclusive alternatives
+    /// (not necessarily exhaustive). Two counting runs selecting different
+    /// candidates then conflict, and a counting run may select at most one.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub exclusive: bool,
     /// The retired field `derived_from`, which meant status inheritance but
     /// was used as lineage. Never written, so po drops it on the next rewrite.
     /// The empty list every old record carries is accepted; a populated one
@@ -628,6 +637,7 @@ impl FromStr for AmendField {
             "question" => Ok(AmendField::Question),
             "answer" => Ok(AmendField::Answer),
             "negative" => Ok(AmendField::Negative),
+            "exclusive" => Ok(AmendField::Exclusive),
             "note" => Ok(AmendField::Note),
             "result" => Ok(AmendField::Result),
             "settings" => Ok(AmendField::Settings),
@@ -636,7 +646,7 @@ impl FromStr for AmendField {
             _ => Err(unknown(
                 "field",
                 s,
-                "question, answer, negative, note, result, settings, environment or inconclusive",
+                "question, answer, negative, exclusive, note, result, settings, environment or inconclusive",
             )),
         }
     }
@@ -660,10 +670,11 @@ impl FromStr for Status {
 }
 
 impl AmendField {
-    pub const ALL: [AmendField; 8] = [
+    pub const ALL: [AmendField; 9] = [
         AmendField::Question,
         AmendField::Answer,
         AmendField::Negative,
+        AmendField::Exclusive,
         AmendField::Note,
         AmendField::Result,
         AmendField::Settings,
@@ -676,6 +687,7 @@ impl AmendField {
             AmendField::Question => "question",
             AmendField::Answer => "answer",
             AmendField::Negative => "negative",
+            AmendField::Exclusive => "exclusive",
             AmendField::Note => "note",
             AmendField::Result => "result",
             AmendField::Settings => "settings",
@@ -693,10 +705,13 @@ impl Observation {
     }
 
     /// The current value of amendable field `field` (`None` for the question
-    /// fields `Question`, `Answer` and `Negative`).
+    /// fields `Question`, `Answer`, `Negative` and `Exclusive`).
     pub fn field(&self, field: AmendField) -> Option<&Option<String>> {
         match field {
-            AmendField::Question | AmendField::Answer | AmendField::Negative => None,
+            AmendField::Question
+            | AmendField::Answer
+            | AmendField::Negative
+            | AmendField::Exclusive => None,
             AmendField::Note => Some(&self.note),
             AmendField::Result => Some(&self.result),
             AmendField::Settings => Some(&self.settings),
@@ -708,7 +723,10 @@ impl Observation {
     /// Amendable field `field`, for writing (`None` for the question fields).
     pub fn field_mut(&mut self, field: AmendField) -> Option<&mut Option<String>> {
         match field {
-            AmendField::Question | AmendField::Answer | AmendField::Negative => None,
+            AmendField::Question
+            | AmendField::Answer
+            | AmendField::Negative
+            | AmendField::Exclusive => None,
             AmendField::Note => Some(&mut self.note),
             AmendField::Result => Some(&mut self.result),
             AmendField::Settings => Some(&mut self.settings),
@@ -723,11 +741,11 @@ impl Observation {
         self.counts() && self.source.strength() == TOP_STRENGTH
     }
 
-    /// Whether this observation and `other`, both of a `kind` question,
-    /// disagree. Two deciding observations that do make the question a
-    /// conflict; whether either counts is the caller's concern.
-    pub fn contradicts(&self, other: &Observation, kind: Kind) -> bool {
-        !self.disagreements(other, kind).is_empty()
+    /// Whether this observation and `other`, both under a question with
+    /// `rules`, disagree. Two deciding observations that do make the question
+    /// a conflict; whether either counts is the caller's concern.
+    pub fn contradicts(&self, other: &Observation, rules: Rules) -> bool {
+        !self.disagreements(other, rules).is_empty()
     }
 
     /// Every axis on which this observation and `other` disagree, from the
@@ -735,9 +753,11 @@ impl Observation {
     /// drift from the verdict it explains. Compile: the outcome; with the
     /// same outcome, the error and warning code sets, unless either is a
     /// reject that recorded no codes ("not recorded", not "different").
-    /// Runtime: the error code sets (how the runs halt) and any candidate
-    /// one selects and the other refutes. Messages never matter.
-    pub fn disagreements(&self, other: &Observation, kind: Kind) -> Vec<Disagreement> {
+    /// Runtime: the error code sets (how the runs halt), any candidate one
+    /// selects and the other refutes, and, under an exclusive question,
+    /// selections of different candidates (whether or not the other run
+    /// declared them). Messages never matter.
+    pub fn disagreements(&self, other: &Observation, rules: Rules) -> Vec<Disagreement> {
         let mut found = Vec::new();
         let mut differ = |ours: &[Diag], theirs: &[Diag], make: fn(Split) -> Disagreement| {
             let split = Split::of(&codes(ours), &codes(theirs));
@@ -745,7 +765,7 @@ impl Observation {
                 found.push(make(split));
             }
         };
-        match kind {
+        match rules.kind {
             Kind::Compile => {
                 if self.outcome != other.outcome {
                     return vec![Disagreement::Outcome];
@@ -777,9 +797,30 @@ impl Observation {
                 if !split.is_empty() {
                     found.push(Disagreement::Opposed(split));
                 }
+                if rules.exclusive {
+                    let ours = self.selected();
+                    let theirs = other.selected();
+                    // Only two selections can rival: a run selecting nothing
+                    // asserts no alternative.
+                    if !ours.is_empty() && !theirs.is_empty() {
+                        let split = Split::of(&ours, &theirs);
+                        if !split.is_empty() {
+                            found.push(Disagreement::Rival(split));
+                        }
+                    }
+                }
             }
         }
         found
+    }
+
+    /// The names of the candidates this run selects.
+    pub fn selected(&self) -> BTreeSet<&str> {
+        self.candidates
+            .iter()
+            .filter(|c| c.state == CandidateState::Selected)
+            .map(|c| c.name.as_str())
+            .collect()
     }
 
     /// What this observation measured, in the terms agreement compares:
@@ -886,6 +927,19 @@ impl Question {
         self.negative.then(|| "true".to_string())
     }
 
+    /// `exclusive` in its amendment-history form: `"true"` or absent.
+    pub fn exclusive_value(&self) -> Option<String> {
+        self.exclusive.then(|| "true".to_string())
+    }
+
+    /// What this question's observations are compared under.
+    pub fn rules(&self) -> Rules {
+        Rules {
+            kind: self.kind,
+            exclusive: self.exclusive,
+        }
+    }
+
     /// Whether the counting top runs, without conflicting, declare at least
     /// one candidate, select none and refute every declared one. A factual
     /// summary `show` prints; it is not a status and says nothing about the
@@ -941,7 +995,7 @@ impl Question {
         let conflict = top
             .iter()
             .enumerate()
-            .any(|(i, a)| top[i + 1..].iter().any(|b| a.contradicts(b, self.kind)));
+            .any(|(i, a)| top[i + 1..].iter().any(|b| a.contradicts(b, self.rules())));
         if conflict {
             return Status::Conflict;
         }
@@ -1033,7 +1087,13 @@ fn annotate(kind: Kind, o: &Observation, anchor: Option<&Observation>) -> Option
 /// them between releases). A reject that recorded no codes at all means "not
 /// recorded", not "different", so it is compared on the outcome alone.
 fn compile_agree(a: &Observation, b: &Observation) -> bool {
-    !a.contradicts(b, Kind::Compile)
+    !a.contradicts(
+        b,
+        Rules {
+            kind: Kind::Compile,
+            exclusive: false,
+        },
+    )
 }
 
 /// A reject with no diagnostics: the codes were not recorded. (An accept
@@ -1060,6 +1120,16 @@ pub enum Disagreement {
     WarningCodes(Split),
     /// Runtime: candidates one run selects and the other refutes.
     Opposed(Split),
+    /// Runtime, exclusive question: the runs select different candidates.
+    Rival(Split),
+}
+
+/// What observations of one question are compared under: its kind, and
+/// whether its candidates are exclusive alternatives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Rules {
+    pub kind: Kind,
+    pub exclusive: bool,
 }
 
 /// What only the compared observation has (`ours`) and only the other has
@@ -1124,6 +1194,11 @@ impl Disagreement {
                 }
                 parts.join("; ")
             }
+            Disagreement::Rival(s) => format!(
+                "{us} selects {} where {them} selects {} (exclusive)",
+                list(&s.ours),
+                list(&s.theirs)
+            ),
         }
     }
 }

@@ -28,8 +28,8 @@ use super::load::load_unlocked;
 use super::validate::{self, Context, Report, fixture_path, question_path, sha256_hex};
 use super::{
     AmendField, Amendment, Candidate, CandidateState, Citation, Closure, ClosureAction, Diag,
-    Disposition, Kind, Observation, Outcome, Question, Relation, Retired, Source, Status, Store,
-    Void, citation, load,
+    Disagreement, Disposition, Kind, Observation, Outcome, Question, Relation, Retired, Source,
+    Status, Store, Void, citation, load,
 };
 
 /// A question to create.
@@ -46,6 +46,8 @@ pub struct NewQuestion {
     pub basis: Vec<String>,
     /// The answer reports that the behavior asked about was not identified.
     pub negative: bool,
+    /// Runtime: the candidates are mutually exclusive alternatives.
+    pub exclusive: bool,
 }
 
 /// The id `add` assigned plus any non-blocking warnings about the question.
@@ -131,6 +133,7 @@ pub fn add(root: &Path, new: &NewQuestion) -> Result<Added> {
         follow_up_to: ids(&new.follow_up_to),
         basis: ids(&new.basis),
         negative: new.negative,
+        exclusive: new.exclusive,
         legacy_derived_from: None,
         retired: None,
         closures: Vec::new(),
@@ -155,20 +158,72 @@ pub fn add(root: &Path, new: &NewQuestion) -> Result<Added> {
         // wording would hand a script written for the old claim (say, both
         // halves of a since-split question) the reworded question's id, and
         // its observations would land under a claim they do not test.
-        if q.question != existing.question
-            && let Some(a) = existing.amendments.iter().find(|a| {
-                a.field == AmendField::Question && a.was.as_deref() == Some(q.question.as_str())
+        // Exclusivity likewise changes how the script's future captures are
+        // read. The current value is matched first, so a field amended away
+        // and back accepts its current value and refuses the one between.
+        for (field, given, current) in [
+            (
+                AmendField::Question,
+                Some(q.question.clone()),
+                Some(existing.question.clone()),
+            ),
+            (
+                AmendField::Exclusive,
+                q.exclusive_value(),
+                existing.exclusive_value(),
+            ),
+        ] {
+            if given == current {
+                continue;
+            }
+            let history = || existing.amendments.iter().filter(|a| a.field == field);
+            if !history().any(|a| a.was == given || a.now == given) {
+                continue;
+            }
+            // Cite the amendment that explains the current value: for the
+            // text, the latest one that reworded away from the given wording;
+            // for the mark, the latest one, which set the current state.
+            let Some(a) = (match field {
+                AmendField::Question => history().rev().find(|a| a.was == given),
+                _ => history().next_back(),
             })
-        {
-            bail!(
-                "key `{key}` belongs to question {}, whose question was reworded from this text \
-                 ({}: {}). Its claim is now: {}\nUpdate the script to the current wording, or, if \
-                 it still tests the old claim, record it under the question that claim now lives in.",
-                existing.id,
-                a.at,
-                a.reason,
-                existing.question
-            );
+            .or_else(|| history().next_back()) else {
+                continue;
+            };
+            let id = &existing.id;
+            match field {
+                AmendField::Question => bail!(
+                    "key `{key}` belongs to question {id}, whose question was reworded from this \
+                     text ({}: {}). Its claim is now: {}\nUpdate the script to the current \
+                     wording, or, if it still tests the old claim, record it under the question \
+                     that claim now lives in.",
+                    a.at,
+                    a.reason,
+                    existing.question
+                ),
+                _ => bail!(
+                    "key `{key}` belongs to question {id}, which is {} since an amendment ({}: \
+                     {}): its candidates are {}. Update the script to pass {}, since its \
+                     captures will be compared under that.",
+                    if existing.exclusive {
+                        "exclusive"
+                    } else {
+                        "no longer exclusive"
+                    },
+                    a.at,
+                    a.reason,
+                    if existing.exclusive {
+                        "exclusive alternatives, so runs selecting different ones conflict"
+                    } else {
+                        "not assumed exclusive"
+                    },
+                    if existing.exclusive {
+                        "--exclusive"
+                    } else {
+                        "no --exclusive"
+                    }
+                ),
+            }
         }
         // Only the fields `add` sets are compared: observations, citations,
         // amendments, closures and retirement come later, not part of the
@@ -290,7 +345,7 @@ fn lock(root: &Path) -> Result<std::fs::File> {
 /// continued. Refuses an already-retired question, and one an active question
 /// still uses as a premise (retiring it must first force a review of that
 /// inference).
-pub fn retire(root: &Path, id: &str, reason: &str, replaced_by: &[String]) -> Result<()> {
+pub fn retire(root: &Path, id: &str, reason: &str, replaced_by: &[String]) -> Result<Vec<String>> {
     let _lock = lock(root)?;
     let store = load_unlocked(root)?;
     let Some(existing) = store.get(id) else {
@@ -317,8 +372,9 @@ pub fn retire(root: &Path, id: &str, reason: &str, replaced_by: &[String]) -> Re
         reason: reason.trim().to_string(),
         replaced_by: ids(replaced_by),
     });
-    check(&store, &q, None)?;
-    write_question(&q)
+    let warnings = check(&store, &q, None)?;
+    write_question(&q)?;
+    Ok(warnings)
 }
 
 /// Stop the investigation of open question `id` for `reason`: it stays open
@@ -327,7 +383,7 @@ pub fn retire(root: &Path, id: &str, reason: &str, replaced_by: &[String]) -> Re
 /// on an inferred one (its openness names the premise that owes the work:
 /// close or pursue that premise instead), on one already closed, and on one
 /// that does not resolve open.
-pub fn close(root: &Path, id: &str, reason: &str) -> Result<()> {
+pub fn close(root: &Path, id: &str, reason: &str) -> Result<Vec<String>> {
     let _lock = lock(root)?;
     let store = load_unlocked(root)?;
     let Some(existing) = store.get(id) else {
@@ -363,15 +419,16 @@ pub fn close(root: &Path, id: &str, reason: &str) -> Result<()> {
         reason: reason.trim().to_string(),
         automatic: false,
     });
-    check(&store, &q, None)?;
-    write_question(&q)
+    let warnings = check(&store, &q, None)?;
+    write_question(&q)?;
+    Ok(warnings)
 }
 
 /// Resume the investigation of closed question `id`. Allowed whenever the
 /// last closure entry is a close, even while the closure is suspended (the
 /// question currently resolves decided), so a dormant closure can be ended
 /// before it resumes. Refused on a retired question, whose closure is history.
-pub fn reopen(root: &Path, id: &str, reason: &str) -> Result<()> {
+pub fn reopen(root: &Path, id: &str, reason: &str) -> Result<Vec<String>> {
     let _lock = lock(root)?;
     let store = load_unlocked(root)?;
     let Some(existing) = store.get(id) else {
@@ -393,8 +450,9 @@ pub fn reopen(root: &Path, id: &str, reason: &str) -> Result<()> {
         reason: reason.trim().to_string(),
         automatic: false,
     });
-    check(&store, &q, None)?;
-    write_question(&q)
+    let warnings = check(&store, &q, None)?;
+    write_question(&q)?;
+    Ok(warnings)
 }
 
 /// End the closure of `q` (as it is about to be written into `store`) when
@@ -431,6 +489,9 @@ pub enum AmendTarget {
     Answer,
     /// A value marks the answer negative; `None` clears the mark.
     Negative,
+    /// A value marks the candidates exclusive alternatives; `None` clears
+    /// the mark.
+    Exclusive,
     Observation {
         number: usize,
         field: AmendField,
@@ -443,8 +504,9 @@ pub struct Amended {
     /// For a question-level amendment, what the answer now rests on (see
     /// `answer_support`).
     pub support: Option<String>,
-    /// Non-blocking warnings: an observation the amendment made count that
-    /// contradicts counting observations of its strength.
+    /// Non-blocking warnings: validation warnings about the question as
+    /// written, then the disagreements the amendment introduced (see
+    /// `amend_contradictions`).
     pub warnings: Vec<String>,
 }
 
@@ -459,7 +521,7 @@ pub fn amend(
     amend_all(root, id, &[(target, value)], reason)
 }
 
-/// Correct question `id`'s text, answer or negative mark, or observations'
+/// Correct question `id`'s text, answer, negative or exclusive mark, or observations'
 /// prose fields, each to its value (`None` clears an optional field),
 /// recording the old and new value, the time and `reason` beside each field,
 /// in one write (an answer rewrite and its classification change together,
@@ -467,8 +529,9 @@ pub fn amend(
 /// questions too, except for the question text: it is a correction of the
 /// record, not a measurement. Validation then runs as for any write, so e.g.
 /// marking a run inconclusive recomputes its status and clearing a required
-/// runtime `result` is refused. Clearing `inconclusive` makes a run count
-/// again, so it is checked for contradictions as `observe` checks a new one.
+/// runtime `result` is refused. Clearing `inconclusive` (a run counts again)
+/// or marking the question exclusive (selections rival) can add
+/// disagreements, which are warned about as `observe` warns of a new one.
 pub fn amend_all(
     root: &Path,
     id: &str,
@@ -550,6 +613,25 @@ pub fn amend_all(
                     reason: reason.clone(),
                 });
             }
+            AmendTarget::Exclusive => {
+                question_level = true;
+                let exclusive = now.is_some();
+                if exclusive == q.exclusive {
+                    bail!(
+                        "the candidates are already {}marked exclusive",
+                        if exclusive { "" } else { "not " }
+                    );
+                }
+                let was = q.exclusive_value();
+                q.exclusive = exclusive;
+                q.amendments.push(Amendment {
+                    at,
+                    field: AmendField::Exclusive,
+                    was,
+                    now: q.exclusive_value(),
+                    reason: reason.clone(),
+                });
+            }
             AmendTarget::Observation { number, field } => {
                 let o = observation_mut(&mut q, number)?;
                 let Some(current) = o.field_mut(field) else {
@@ -573,28 +655,9 @@ pub fn amend_all(
         }
     }
     end_closure_if_decided(&store, &mut q, "an amendment")?;
-    check(&store, &q, None)?;
-    let mut warnings = Vec::new();
-    // Only an observation that starts counting can make a new contradictory
-    // pair; one that stops counting cannot, and a prose fix of an already
-    // counting one changes nothing that agreement compares.
-    let (was, now) = (store.disposition(existing), store.with(&q).disposition(&q));
-    for (i, (before, after)) in existing
-        .observations
-        .iter()
-        .zip(&q.observations)
-        .enumerate()
-    {
-        if !before.counts() && after.counts() && !q.is_retired() {
-            warnings.extend(contradiction(
-                &q,
-                i + 1,
-                Trigger::ClearedInconclusive,
-                (&was, &now),
-                Mode::Write,
-            ));
-        }
-    }
+    let mut warnings = check(&store, &q, None)?;
+    let disposition = (store.disposition(existing), store.with(&q).disposition(&q));
+    warnings.extend(amend_contradictions(existing, &q, &disposition));
     write_question(&q)?;
     // Computed from the state just written, under the lock, so it describes
     // what was written and not what another writer made of it since.
@@ -602,6 +665,106 @@ pub fn amend_all(
         support: question_level.then(|| answer_support(&store.with(&q), &q)),
         warnings,
     })
+}
+
+/// The warning for the disagreements an amendment introduced, `before` ->
+/// `after`: an observation made to count again (cleared inconclusive) or
+/// the question marked exclusive can each add an axis, even to a pair that
+/// already conflicted. Every pair of same-strength observations counting
+/// after the write is compared under the rules before and after (nothing
+/// before, if either did not count), and each pair with new axes is named
+/// once with just those axes. Stopping counting or clearing exclusivity
+/// only removes axes, and prose fixes touch none.
+fn amend_contradictions(
+    before: &Question,
+    after: &Question,
+    (was, now): &(Disposition, Disposition),
+) -> Option<String> {
+    if after.is_retired() {
+        return None;
+    }
+    let mut did = Vec::new();
+    if after.exclusive && !before.exclusive {
+        did.push("marking the question exclusive".to_string());
+    }
+    for (i, (b, a)) in before
+        .observations
+        .iter()
+        .zip(&after.observations)
+        .enumerate()
+    {
+        if !b.counts() && a.counts() {
+            did.push(format!("clearing inconclusive on #{}", i + 1));
+        }
+    }
+    let (old, new) = (&before.observations, &after.observations);
+    let mut pairs = Vec::new();
+    let mut rival = false;
+    for i in 0..new.len() {
+        for j in i + 1..new.len() {
+            let (a, b) = (&new[i], &new[j]);
+            if !a.counts() || !b.counts() || a.source.strength() != b.source.strength() {
+                continue;
+            }
+            let held = if old[i].counts() && old[j].counts() {
+                old[i].disagreements(&old[j], before.rules())
+            } else {
+                Vec::new()
+            };
+            let (us, them) = (format!("#{}", i + 1), format!("#{}", j + 1));
+            let axes: Vec<String> = a
+                .disagreements(b, after.rules())
+                .into_iter()
+                .filter(|d| !held.contains(d))
+                .inspect(|d| rival |= matches!(d, Disagreement::Rival(_)))
+                .map(|d| d.describe(&us, &them))
+                .collect();
+            if !axes.is_empty() {
+                // Endpoint pairs never decide status: say so per pair, since
+                // one amendment can revive both tiers.
+                let tier = if a.decides() {
+                    ""
+                } else {
+                    "weaker source only, "
+                };
+                pairs.push(format!(
+                    "{tier}{us} {} {} and {them} {} {} [{}]",
+                    a.source.as_str(),
+                    a.verdict_summary(after.kind),
+                    b.source.as_str(),
+                    b.verdict_summary(after.kind),
+                    axes.join("; ")
+                ));
+            }
+        }
+    }
+    if pairs.is_empty() {
+        return None;
+    }
+    let id = &after.id;
+    let status = if was == now {
+        format!("question {id} stays {now}")
+    } else {
+        format!("question {id} is now {now} (was {was})")
+    };
+    let exclusive_hint = if rival {
+        " If the candidates are not true alternatives, `amend --clear exclusive`."
+    } else {
+        ""
+    };
+    Some(format!(
+        "after {}, observations newly contradict: {}: {status}. If the fixtures test \
+         different claims (a control is the usual case: it is its own question), they \
+         belong to separate questions: void the misfiled one (or mark it inconclusive \
+         again) and observe it under its own question. If one was mis-recorded, void that \
+         one.{exclusive_hint}",
+        if did.is_empty() {
+            "the amendment".to_string()
+        } else {
+            did.join(" and ")
+        },
+        pairs.join(", ")
+    ))
 }
 
 /// What an amended answer now rests on, for the person asserting it: po
@@ -708,7 +871,7 @@ pub enum VoidTarget {
 /// which `amend` cannot touch: void it, then observe the corrected
 /// measurement. For a stale citation: void it after review, then cite
 /// again; for one applied in error: void it. Not reversible by po.
-pub fn void(root: &Path, id: &str, target: VoidTarget, reason: &str) -> Result<()> {
+pub fn void(root: &Path, id: &str, target: VoidTarget, reason: &str) -> Result<Vec<String>> {
     let _lock = lock(root)?;
     let store = load_unlocked(root)?;
     let Some(existing) = store.get(id) else {
@@ -737,8 +900,9 @@ pub fn void(root: &Path, id: &str, target: VoidTarget, reason: &str) -> Result<(
         VoidTarget::Citation(n) => format!("voiding citation #{n}"),
     };
     end_closure_if_decided(&store, &mut q, &did)?;
-    check(&store, &q, None)?;
-    write_question(&q)
+    let warnings = check(&store, &q, None)?;
+    write_question(&q)?;
+    Ok(warnings)
 }
 
 /// Where `cite` put the citation: its 1-based position in file order.
@@ -751,6 +915,8 @@ pub struct Cited {
     /// The question's disposition after the write, then one line per active
     /// citation that is stale (computed under the write lock).
     pub outcome: Vec<String>,
+    /// Non-blocking validation warnings about the question as written.
+    pub warnings: Vec<String>,
 }
 
 /// Cite the manual section `section` (the 8-hex id `po search` prints, or
@@ -824,17 +990,19 @@ pub fn cite(
             number: i + 1,
             existing: true,
             outcome: cite_outcome(&store, &q),
+            warnings: Vec::new(),
         });
     }
     q.citations.push(new);
     let did = format!("adding citation #{}", q.citations.len());
     end_closure_if_decided(&store, &mut q, &did)?;
-    check(&store, &q, None)?;
+    let warnings = check(&store, &q, None)?;
     write_question(&q)?;
     Ok(Cited {
         number: q.citations.len(),
         existing: false,
         outcome: cite_outcome(&store.with(&q), &q),
+        warnings,
     })
 }
 
@@ -1037,13 +1205,7 @@ fn observe_in(root: &Path, id: &str, new: &NewObservation, mode: Mode) -> Result
     end_closure_if_decided(&store, &mut q, &did)?;
     let mut warnings = check(&store, &q, fixture_sha.as_deref())?;
     let (was, now) = (store.disposition(existing), store.with(&q).disposition(&q));
-    warnings.extend(contradiction(
-        &q,
-        q.observations.len(),
-        Trigger::Observed,
-        (&was, &now),
-        mode,
-    ));
+    warnings.extend(contradiction(&q, q.observations.len(), (&was, &now), mode));
 
     if mode == Mode::Write {
         if let (Some(sha), Some(bytes)) = (&fixture_sha, &fixture_bytes) {
@@ -1094,16 +1256,10 @@ fn superseded(field: AmendField, of: &str) -> String {
     )
 }
 
-/// What made an observation newly count, for the contradiction warning.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Trigger {
-    Observed,
-    ClearedInconclusive,
-}
-
-/// The warning for observation `number` of `after` (just appended, or just
-/// made to count) that contradicts other counting observations of the same
-/// source strength, naming each disagreement axis. Mixed outcomes or codes
+/// The warning for observation `number` of `after`, just appended, that
+/// contradicts other counting observations of the same source strength,
+/// naming each disagreement axis (`amend_contradictions` is the amend
+/// counterpart). Mixed outcomes or codes
 /// under one question usually mean fixtures testing different claims (a
 /// control filed under the question it controls, most often), which belong
 /// to separate questions; at the top strength they make the question a
@@ -1112,7 +1268,6 @@ enum Trigger {
 fn contradiction(
     after: &Question,
     number: usize,
-    trigger: Trigger,
     (was, now): (&Disposition, &Disposition),
     mode: Mode,
 ) -> Option<String> {
@@ -1131,7 +1286,7 @@ fn contradiction(
         .filter_map(|(i, o)| {
             let them = format!("#{}", i + 1);
             let axes: Vec<String> = new
-                .disagreements(o, after.kind)
+                .disagreements(o, after.rules())
                 .iter()
                 .map(|d| d.describe(&us, &them))
                 .collect();
@@ -1163,25 +1318,17 @@ fn contradiction(
         (Mode::DryRun, true) => format!("{tier}question {id} would stay {now}"),
         (Mode::DryRun, false) => format!("{tier}question {id} would be {now} (is {was})"),
     };
-    let advice = match (mode, trigger) {
-        (Mode::Write, Trigger::Observed) => format!(
+    let advice = match mode {
+        Mode::Write => format!(
             "`void --observation {number}` and observe it under its own question. If one \
              was mis-recorded, void that one."
         ),
-        (Mode::Write, Trigger::ClearedInconclusive) => format!(
-            "mark #{number} inconclusive again, or void it and observe it under its own \
-             question. If one was mis-recorded, void that one."
-        ),
-        (Mode::DryRun, _) => "observe it under its own question instead. If an earlier one \
+        Mode::DryRun => "observe it under its own question instead. If an earlier one \
              was mis-recorded, void it; if this one is, correct it before landing."
             .to_string(),
     };
-    let lead = match trigger {
-        Trigger::Observed => String::new(),
-        Trigger::ClearedInconclusive => format!("after clearing inconclusive on #{number}, "),
-    };
     Some(format!(
-        "{lead}observation #{number} {} {} contradicts {}: {status}. If the fixtures test \
+        "observation #{number} {} {} contradicts {}: {status}. If the fixtures test \
          different claims (a control is the usual case: it is its own question), they \
          belong to separate questions: {advice}",
         new.source.as_str(),

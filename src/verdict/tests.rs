@@ -39,6 +39,7 @@ fn question(kind: Kind, identifiers: &[&str]) -> NewQuestion {
         follow_up_to: Vec::new(),
         basis: Vec::new(),
         negative: false,
+        exclusive: false,
     }
 }
 
@@ -3133,15 +3134,15 @@ fn clearing_inconclusive_warns_of_the_contradiction_it_creates() {
     let w = &amended.warnings[0];
     assert!(
         w.starts_with(&format!(
-            "after clearing inconclusive on #2, observation #2 editor rejected (CE10147) \
-             contradicts #1 editor rejected (CE10099) [error codes differ (only in #2: \
-             CE10147; only in #1: CE10099)], #3 editor rejected (CE10099) [error codes \
-             differ (only in #2: CE10147; only in #3: CE10099)]: question {id} is now \
-             conflict (was settled)."
+            "after clearing inconclusive on #2, observations newly contradict: #1 editor \
+             rejected (CE10099) and #2 editor rejected (CE10147) [error codes differ (only \
+             in #1: CE10099; only in #2: CE10147)], #2 editor rejected (CE10147) and #3 \
+             editor rejected (CE10099) [error codes differ (only in #2: CE10147; only in \
+             #3: CE10099)]: question {id} is now conflict (was settled)."
         )),
         "{w}"
     );
-    assert!(w.contains("mark #2 inconclusive again"), "{w}");
+    assert!(w.contains("or mark it inconclusive again"), "{w}");
     // A prose fix of an already counting run warns of nothing.
     let note = AmendTarget::Observation {
         number: 2,
@@ -3251,4 +3252,280 @@ fn search_by_exact_id() {
     assert_eq!(one[0].id, a);
     assert!(store.search(&a, 0).expect("search").is_empty());
     assert!(store.search("0badf00d", 5).expect("search").is_empty());
+}
+
+fn rival_candidates() -> Vec<Candidate> {
+    vec![
+        parse_candidate("A|stamps the bar open").expect("A"),
+        parse_candidate("B|stamps the bar close").expect("B"),
+    ]
+}
+
+/// Which bar stamp rule TradingView uses is a choice between alternatives:
+/// under an exclusive question two runs selecting different rules conflict,
+/// where a non-exclusive one settles them silently.
+#[test]
+fn exclusive_candidates_rival_across_runs() {
+    let root = scratch("exclusive-rival");
+    let select = |id: &str, name: &str, date: &str| {
+        observe(
+            &root,
+            id,
+            &NewObservation {
+                candidates: rival_candidates(),
+                selected: vec![name.into()],
+                ..runtime(date)
+            },
+        )
+        .expect("observe")
+    };
+    let open = add(&root, &question(Kind::Runtime, &["strategy.entry"]))
+        .expect("add")
+        .id;
+    select(&open, "A", "2026-09-20");
+    select(&open, "B", "2026-09-21");
+    assert_eq!(reload(&root, &open).own_status(), Status::Settled);
+
+    let exclusive = add(
+        &root,
+        &NewQuestion {
+            exclusive: true,
+            ..question(Kind::Runtime, &["strategy.entry"])
+        },
+    )
+    .expect("add")
+    .id;
+    select(&exclusive, "A", "2026-09-20");
+    let second = select(&exclusive, "B", "2026-09-21");
+    assert_eq!(reload(&root, &exclusive).own_status(), Status::Conflict);
+    assert!(
+        second.warnings.iter().any(|w| w.contains(
+            "#1 chart runs clean; selects A [#2 selects B where #1 selects A (exclusive)]"
+        )),
+        "{:?}",
+        second.warnings
+    );
+    // A name the other run never declared still rivals it.
+    let undeclared = add(
+        &root,
+        &NewQuestion {
+            exclusive: true,
+            ..question(Kind::Runtime, &["strategy.entry"])
+        },
+    )
+    .expect("add")
+    .id;
+    select(&undeclared, "A", "2026-09-20");
+    observe(
+        &root,
+        &undeclared,
+        &NewObservation {
+            candidates: vec![
+                parse_candidate("A|stamps the bar open").expect("A"),
+                parse_candidate("C|stamps the tick").expect("C"),
+            ],
+            selected: vec!["C".into()],
+            ..runtime("2026-09-21")
+        },
+    )
+    .expect("observe C");
+    assert_eq!(reload(&root, &undeclared).own_status(), Status::Conflict);
+    // One counting run may establish only one alternative.
+    refused(
+        observe(
+            &root,
+            &exclusive,
+            &NewObservation {
+                candidates: rival_candidates(),
+                selected: vec!["A".into(), "B".into()],
+                ..runtime("2026-09-22")
+            },
+        ),
+        "a counting run may select at most one",
+    );
+    refused(
+        add(
+            &root,
+            &NewQuestion {
+                exclusive: true,
+                ..question(Kind::Compile, &["export"])
+            },
+        ),
+        "`exclusive` on a compile question",
+    );
+}
+
+/// Opting an existing question in: retained void or inconclusive history
+/// never blocks it, a run selecting two then cannot be revived, a keyed
+/// rerun of that run stays a no-op, and a pair already conflicting gains
+/// the rival axis in the warning.
+#[test]
+fn amend_exclusive_opts_a_question_in() {
+    let root = scratch("exclusive-amend");
+    let id = add(&root, &question(Kind::Runtime, &["strategy.entry"]))
+        .expect("add")
+        .id;
+    let both = NewObservation {
+        key: Some("both".into()),
+        candidates: rival_candidates(),
+        selected: vec!["A".into(), "B".into()],
+        ..runtime("2026-09-20")
+    };
+    observe(&root, &id, &both).expect("both selected");
+    refused(
+        amend(
+            &root,
+            &id,
+            AmendTarget::Exclusive,
+            Some("true"),
+            "alternatives",
+        ),
+        "a counting run may select at most one",
+    );
+    let inconclusive = AmendTarget::Observation {
+        number: 1,
+        field: AmendField::Inconclusive,
+    };
+    amend(&root, &id, inconclusive, Some("did not separate"), "r").expect("inconclusive");
+    amend(
+        &root,
+        &id,
+        AmendTarget::Exclusive,
+        Some("true"),
+        "alternatives",
+    )
+    .expect("exclusive with the run inconclusive");
+    assert!(
+        observe(&root, &id, &both).expect("keyed rerun").existing,
+        "the rerun of the original payload is a no-op"
+    );
+    refused(
+        amend(&root, &id, inconclusive, None, "r"),
+        "a counting run may select at most one",
+    );
+
+    // #1 selects A and refutes B, #2 selects B: already a conflict; marking
+    // the question exclusive adds the rival axis, reported on its own.
+    let conflicting = add(&root, &question(Kind::Runtime, &["strategy.entry"]))
+        .expect("add")
+        .id;
+    observe(
+        &root,
+        &conflicting,
+        &NewObservation {
+            candidates: rival_candidates(),
+            selected: vec!["A".into()],
+            refuted: vec!["B".into()],
+            ..runtime("2026-09-20")
+        },
+    )
+    .expect("first");
+    observe(
+        &root,
+        &conflicting,
+        &NewObservation {
+            candidates: rival_candidates(),
+            selected: vec!["B".into()],
+            ..runtime("2026-09-21")
+        },
+    )
+    .expect("second");
+    let amended = amend(
+        &root,
+        &conflicting,
+        AmendTarget::Exclusive,
+        Some("true"),
+        "alternatives",
+    )
+    .expect("exclusive");
+    let w = amended.warnings.join("\n");
+    assert!(
+        w.starts_with(&format!(
+            "after marking the question exclusive, observations newly contradict: #1 chart \
+             runs clean; selects A; refutes B and #2 chart runs clean; selects B [#1 selects \
+             A where #2 selects B (exclusive)]: question {conflicting} stays conflict."
+        )),
+        "{w}"
+    );
+    assert!(w.contains("`amend --clear exclusive`"), "{w}");
+}
+
+/// Exclusivity changes how a capture script's future runs are compared, so
+/// a keyed `add` rerun matches only its current value: after absent, true,
+/// absent, the rerun without it succeeds and the one with it fails.
+#[test]
+fn keyed_add_matches_only_the_current_exclusivity() {
+    let root = scratch("exclusive-key");
+    let plain = NewQuestion {
+        key: Some("stamp".into()),
+        ..question(Kind::Runtime, &["strategy.entry"])
+    };
+    let id = add(&root, &plain).expect("add").id;
+    amend(
+        &root,
+        &id,
+        AmendTarget::Exclusive,
+        Some("true"),
+        "alternatives",
+    )
+    .expect("on");
+    refused(add(&root, &plain), "which is exclusive since an amendment");
+    amend(&root, &id, AmendTarget::Exclusive, None, "not alternatives").expect("off");
+    assert!(add(&root, &plain).expect("current value").existing);
+    // The error cites the amendment that set the current state, not the
+    // first one that held the given value.
+    let marked = NewQuestion {
+        exclusive: true,
+        ..plain.clone()
+    };
+    refused(
+        add(&root, &marked),
+        "which is no longer exclusive since an amendment",
+    );
+    refused(add(&root, &marked), ": not alternatives)");
+}
+
+/// One amendment can revive runs of both tiers; an endpoint pair is marked
+/// as never deciding status, per pair.
+#[test]
+fn amend_warning_marks_weaker_pairs() {
+    let root = scratch("amend-weaker");
+    let id = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    observe(
+        &root,
+        &id,
+        &compile(Source::Editor, "2026-09-20", Outcome::Accepted),
+    )
+    .expect("editor");
+    observe(
+        &root,
+        &id,
+        &compile(Source::Endpoint, "2026-09-20", Outcome::Accepted),
+    )
+    .expect("endpoint accept");
+    observe(
+        &root,
+        &id,
+        &NewObservation {
+            inconclusive: Some("stale session".into()),
+            errors: vec![parse_diag("CE10099").expect("diag")],
+            ..compile(Source::Endpoint, "2026-09-21", Outcome::Rejected)
+        },
+    )
+    .expect("endpoint reject");
+    let clear = AmendTarget::Observation {
+        number: 3,
+        field: AmendField::Inconclusive,
+    };
+    let amended = amend(&root, &id, clear, None, "r").expect("amend");
+    let w = amended.warnings.join("\n");
+    assert!(
+        w.contains(&format!(
+            "observations newly contradict: weaker source only, #2 endpoint accepted and #3 \
+             endpoint rejected (CE10099) [the outcome differs]: question {id} stays settled."
+        )),
+        "{w}"
+    );
 }

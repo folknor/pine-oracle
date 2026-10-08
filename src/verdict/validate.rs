@@ -149,16 +149,40 @@ pub(super) fn question(q: &Question, cx: &Context<'_>, out: &mut Report) {
         AmendField::Question => Some(Some(q.question.clone())),
         AmendField::Answer => Some(Some(q.answer.clone())),
         AmendField::Negative => Some(q.negative_value()),
+        AmendField::Exclusive => Some(q.exclusive_value()),
         _ => None,
     }));
     for (i, a) in q.amendments.iter().enumerate() {
-        if a.field == AmendField::Negative
+        if matches!(a.field, AmendField::Negative | AmendField::Exclusive)
             && [&a.was, &a.now].into_iter().flatten().any(|v| v != "true")
         {
             errs.push(format!(
-                "amendment {} (negative): `was` / `now` must be \"true\" or absent",
-                i + 1
+                "amendment {} ({}): `was` / `now` must be \"true\" or absent",
+                i + 1,
+                a.field.as_str()
             ));
+        }
+    }
+    if q.exclusive && q.kind == Kind::Compile {
+        errs.push(
+            "`exclusive` on a compile question: only runtime candidates are alternatives"
+                .to_string(),
+        );
+    }
+    // Exclusive alternatives: a counting run may establish at most one. A
+    // void or inconclusive run is out of the comparison, so retained history
+    // never blocks marking a question exclusive (clearing such a run's
+    // inconclusive is refused instead).
+    if q.exclusive {
+        for (i, o) in q.observations.iter().enumerate() {
+            let selected = o.selected();
+            if o.counts() && selected.len() > 1 {
+                errs.push(format!(
+                    "observation {} selects {} of the exclusive candidates: a counting run may select at most one",
+                    i + 1,
+                    selected.into_iter().collect::<Vec<_>>().join(", ")
+                ));
+            }
         }
     }
     errs.extend(closures(&q.closures));
