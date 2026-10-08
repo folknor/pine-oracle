@@ -57,6 +57,7 @@ fn obs(source: Source, date: &str) -> NewObservation {
         settings: None,
         candidates: Vec::new(),
         selected: Vec::new(),
+        consistent: Vec::new(),
         refuted: Vec::new(),
         evidence: Vec::new(),
         environment: None,
@@ -287,10 +288,11 @@ fn contradicting_observations_warn_at_observe_time() {
     });
     assert_eq!(
         warned(&reject),
-        "observation #3 editor rejected (CE10099) contradicts #1 editor accepted: \
-         question {id} is now conflict (was settled). If the fixtures test different \
-         claims, they belong to separate questions: `void --observation 3` and observe \
-         it under its own question. If one was mis-recorded, void that one."
+        "observation #3 editor rejected (CE10099) contradicts #1 editor accepted [the \
+         outcome differs]: question {id} is now conflict (was settled). If the fixtures \
+         test different claims (a control is the usual case: it is its own question), \
+         they belong to separate questions: `void --observation 3` and observe it under \
+         its own question. If one was mis-recorded, void that one."
             .replace("{id}", &id)
     );
     // Agreeing with #3 still contradicts #1.
@@ -298,13 +300,16 @@ fn contradicting_observations_warn_at_observe_time() {
         key: Some("again".into()),
         ..reject.clone()
     };
-    assert!(warned(&again).contains("contradicts #1 editor accepted: question"));
+    assert!(
+        warned(&again).contains("contradicts #1 editor accepted [the outcome differs]: question")
+    );
     assert!(warned_rerun_is_silent(&root, &id, &again));
     // Same-strength weaker sources contradicting each other warn too.
     let w = warned(&compile(Source::Endpoint, "2026-09-22", Outcome::Accepted));
     assert!(
         w.contains(
-            "contradicts #2 endpoint rejected (CE10099): weaker source only, question \
+            "contradicts #2 endpoint rejected (CE10099) [the outcome differs]: weaker \
+             source only, question \
              {id} stays conflict"
                 .replace("{id}", &id)
                 .as_str()
@@ -320,8 +325,8 @@ fn contradicting_observations_warn_at_observe_time() {
     let w = warned(&compile(Source::Chart, "2026-09-24", Outcome::Accepted));
     assert!(
         w.contains(
-            "observation #7 chart accepted contradicts #3 editor rejected (CE10099), \
-             #4 editor rejected (CE10099): question"
+            "observation #7 chart accepted contradicts #3 editor rejected (CE10099) [the \
+             outcome differs], #4 editor rejected (CE10099) [the outcome differs]: question"
         ),
         "{w}"
     );
@@ -351,7 +356,7 @@ fn contradicting_observations_warn_at_observe_time() {
     assert!(
         second.warnings.last().expect("warning").contains(
             "observation #2 chart runs clean; selects A contradicts #1 chart runs clean; \
-             refutes A: question"
+             refutes A [#2 selects A that #1 refutes]: question"
         ),
         "{:?}",
         second.warnings
@@ -434,8 +439,9 @@ fn contradiction_warning_reports_the_shown_disposition() {
     );
     assert!(
         w.contains(&format!(
-            "observation #2 chart halts (RE10044) contradicts #1 chart runs clean: \
-             question {rt} is now conflict (was open)."
+            "observation #2 chart halts (RE10044) contradicts #1 chart runs clean [error \
+             codes differ (only in #2: RE10044; only in #1: none)]: question {rt} is now \
+             conflict (was open)."
         )),
         "{w}"
     );
@@ -469,10 +475,12 @@ fn dry_run_reports_the_resulting_status_and_writes_nothing() {
     assert_eq!(
         dry.warnings,
         vec![
-            "observation #2 chart runs clean contradicts #1 chart halts (RE10134): question \
-             {id} would be conflict (is settled). If the fixtures test different claims, they \
-             belong to separate questions: observe it under its own question instead. If an \
-             earlier one was mis-recorded, void it; if this one is, correct it before landing."
+            "observation #2 chart runs clean contradicts #1 chart halts (RE10134) [error \
+             codes differ (only in #2: none; only in #1: RE10134)]: question {id} would be \
+             conflict (is settled). If the fixtures test different claims (a control is the \
+             usual case: it is its own question), they belong to separate questions: \
+             observe it under its own question instead. If an earlier one was mis-recorded, \
+             void it; if this one is, correct it before landing."
                 .replace("{id}", &id)
         ]
     );
@@ -2388,24 +2396,52 @@ fn answer_support_is_reported() {
     .expect("editor");
     let support = amend(&root, &id, AmendTarget::Answer, Some("B."), "r")
         .expect("amend")
+        .support
         .expect("answer support");
     assert_eq!(
         support,
-        "the amended answer rests on deciding observations #2 editor; weaker counting observations #1 endpoint; status settled"
+        "the answer rests on counting editor/chart observations #2 editor; weaker counting observations #1 endpoint; status settled"
     );
     let note = AmendTarget::Observation {
         number: 1,
         field: AmendField::Note,
     };
     assert_eq!(
-        amend(&root, &id, note, Some("n"), "r").expect("amend note"),
+        amend(&root, &id, note, Some("n"), "r")
+            .expect("amend note")
+            .support,
         None
     );
     retire(&root, &id, "reworded", &[]).expect("retire");
     let support = amend(&root, &id, AmendTarget::Answer, Some("C."), "r")
         .expect("amend")
+        .support
         .expect("answer support");
     assert!(support.contains("no active disposition"), "{support}");
+
+    // A retired replacement still names what it replaced.
+    let successor = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    let predecessor = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    retire(
+        &root,
+        &predecessor,
+        "reworded",
+        std::slice::from_ref(&successor),
+    )
+    .expect("retire predecessor");
+    retire(&root, &successor, "split", &[]).expect("retire successor");
+    let support = amend(&root, &successor, AmendTarget::Answer, Some("D."), "r")
+        .expect("amend")
+        .support
+        .expect("answer support");
+    assert!(
+        support.ends_with(&format!("no active disposition; replaces {predecessor}")),
+        "{support}"
+    );
 }
 
 /// The manual section behind piners verdict 127addd2 (`po search` id), with
@@ -2983,4 +3019,236 @@ fn closing_an_open_question_and_ending_the_closure() {
         .expect_err("tampered")
         .to_string();
     assert!(err.contains("expected a reopen"), "{err}");
+}
+
+/// A run that cannot separate A from B marks both consistent: it stays open,
+/// and a later run that separates them settles the question without a
+/// conflict (marking both selected made exactly this a conflict).
+#[test]
+fn consistent_candidates_never_decide_or_conflict() {
+    let root = scratch("consistent");
+    let id = add(&root, &question(Kind::Runtime, &["strategy.entry"]))
+        .expect("add")
+        .id;
+    let candidates = vec![
+        parse_candidate("A|left to right").expect("A"),
+        parse_candidate("B|skips na").expect("B"),
+    ];
+    let fits_both = observe(
+        &root,
+        &id,
+        &NewObservation {
+            candidates: candidates.clone(),
+            consistent: vec!["A".into(), "B".into()],
+            ..runtime("2026-09-20")
+        },
+    )
+    .expect("non-separating run");
+    assert!(fits_both.warnings.is_empty(), "{:?}", fits_both.warnings);
+    let q = reload(&root, &id);
+    assert_eq!(q.own_status(), Status::Open);
+    assert_eq!(
+        q.observations[0].verdict_summary(Kind::Runtime),
+        "runs clean; consistent with A, B"
+    );
+    let separates = observe(
+        &root,
+        &id,
+        &NewObservation {
+            candidates: candidates.clone(),
+            selected: vec!["A".into()],
+            refuted: vec!["B".into()],
+            ..runtime("2026-09-21")
+        },
+    )
+    .expect("separating run");
+    assert!(separates.warnings.is_empty(), "{:?}", separates.warnings);
+    assert_eq!(reload(&root, &id).own_status(), Status::Settled);
+    // Differing halts still contradict: a consistent run counts.
+    let halts = observe(
+        &root,
+        &id,
+        &NewObservation {
+            candidates: candidates.clone(),
+            consistent: vec!["A".into()],
+            errors: vec![parse_diag("RE10044").expect("diag")],
+            ..runtime("2026-09-22")
+        },
+    )
+    .expect("halting run");
+    assert_eq!(reload(&root, &id).own_status(), Status::Conflict);
+    assert!(
+        halts
+            .warnings
+            .iter()
+            .any(|w| w.contains("error codes differ")),
+        "{:?}",
+        halts.warnings
+    );
+    refused(
+        observe(
+            &root,
+            &id,
+            &NewObservation {
+                candidates,
+                selected: vec!["A".into()],
+                consistent: vec!["A".into()],
+                ..runtime("2026-09-23")
+            },
+        ),
+        "cannot be both selected and consistent",
+    );
+}
+
+/// Clearing `inconclusive` makes a run count again, so it gets the same
+/// contradiction warning as a new observation, naming the run it revived and
+/// the codes that differ.
+#[test]
+fn clearing_inconclusive_warns_of_the_contradiction_it_creates() {
+    let root = scratch("clear-inconclusive");
+    let id = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    let reject = |code: &str, date: &str| NewObservation {
+        errors: vec![parse_diag(code).expect("diag")],
+        ..compile(Source::Editor, date, Outcome::Rejected)
+    };
+    observe(&root, &id, &reject("CE10099", "2026-09-20")).expect("first");
+    observe(
+        &root,
+        &id,
+        &NewObservation {
+            inconclusive: Some("fixture bug".into()),
+            ..reject("CE10147", "2026-09-21")
+        },
+    )
+    .expect("second");
+    observe(&root, &id, &reject("CE10099", "2026-09-22")).expect("third");
+    let clear = AmendTarget::Observation {
+        number: 2,
+        field: AmendField::Inconclusive,
+    };
+    let amended = amend(&root, &id, clear, None, "the fixture was fine").expect("amend");
+    assert_eq!(amended.warnings.len(), 1, "{:?}", amended.warnings);
+    let w = &amended.warnings[0];
+    assert!(
+        w.starts_with(&format!(
+            "after clearing inconclusive on #2, observation #2 editor rejected (CE10147) \
+             contradicts #1 editor rejected (CE10099) [error codes differ (only in #2: \
+             CE10147; only in #1: CE10099)], #3 editor rejected (CE10099) [error codes \
+             differ (only in #2: CE10147; only in #3: CE10099)]: question {id} is now \
+             conflict (was settled)."
+        )),
+        "{w}"
+    );
+    assert!(w.contains("mark #2 inconclusive again"), "{w}");
+    // A prose fix of an already counting run warns of nothing.
+    let note = AmendTarget::Observation {
+        number: 2,
+        field: AmendField::Note,
+    };
+    let amended = amend(&root, &id, note, Some("n"), "r").expect("note");
+    assert!(amended.warnings.is_empty(), "{:?}", amended.warnings);
+}
+
+/// The question text is amendable as a wording correction with history; a
+/// keyed rerun giving the superseded text fails (it would hand a script for
+/// the old claim the reworded question), and a retired question's text is
+/// what was replaced, so it stays.
+#[test]
+fn question_text_amends_but_superseded_text_breaks_keyed_reruns() {
+    let root = scratch("amend-question");
+    let both = NewQuestion {
+        key: Some("split".into()),
+        question: "Do X and Y reject?".into(),
+        ..question(Kind::Compile, &["export"])
+    };
+    let id = add(&root, &both).expect("add").id;
+    let premise_of = add(
+        &root,
+        &NewQuestion {
+            basis: vec![id.clone()],
+            ..question(Kind::Compile, &[])
+        },
+    )
+    .expect("inferred")
+    .id;
+    let amended = amend(
+        &root,
+        &id,
+        AmendTarget::Question,
+        Some("Does X reject?"),
+        "Y split out",
+    )
+    .expect("amend");
+    let support = amended.support.expect("support");
+    assert!(
+        support.contains(&format!("; premise of {premise_of} (")),
+        "{support}"
+    );
+    let q = reload(&root, &id);
+    assert_eq!(q.question, "Does X reject?");
+    assert_eq!(q.amendments[0].field, AmendField::Question);
+    refused(add(&root, &both), "was reworded from this text");
+    let current = NewQuestion {
+        question: "Does X reject?".into(),
+        ..both.clone()
+    };
+    assert!(add(&root, &current).expect("rerun").existing);
+    let found = load(std::slice::from_ref(&root))
+        .expect("load")
+        .search("X reject", 5)
+        .expect("search");
+    assert_eq!(found.first().map(|h| h.id.as_str()), Some(id.as_str()));
+
+    let retired = add(&root, &question(Kind::Compile, &[])).expect("add").id;
+    retire(&root, &retired, "mis-filed", &[]).expect("retire");
+    refused(
+        amend(&root, &retired, AmendTarget::Question, Some("Q2?"), "r"),
+        "its text is what was replaced",
+    );
+    // The whole write is refused, not just the question part.
+    refused(
+        amend_all(
+            &root,
+            &retired,
+            &[
+                (AmendTarget::Answer, Some("B.")),
+                (AmendTarget::Question, Some("Q2?")),
+            ],
+            "r",
+        ),
+        "its text is what was replaced",
+    );
+    assert_eq!(reload(&root, &retired).answer, "A.");
+}
+
+/// An id is what agents reach for first: a query that is exactly a loaded
+/// question's id puts that question first, in one slot of the limit and
+/// never twice; an unknown 8-hex token is plain words.
+#[test]
+fn search_by_exact_id() {
+    let root = scratch("search-id");
+    let a = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    let mentions = add(
+        &root,
+        &NewQuestion {
+            question: format!("Follow-up to {a}?"),
+            ..question(Kind::Compile, &[])
+        },
+    )
+    .expect("add")
+    .id;
+    let store = load(std::slice::from_ref(&root)).expect("load");
+    let hits = store.search(&a.to_uppercase(), 5).expect("search");
+    let ids: Vec<&str> = hits.iter().map(|h| h.id.as_str()).collect();
+    assert_eq!(ids, [a.as_str(), mentions.as_str()]);
+    assert!(hits[0].exact && !hits[1].exact);
+    let one = store.search(&a, 1).expect("search");
+    assert_eq!(one.len(), 1);
+    assert_eq!(one[0].id, a);
+    assert!(store.search(&a, 0).expect("search").is_empty());
+    assert!(store.search("0badf00d", 5).expect("search").is_empty());
 }

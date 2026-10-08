@@ -59,8 +59,8 @@ pub use search::SearchHit;
 pub use spec::{parse_candidate, parse_diag};
 pub use validate::identifier_known;
 pub use write::{
-    Added, AmendTarget, Cited, NewObservation, NewQuestion, Observed, VoidTarget, add, amend,
-    amend_all, cite, close, observe, observe_dry_run, reopen, retire, void,
+    Added, AmendTarget, Amended, Cited, NewObservation, NewQuestion, Observed, VoidTarget, add,
+    amend, amend_all, cite, close, observe, observe_dry_run, reopen, retire, void,
 };
 
 /// Whether a question is about compilation (accept / reject) or about what a
@@ -98,12 +98,21 @@ pub enum Outcome {
     Crashed,
 }
 
-/// What a runtime observation's evidence did to one competing model.
+/// What one runtime observation's evidence did to one candidate model. Every
+/// state is local to its run: candidates are not assumed exclusive, so two
+/// may be selected by one run, and exclusivity is said only by refuting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CandidateState {
+    /// The run establishes the model.
     Selected,
+    /// The run's result matches the model's prediction without establishing
+    /// it (it fits another candidate too). Never decides and never opposes
+    /// anything: a later run refuting the model is no contradiction.
+    Consistent,
+    /// The run's result rules the model out.
     Refuted,
+    /// The run does not speak to the model.
     Undecided,
 }
 
@@ -120,7 +129,7 @@ pub enum Status {
     /// Never the status of an inferred question: nobody measured it.
     Conflict,
     /// Nothing decides it yet: no counting editor/chart observation, only
-    /// chart runs whose candidates are all undecided, or (inferred) a premise
+    /// chart runs whose candidates are all consistent or undecided, or (inferred) a premise
     /// that is neither settled nor documented.
     Open,
     /// Not measured, but stated by the manual: no deciding measurement, and
@@ -253,6 +262,9 @@ pub struct Retired {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AmendField {
+    /// The question text: a wording correction, never a change of claim. A
+    /// keyed `add` rerun giving a superseded text fails rather than matching.
+    Question,
     Answer,
     /// History values are `"true"` (marked) or absent (not marked).
     Negative,
@@ -534,6 +546,7 @@ impl CandidateState {
     pub fn as_str(self) -> &'static str {
         match self {
             CandidateState::Selected => "selected",
+            CandidateState::Consistent => "consistent",
             CandidateState::Refuted => "refuted",
             CandidateState::Undecided => "undecided",
         }
@@ -612,6 +625,7 @@ impl FromStr for AmendField {
     type Err = UnknownValue;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
+            "question" => Ok(AmendField::Question),
             "answer" => Ok(AmendField::Answer),
             "negative" => Ok(AmendField::Negative),
             "note" => Ok(AmendField::Note),
@@ -622,7 +636,7 @@ impl FromStr for AmendField {
             _ => Err(unknown(
                 "field",
                 s,
-                "answer, negative, note, result, settings, environment or inconclusive",
+                "question, answer, negative, note, result, settings, environment or inconclusive",
             )),
         }
     }
@@ -646,7 +660,8 @@ impl FromStr for Status {
 }
 
 impl AmendField {
-    pub const ALL: [AmendField; 7] = [
+    pub const ALL: [AmendField; 8] = [
+        AmendField::Question,
         AmendField::Answer,
         AmendField::Negative,
         AmendField::Note,
@@ -658,6 +673,7 @@ impl AmendField {
 
     pub fn as_str(self) -> &'static str {
         match self {
+            AmendField::Question => "question",
             AmendField::Answer => "answer",
             AmendField::Negative => "negative",
             AmendField::Note => "note",
@@ -676,11 +692,11 @@ impl Observation {
         self.void.is_none() && self.inconclusive.is_none() && self.outcome != Some(Outcome::Crashed)
     }
 
-    /// The current value of amendable field `field` (`None` for `Answer` and
-    /// `Negative`, question fields).
+    /// The current value of amendable field `field` (`None` for the question
+    /// fields `Question`, `Answer` and `Negative`).
     pub fn field(&self, field: AmendField) -> Option<&Option<String>> {
         match field {
-            AmendField::Answer | AmendField::Negative => None,
+            AmendField::Question | AmendField::Answer | AmendField::Negative => None,
             AmendField::Note => Some(&self.note),
             AmendField::Result => Some(&self.result),
             AmendField::Settings => Some(&self.settings),
@@ -692,7 +708,7 @@ impl Observation {
     /// Amendable field `field`, for writing (`None` for the question fields).
     pub fn field_mut(&mut self, field: AmendField) -> Option<&mut Option<String>> {
         match field {
-            AmendField::Answer | AmendField::Negative => None,
+            AmendField::Question | AmendField::Answer | AmendField::Negative => None,
             AmendField::Note => Some(&mut self.note),
             AmendField::Result => Some(&mut self.result),
             AmendField::Settings => Some(&mut self.settings),
@@ -711,10 +727,59 @@ impl Observation {
     /// disagree. Two deciding observations that do make the question a
     /// conflict; whether either counts is the caller's concern.
     pub fn contradicts(&self, other: &Observation, kind: Kind) -> bool {
+        !self.disagreements(other, kind).is_empty()
+    }
+
+    /// Every axis on which this observation and `other` disagree, from the
+    /// one comparison that decides contradiction, so an explanation cannot
+    /// drift from the verdict it explains. Compile: the outcome; with the
+    /// same outcome, the error and warning code sets, unless either is a
+    /// reject that recorded no codes ("not recorded", not "different").
+    /// Runtime: the error code sets (how the runs halt) and any candidate
+    /// one selects and the other refutes. Messages never matter.
+    pub fn disagreements(&self, other: &Observation, kind: Kind) -> Vec<Disagreement> {
+        let mut found = Vec::new();
+        let mut differ = |ours: &[Diag], theirs: &[Diag], make: fn(Split) -> Disagreement| {
+            let split = Split::of(&codes(ours), &codes(theirs));
+            if !split.is_empty() {
+                found.push(make(split));
+            }
+        };
         match kind {
-            Kind::Compile => !compile_agree(self, other),
-            Kind::Runtime => runtime_disagree(self, other),
+            Kind::Compile => {
+                if self.outcome != other.outcome {
+                    return vec![Disagreement::Outcome];
+                }
+                if codes_unrecorded(self) || codes_unrecorded(other) {
+                    return Vec::new();
+                }
+                differ(&self.errors, &other.errors, Disagreement::ErrorCodes);
+                differ(&self.warnings, &other.warnings, Disagreement::WarningCodes);
+            }
+            Kind::Runtime => {
+                differ(&self.errors, &other.errors, Disagreement::ErrorCodes);
+                let opposed = |x: &Observation, y: &Observation| -> Vec<String> {
+                    x.candidates
+                        .iter()
+                        .filter(|c| c.state == CandidateState::Selected)
+                        .filter(|c| {
+                            y.candidates
+                                .iter()
+                                .any(|d| d.name == c.name && d.state == CandidateState::Refuted)
+                        })
+                        .map(|c| c.name.clone())
+                        .collect()
+                };
+                let split = Split {
+                    ours: opposed(self, other),
+                    theirs: opposed(other, self),
+                };
+                if !split.is_empty() {
+                    found.push(Disagreement::Opposed(split));
+                }
+            }
         }
+        found
     }
 
     /// What this observation measured, in the terms agreement compares:
@@ -747,6 +812,7 @@ impl Observation {
                 }
                 for (state, verb) in [
                     (CandidateState::Selected, "selects"),
+                    (CandidateState::Consistent, "consistent with"),
                     (CandidateState::Refuted, "refutes"),
                 ] {
                     let names: Vec<&str> = self
@@ -967,13 +1033,7 @@ fn annotate(kind: Kind, o: &Observation, anchor: Option<&Observation>) -> Option
 /// them between releases). A reject that recorded no codes at all means "not
 /// recorded", not "different", so it is compared on the outcome alone.
 fn compile_agree(a: &Observation, b: &Observation) -> bool {
-    if a.outcome != b.outcome {
-        return false;
-    }
-    if codes_unrecorded(a) || codes_unrecorded(b) {
-        return true;
-    }
-    codes(&a.errors) == codes(&b.errors) && codes(&a.warnings) == codes(&b.warnings)
+    !a.contradicts(b, Kind::Compile)
 }
 
 /// A reject with no diagnostics: the codes were not recorded. (An accept
@@ -986,34 +1046,98 @@ fn codes(diags: &[Diag]) -> BTreeSet<&str> {
     diags.iter().map(|d| d.code.as_str()).collect()
 }
 
-/// Whether two runtime runs contradict each other: a candidate one selects
-/// the other refutes (result text cannot be compared automatically, so this
-/// is the contradiction that matters), or their error codes differ (one
-/// halts, one runs clean: if intended, the runs had different inputs and
-/// belong to separate questions).
-fn runtime_disagree(a: &Observation, b: &Observation) -> bool {
-    let opposed = |x: &Observation, y: &Observation| {
-        x.candidates
-            .iter()
-            .filter(|c| c.state == CandidateState::Selected)
-            .any(|c| {
-                y.candidates
-                    .iter()
-                    .any(|d| d.name == c.name && d.state == CandidateState::Refuted)
-            })
-    };
-    codes(&a.errors) != codes(&b.errors) || opposed(a, b) || opposed(b, a)
+/// One axis on which two observations disagree (see
+/// `Observation::disagreements`). Code and candidate lists are directional:
+/// `ours` belongs to the observation compared, `theirs` to the other.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Disagreement {
+    /// Compile: one accepted, the other rejected.
+    Outcome,
+    /// Error codes only one carries. Runtime: the runs halt differently
+    /// (one may run clean).
+    ErrorCodes(Split),
+    /// Compile: warning codes only one carries.
+    WarningCodes(Split),
+    /// Runtime: candidates one run selects and the other refutes.
+    Opposed(Split),
+}
+
+/// What only the compared observation has (`ours`) and only the other has
+/// (`theirs`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Split {
+    pub ours: Vec<String>,
+    pub theirs: Vec<String>,
+}
+
+impl Split {
+    fn of(ours: &BTreeSet<&str>, theirs: &BTreeSet<&str>) -> Split {
+        let only = |a: &BTreeSet<&str>, b: &BTreeSet<&str>| {
+            a.difference(b).map(ToString::to_string).collect()
+        };
+        Split {
+            ours: only(ours, theirs),
+            theirs: only(theirs, ours),
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.ours.is_empty() && self.theirs.is_empty()
+    }
+}
+
+impl Disagreement {
+    /// The disagreement in words, naming the compared observation `us` and
+    /// the other `them` (e.g. `#3`, `#1`).
+    pub fn describe(&self, us: &str, them: &str) -> String {
+        let list = |v: &[String]| {
+            if v.is_empty() {
+                "none".to_string()
+            } else {
+                v.join(", ")
+            }
+        };
+        let codes = |what: &str, s: &Split| {
+            format!(
+                "{what} codes differ (only in {us}: {}; only in {them}: {})",
+                list(&s.ours),
+                list(&s.theirs)
+            )
+        };
+        match self {
+            Disagreement::Outcome => "the outcome differs".to_string(),
+            Disagreement::ErrorCodes(s) => codes("error", s),
+            Disagreement::WarningCodes(s) => codes("warning", s),
+            Disagreement::Opposed(s) => {
+                let mut parts = Vec::new();
+                if !s.ours.is_empty() {
+                    parts.push(format!(
+                        "{us} selects {} that {them} refutes",
+                        s.ours.join(", ")
+                    ));
+                }
+                if !s.theirs.is_empty() {
+                    parts.push(format!(
+                        "{them} selects {} that {us} refutes",
+                        s.theirs.join(", ")
+                    ));
+                }
+                parts.join("; ")
+            }
+        }
+    }
 }
 
 /// Runtime status over counting chart runs that contradict nothing: settled
 /// only if some run decides (it declares no candidates, or it selects or
-/// refutes one). Runs whose candidates are all undecided leave it open.
+/// refutes one). Runs whose candidates are all consistent or undecided leave
+/// it open: neither separates the models.
 fn runtime_status(top: &[&Observation]) -> Status {
     let decides = top.iter().any(|o| {
         o.candidates.is_empty()
             || o.candidates
                 .iter()
-                .any(|c| c.state != CandidateState::Undecided)
+                .any(|c| matches!(c.state, CandidateState::Selected | CandidateState::Refuted))
     });
     if decides {
         Status::Settled

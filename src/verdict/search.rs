@@ -20,12 +20,40 @@ const TITLE_BOOST: f32 = 4.0;
 #[derive(Debug, Clone)]
 pub struct SearchHit {
     pub id: String,
+    /// The BM25 score, or 0 for an exact-id hit the text does not match.
+    /// Order is not reconstructible from scores alone: an exact-id hit
+    /// comes first whatever its score.
     pub score: f32,
+    /// The query was exactly this question's id.
+    pub exact: bool,
 }
 
 impl Store {
-    /// Ranked questions for `q`. An empty query returns nothing.
+    /// Ranked questions for `q`. An empty query returns nothing. A query
+    /// that is a single token equal to a loaded question's id puts that
+    /// question first (one slot of `limit`, never listed twice); any other
+    /// query, an unknown 8-hex token included, is plain words.
     pub fn search(&self, q: &str, limit: usize) -> Result<Vec<SearchHit>> {
+        let mut hits = self.text_search(q, limit)?;
+        if let Some(exact) = self.get(q).filter(|_| limit > 0) {
+            let score = hits
+                .iter()
+                .position(|h| h.id == exact.id)
+                .map_or(0.0, |i| hits.remove(i).score);
+            hits.insert(
+                0,
+                SearchHit {
+                    id: exact.id.clone(),
+                    score,
+                    exact: true,
+                },
+            );
+            hits.truncate(limit);
+        }
+        Ok(hits)
+    }
+
+    fn text_search(&self, q: &str, limit: usize) -> Result<Vec<SearchHit>> {
         // tantivy's TopDocs panics on a zero limit.
         if q.trim().is_empty() || limit == 0 || self.questions().is_empty() {
             return Ok(Vec::new());
@@ -61,7 +89,11 @@ impl Store {
                 .and_then(|v| v.as_str())
                 .unwrap_or_default()
                 .to_string();
-            hits.push(SearchHit { id: hit_id, score });
+            hits.push(SearchHit {
+                id: hit_id,
+                score,
+                exact: false,
+            });
         }
         Ok(hits)
     }

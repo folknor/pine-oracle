@@ -146,6 +146,7 @@ pub(super) fn question(q: &Question, cx: &Context<'_>, out: &mut Report) {
         }
     }
     errs.extend(amendments(&q.amendments, |f| match f {
+        AmendField::Question => Some(Some(q.question.clone())),
         AmendField::Answer => Some(Some(q.answer.clone())),
         AmendField::Negative => Some(q.negative_value()),
         _ => None,

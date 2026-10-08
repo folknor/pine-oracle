@@ -250,9 +250,14 @@ pub(crate) struct ObserveArgs {
     /// Repeatable.
     #[arg(long = "candidate", value_name = "SPEC")]
     candidates: Vec<String>,
-    /// Runtime: a candidate the evidence selected. Repeatable.
+    /// Runtime: a candidate the run establishes. Repeatable (candidates are
+    /// not assumed exclusive).
     #[arg(long = "selected", value_name = "NAME")]
     selected: Vec<String>,
+    /// Runtime: a candidate the result fits without establishing it (it
+    /// fits another too). Never decides, never conflicts. Repeatable.
+    #[arg(long = "consistent", value_name = "NAME")]
+    consistent: Vec<String>,
     /// Runtime: a candidate the evidence refuted. Repeatable.
     #[arg(long = "refuted", value_name = "NAME")]
     refuted: Vec<String>,
@@ -275,7 +280,7 @@ pub(crate) struct ObserveArgs {
 
 #[derive(clap::Args)]
 #[command(group(ArgGroup::new("change").required(true).multiple(true).args([
-    "answer", "negative", "note", "result", "settings", "environment", "inconclusive", "clear",
+    "question", "answer", "negative", "note", "result", "settings", "environment", "inconclusive", "clear",
 ])))]
 pub(crate) struct AmendArgs {
     /// Question id.
@@ -286,6 +291,11 @@ pub(crate) struct AmendArgs {
     /// Why the old value was wrong.
     #[arg(long)]
     reason: String,
+    /// The reworded question: a wording correction, not a new claim (a
+    /// claim whose evidence splits is retired and replaced). Refused on a
+    /// retired question.
+    #[arg(long, conflicts_with = "observation")]
+    question: Option<String>,
     /// The corrected answer. Combines with `--negative` or `--clear
     /// negative`, so an answer and its classification change in one write.
     #[arg(long, conflicts_with = "observation")]
@@ -399,8 +409,9 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
             let changes = amend_changes(&a)?;
             let borrowed: Vec<(AmendTarget, Option<&str>)> =
                 changes.iter().map(|(t, v)| (*t, v.as_deref())).collect();
-            let support = verdict::amend_all(&a.records, &a.id, &borrowed, &a.reason)?;
-            if let Some(support) = support
+            let amended = verdict::amend_all(&a.records, &a.id, &borrowed, &a.reason)?;
+            print_warnings(&amended.warnings, quiet);
+            if let Some(support) = amended.support
                 && !quiet
             {
                 eprintln!("{support}");
@@ -498,8 +509,8 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
     }
 }
 
-/// The changes one `amend` call makes. Question level: `--answer` and/or the
-/// negative mark (`--negative` / `--clear negative`), in one write. With
+/// The changes one `amend` call makes. Question level: `--question`,
+/// `--answer` and/or the negative mark (`--negative` / `--clear negative`), in one write. With
 /// `--observation N`: exactly one of its prose fields.
 fn amend_changes(a: &AmendArgs) -> Result<Vec<(AmendTarget, Option<String>)>> {
     let clear_negative = a.clear.as_deref() == Some("negative");
@@ -528,6 +539,9 @@ fn amend_changes(a: &AmendArgs) -> Result<Vec<(AmendTarget, Option<String>)>> {
             bail!("--negative and --clear negative contradict each other");
         }
         let mut changes = Vec::new();
+        if let Some(question) = &a.question {
+            changes.push((AmendTarget::Question, Some(question.clone())));
+        }
         if let Some(answer) = &a.answer {
             changes.push((AmendTarget::Answer, Some(answer.clone())));
         }
@@ -538,7 +552,7 @@ fn amend_changes(a: &AmendArgs) -> Result<Vec<(AmendTarget, Option<String>)>> {
             changes.push((AmendTarget::Negative, None));
         }
         if changes.is_empty() {
-            bail!("name --answer, --negative, --clear negative or --observation N");
+            bail!("name --question, --answer, --negative, --clear negative or --observation N");
         }
         return Ok(changes);
     };
@@ -579,6 +593,7 @@ fn new_observation(a: &ObserveArgs) -> Result<NewObservation> {
         settings: a.settings.clone(),
         candidates: parse_all(&a.candidates, verdict::parse_candidate)?,
         selected: a.selected.clone(),
+        consistent: a.consistent.clone(),
         refuted: a.refuted.clone(),
         evidence: a.evidence.clone(),
         environment: a.environment.clone(),

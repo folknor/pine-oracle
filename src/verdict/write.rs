@@ -1,7 +1,7 @@
 // Write side: `add` creates a question, `observe` appends one observation,
 // `retire` withdraws a question, `close` / `reopen` stop and resume an open
-// question's investigation, `amend` corrects an answer, its negative mark or
-// an observation's prose keeping the history, `cite` records a manual passage
+// question's investigation, `amend` corrects a question's wording, its
+// answer, its negative mark or an observation's prose keeping the history, `cite` records a manual passage
 // supporting the answer, `void` withdraws an observation or a citation.
 // Each takes the records directory's lock exclusively,
 // strictly loads it (never write into a store that is already invalid),
@@ -103,9 +103,11 @@ pub struct NewObservation {
     pub warnings: Vec<Diag>,
     pub result: Option<String>,
     pub settings: Option<String>,
-    /// Declared candidates (state ignored; set from `selected` / `refuted`).
+    /// Declared candidates (state ignored; set from `selected` /
+    /// `consistent` / `refuted`, undecided otherwise).
     pub candidates: Vec<Candidate>,
     pub selected: Vec<String>,
+    pub consistent: Vec<String>,
     pub refuted: Vec<String>,
     pub evidence: Vec<PathBuf>,
     pub environment: Option<String>,
@@ -147,6 +149,25 @@ pub fn add(root: &Path, new: &NewQuestion) -> Result<Added> {
                 "key `{key}` belongs to question {}, which is retired{}",
                 existing.id,
                 replaced_hint(r)
+            );
+        }
+        // The question text is the claim's identity: matching a superseded
+        // wording would hand a script written for the old claim (say, both
+        // halves of a since-split question) the reworded question's id, and
+        // its observations would land under a claim they do not test.
+        if q.question != existing.question
+            && let Some(a) = existing.amendments.iter().find(|a| {
+                a.field == AmendField::Question && a.was.as_deref() == Some(q.question.as_str())
+            })
+        {
+            bail!(
+                "key `{key}` belongs to question {}, whose question was reworded from this text \
+                 ({}: {}). Its claim is now: {}\nUpdate the script to the current wording, or, if \
+                 it still tests the old claim, record it under the question that claim now lives in.",
+                existing.id,
+                a.at,
+                a.reason,
+                existing.question
             );
         }
         // Only the fields `add` sets are compared: observations, citations,
@@ -399,11 +420,14 @@ fn end_closure_if_decided(store: &Store, q: &mut Question, did: &str) -> Result<
     Ok(())
 }
 
-/// What `amend` corrects: the question's answer or negative mark, or one
-/// prose field of the observation numbered `number` (1-based file order, the
-/// `#N` `show` prints).
+/// What `amend` corrects: the question's text, answer or negative mark, or
+/// one prose field of the observation numbered `number` (1-based file order,
+/// the `#N` `show` prints).
 #[derive(Debug, Clone, Copy)]
 pub enum AmendTarget {
+    /// A wording correction of the question text. Refused on a retired
+    /// question, whose text is what its replacements replaced.
+    Question,
     Answer,
     /// A value marks the answer negative; `None` clears the mark.
     Negative,
@@ -413,6 +437,17 @@ pub enum AmendTarget {
     },
 }
 
+/// What `amend` did beyond the write.
+#[derive(Debug, Clone)]
+pub struct Amended {
+    /// For a question-level amendment, what the answer now rests on (see
+    /// `answer_support`).
+    pub support: Option<String>,
+    /// Non-blocking warnings: an observation the amendment made count that
+    /// contradicts counting observations of its strength.
+    pub warnings: Vec<String>,
+}
+
 /// `amend_all` with one change.
 pub fn amend(
     root: &Path,
@@ -420,25 +455,26 @@ pub fn amend(
     target: AmendTarget,
     value: Option<&str>,
     reason: &str,
-) -> Result<Option<String>> {
+) -> Result<Amended> {
     amend_all(root, id, &[(target, value)], reason)
 }
 
-/// Correct question `id`'s answer or negative mark, or observations' prose
-/// fields, each to its value (`None` clears an optional field), recording the
-/// old and new value, the time and `reason` beside each field, in one write
-/// (an answer rewrite and its classification change together, never through
-/// a contradictory intermediate record). Allowed on retired questions too:
-/// it is a correction of the record, not a measurement. Validation then runs
-/// as for any write, so e.g. marking a run inconclusive recomputes its status
-/// and clearing a required runtime `result` is refused. For a question-level
-/// amendment, returns what the answer now rests on (see `answer_support`).
+/// Correct question `id`'s text, answer or negative mark, or observations'
+/// prose fields, each to its value (`None` clears an optional field),
+/// recording the old and new value, the time and `reason` beside each field,
+/// in one write (an answer rewrite and its classification change together,
+/// never through a contradictory intermediate record). Allowed on retired
+/// questions too, except for the question text: it is a correction of the
+/// record, not a measurement. Validation then runs as for any write, so e.g.
+/// marking a run inconclusive recomputes its status and clearing a required
+/// runtime `result` is refused. Clearing `inconclusive` makes a run count
+/// again, so it is checked for contradictions as `observe` checks a new one.
 pub fn amend_all(
     root: &Path,
     id: &str,
     changes: &[(AmendTarget, Option<&str>)],
     reason: &str,
-) -> Result<Option<String>> {
+) -> Result<Amended> {
     let _lock = lock(root)?;
     let store = load_unlocked(root)?;
     let Some(existing) = store.get(id) else {
@@ -454,6 +490,30 @@ pub fn amend_all(
     for (target, value) in changes {
         let now = value.map(|v| v.trim().to_string());
         match *target {
+            AmendTarget::Question => {
+                question_level = true;
+                if let Some(r) = &existing.retired {
+                    bail!(
+                        "question {} is retired{}: its text is what was replaced, so it stays as worded",
+                        existing.id,
+                        replaced_hint(r)
+                    );
+                }
+                let Some(text) = &now else {
+                    bail!("the question cannot be cleared, only reworded");
+                };
+                if *text == q.question {
+                    bail!("the question already reads that");
+                }
+                let was = std::mem::replace(&mut q.question, text.clone());
+                q.amendments.push(Amendment {
+                    at,
+                    field: AmendField::Question,
+                    was: Some(was),
+                    now,
+                    reason: reason.clone(),
+                });
+            }
             AmendTarget::Answer => {
                 question_level = true;
                 let Some(answer) = &now else {
@@ -514,21 +574,67 @@ pub fn amend_all(
     }
     end_closure_if_decided(&store, &mut q, "an amendment")?;
     check(&store, &q, None)?;
+    let mut warnings = Vec::new();
+    // Only an observation that starts counting can make a new contradictory
+    // pair; one that stops counting cannot, and a prose fix of an already
+    // counting one changes nothing that agreement compares.
+    let (was, now) = (store.disposition(existing), store.with(&q).disposition(&q));
+    for (i, (before, after)) in existing
+        .observations
+        .iter()
+        .zip(&q.observations)
+        .enumerate()
+    {
+        if !before.counts() && after.counts() && !q.is_retired() {
+            warnings.extend(contradiction(
+                &q,
+                i + 1,
+                Trigger::ClearedInconclusive,
+                (&was, &now),
+                Mode::Write,
+            ));
+        }
+    }
     write_question(&q)?;
     // Computed from the state just written, under the lock, so it describes
     // what was written and not what another writer made of it since.
-    Ok(question_level.then(|| answer_support(&store.with(&q), &q)))
+    Ok(Amended {
+        support: question_level.then(|| answer_support(&store.with(&q), &q)),
+        warnings,
+    })
 }
 
 /// What an amended answer now rests on, for the person asserting it: po
 /// never checks that support implies an answer, so it shows the support
 /// instead. Measured: the observations that decide status, weaker ones that
 /// count, and active citations (stale ones marked); inferred: the premises.
-/// A retired question's answer is history and rests on nothing.
+/// A retired question's answer is history and rests on nothing, but what it
+/// replaces is still history worth naming. Either way, the questions resting
+/// on this one follow.
 fn answer_support(store: &Store, q: &Question) -> String {
+    // What rests on this question in turn: a reworded claim or answer is
+    // what those inferences and replacements now point at.
+    let dependents: String = [
+        ("premise of", Relation::Basis),
+        ("replaces", Relation::ReplacedBy),
+    ]
+    .into_iter()
+    .filter_map(|(label, relation)| {
+        let ids: Vec<String> = store
+            .referrers(&q.id, relation)
+            .into_iter()
+            .filter(|r| relation == Relation::ReplacedBy || !r.is_retired())
+            .map(|r| match relation {
+                Relation::Basis => format!("{} ({})", r.id, store.disposition(r)),
+                _ => r.id.clone(),
+            })
+            .collect();
+        (!ids.is_empty()).then(|| format!("; {label} {}", ids.join(", ")))
+    })
+    .collect();
     if q.is_retired() {
         return format!(
-            "question {} is retired: the amended former answer has no active disposition",
+            "question {} is retired: the amended former answer has no active disposition{dependents}",
             q.id
         );
     }
@@ -552,13 +658,18 @@ fn answer_support(store: &Store, q: &Question) -> String {
                 .map(|(i, o)| format!("#{} {}", i + 1, o.source.as_str()))
                 .collect()
         };
-        let deciding = numbered(Observation::decides);
+        // Top-tier counting runs, not "deciding": a run whose candidates are
+        // all consistent or undecided counts without settling anything.
+        let top = numbered(Observation::decides);
         let weaker = numbered(|o| o.counts() && !o.decides());
         let mut parts = Vec::new();
-        if deciding.is_empty() {
-            parts.push("no deciding editor or chart observation".to_string());
+        if top.is_empty() {
+            parts.push("no counting editor or chart observation".to_string());
         } else {
-            parts.push(format!("deciding observations {}", deciding.join(", ")));
+            parts.push(format!(
+                "counting editor/chart observations {}",
+                top.join(", ")
+            ));
         }
         if !weaker.is_empty() {
             parts.push(format!(
@@ -581,7 +692,7 @@ fn answer_support(store: &Store, q: &Question) -> String {
         }
         parts.join("; ")
     };
-    format!("the amended answer rests on {support}; status {resolved}")
+    format!("the answer rests on {support}; status {resolved}{dependents}")
 }
 
 /// What `void` withdraws, by 1-based file-order number (the `#N` `show`
@@ -850,7 +961,12 @@ fn observe_in(root: &Path, id: &str, new: &NewObservation, mode: Mode) -> Result
         evidence: evidence_paths(root, &new.evidence)?,
         errors: new.errors.clone(),
         warnings: new.warnings.clone(),
-        candidates: decide_candidates(&new.candidates, &new.selected, &new.refuted)?,
+        candidates: decide_candidates(
+            &new.candidates,
+            &new.selected,
+            &new.consistent,
+            &new.refuted,
+        )?,
         void: None,
         amendments: Vec::new(),
     };
@@ -921,7 +1037,13 @@ fn observe_in(root: &Path, id: &str, new: &NewObservation, mode: Mode) -> Result
     end_closure_if_decided(&store, &mut q, &did)?;
     let mut warnings = check(&store, &q, fixture_sha.as_deref())?;
     let (was, now) = (store.disposition(existing), store.with(&q).disposition(&q));
-    warnings.extend(contradiction(existing, &q, (&was, &now), mode));
+    warnings.extend(contradiction(
+        &q,
+        q.observations.len(),
+        Trigger::Observed,
+        (&was, &now),
+        mode,
+    ));
 
     if mode == Mode::Write {
         if let (Some(sha), Some(bytes)) = (&fixture_sha, &fixture_bytes) {
@@ -972,45 +1094,60 @@ fn superseded(field: AmendField, of: &str) -> String {
     )
 }
 
-/// The warning for an observation (the last of `after`) that contradicts
-/// counting observations of the same source strength already under the
-/// question (`before`). Mixed outcomes under one question usually mean
-/// fixtures testing different claims, which belong to separate questions;
-/// at the top strength they make the question a conflict. Weaker-vs-stronger
-/// disagreement is not warned about: it is the expected endpoint gap, and
-/// `show` annotates it.
+/// What made an observation newly count, for the contradiction warning.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Trigger {
+    Observed,
+    ClearedInconclusive,
+}
+
+/// The warning for observation `number` of `after` (just appended, or just
+/// made to count) that contradicts other counting observations of the same
+/// source strength, naming each disagreement axis. Mixed outcomes or codes
+/// under one question usually mean fixtures testing different claims (a
+/// control filed under the question it controls, most often), which belong
+/// to separate questions; at the top strength they make the question a
+/// conflict. Weaker-vs-stronger disagreement is not warned about: it is the
+/// expected endpoint gap, and `show` annotates it.
 fn contradiction(
-    before: &Question,
     after: &Question,
+    number: usize,
+    trigger: Trigger,
     (was, now): (&Disposition, &Disposition),
     mode: Mode,
 ) -> Option<String> {
-    let new = after.observations.last()?;
+    let new = after.observations.get(number.checked_sub(1)?)?;
     if !new.counts() {
         return None;
     }
-    let against: Vec<String> = before
+    let us = format!("#{number}");
+    let against: Vec<String> = after
         .observations
         .iter()
         .enumerate()
-        .filter(|(_, o)| {
-            o.counts()
-                && o.source.strength() == new.source.strength()
-                && new.contradicts(o, after.kind)
+        .filter(|(i, o)| {
+            i + 1 != number && o.counts() && o.source.strength() == new.source.strength()
         })
-        .map(|(i, o)| {
-            format!(
-                "#{} {} {}",
-                i + 1,
-                o.source.as_str(),
-                o.verdict_summary(after.kind)
-            )
+        .filter_map(|(i, o)| {
+            let them = format!("#{}", i + 1);
+            let axes: Vec<String> = new
+                .disagreements(o, after.kind)
+                .iter()
+                .map(|d| d.describe(&us, &them))
+                .collect();
+            (!axes.is_empty()).then(|| {
+                format!(
+                    "{them} {} {} [{}]",
+                    o.source.as_str(),
+                    o.verdict_summary(after.kind),
+                    axes.join("; ")
+                )
+            })
         })
         .collect();
     if against.is_empty() {
         return None;
     }
-    let number = after.observations.len();
     // `was` / `now` are the disposition `show` prints, not the
     // measurement-only status: a documented or inferred question need not
     // end up a conflict.
@@ -1026,18 +1163,27 @@ fn contradiction(
         (Mode::DryRun, true) => format!("{tier}question {id} would stay {now}"),
         (Mode::DryRun, false) => format!("{tier}question {id} would be {now} (is {was})"),
     };
-    let advice = match mode {
-        Mode::Write => format!(
+    let advice = match (mode, trigger) {
+        (Mode::Write, Trigger::Observed) => format!(
             "`void --observation {number}` and observe it under its own question. If one \
              was mis-recorded, void that one."
         ),
-        Mode::DryRun => "observe it under its own question instead. If an earlier one was \
-             mis-recorded, void it; if this one is, correct it before landing."
+        (Mode::Write, Trigger::ClearedInconclusive) => format!(
+            "mark #{number} inconclusive again, or void it and observe it under its own \
+             question. If one was mis-recorded, void that one."
+        ),
+        (Mode::DryRun, _) => "observe it under its own question instead. If an earlier one \
+             was mis-recorded, void it; if this one is, correct it before landing."
             .to_string(),
     };
+    let lead = match trigger {
+        Trigger::Observed => String::new(),
+        Trigger::ClearedInconclusive => format!("after clearing inconclusive on #{number}, "),
+    };
     Some(format!(
-        "observation #{number} {} {} contradicts {}: {status}. If the fixtures test \
-         different claims, they belong to separate questions: {advice}",
+        "{lead}observation #{number} {} {} contradicts {}: {status}. If the fixtures test \
+         different claims (a control is the usual case: it is its own question), they \
+         belong to separate questions: {advice}",
         new.source.as_str(),
         new.verdict_summary(after.kind),
         against.join(", ")
@@ -1182,34 +1328,46 @@ fn trimmed(s: Option<&String>) -> Option<String> {
     s.map(|v| v.trim().to_string())
 }
 
-/// Apply `--selected` / `--refuted` to the declared candidates. Each must
-/// name a declared candidate, and none may be both.
+/// Apply `--selected` / `--consistent` / `--refuted` to the declared
+/// candidates (undecided otherwise). Each must name a declared candidate, and
+/// each candidate takes at most one state.
 fn decide_candidates(
     declared: &[Candidate],
     selected: &[String],
+    consistent: &[String],
     refuted: &[String],
 ) -> Result<Vec<Candidate>> {
-    for name in selected.iter().chain(refuted) {
+    let given = [
+        (CandidateState::Selected, selected),
+        (CandidateState::Consistent, consistent),
+        (CandidateState::Refuted, refuted),
+    ];
+    for name in given.iter().flat_map(|(_, names)| names.iter()) {
         if !declared.iter().any(|c| &c.name == name) {
             bail!("`{name}` is not a declared candidate (declare it with --candidate)");
         }
     }
-    if let Some(both) = selected.iter().find(|s| refuted.contains(s)) {
-        bail!("candidate `{both}` cannot be both selected and refuted");
-    }
-    Ok(declared
+    declared
         .iter()
         .map(|c| {
-            let state = if selected.contains(&c.name) {
-                CandidateState::Selected
-            } else if refuted.contains(&c.name) {
-                CandidateState::Refuted
-            } else {
-                CandidateState::Undecided
+            let states: Vec<CandidateState> = given
+                .iter()
+                .filter(|(_, names)| names.contains(&c.name))
+                .map(|(state, _)| *state)
+                .collect();
+            let state = match states[..] {
+                [] => CandidateState::Undecided,
+                [one] => one,
+                [a, b, ..] => bail!(
+                    "candidate `{}` cannot be both {} and {}",
+                    c.name,
+                    a.as_str(),
+                    b.as_str()
+                ),
             };
-            Candidate { state, ..c.clone() }
+            Ok(Candidate { state, ..c.clone() })
         })
-        .collect())
+        .collect()
 }
 
 /// Each evidence path must exist now; it is stored relative to the records

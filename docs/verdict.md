@@ -21,14 +21,15 @@ po verdict observe  <id> --records <DIR> --source editor|endpoint|chart [--key K
                     compile: (--accepted | --rejected | --crashed "<message>")
                              [--error SPEC]... [--warning SPEC]...
                     runtime: --result "..." --settings "..." [--error SPEC]...
-                             [--candidate "name|model"]... [--selected name]... [--refuted name]...
+                             [--candidate "name|model"]... [--selected name]...
+                             [--consistent name]... [--refuted name]...
                     [--inconclusive "<reason>"] [--evidence <path>]...
                     [--environment "..."] [--note "..."] [--dry-run]
 po verdict retire   <id> --records <DIR> --reason "..." [--replaced-by <id>]...
 po verdict close    <id> --records <DIR> --reason "..."
 po verdict reopen   <id> --records <DIR> --reason "..."
 po verdict amend    <id> --records <DIR> --reason "..."
-                    ([--answer "..."] [--negative | --clear negative]
+                    ([--question "..."] [--answer "..."] [--negative | --clear negative]
                      | --observation N (--note "..." | --result "..."
                      | --settings "..." | --environment "..." | --inconclusive "..."
                      | --clear note|environment|inconclusive))
@@ -64,7 +65,10 @@ po verdict list     --records <DIR>... [--identifier X] [--code C]
   its query as plain words: Pine and query syntax (`strategy.exit(`, `?:`,
   `NASDAQ:AAPL`) is split into terms, never parsed, and uppercase `AND`,
   `OR` and `NOT` are words like any other. A dotted name (`ta.sma`) is
-  matched as a phrase.
+  matched as a phrase. A query that is exactly a loaded question's id (any
+  case) lists that question first, in one of the `--limit` rows and never
+  twice, followed by the questions whose text matches it. An 8-hex token that
+  is no loaded id is a plain word.
 - Each write verb holds an exclusive lock on `<records>/.lock` from its read
   of the directory through its last write, and each file write is atomic
   (temp file + rename), so concurrent writers serialize instead of losing
@@ -106,6 +110,12 @@ payload with the stored record:
   script is likely the template for the next landing, so fix it there too.
   Each field is matched on its own, so a mix of values from different
   points in the history is accepted as well;
+- except the question text: an `add` rerun giving a superseded question text
+  fails, naming the amendment and the current wording. The text is the
+  claim's identity, so matching the old wording would hand a script written
+  for the old claim (both halves of a since-split question, say) the
+  reworded question's id, and its observations would land under a claim
+  they do not test;
 - a retired question: `add` fails, naming what replaced it, rather than
   handing a withdrawn id to the observations that follow;
 - a void observation: `observe` fails. The key stays with the voided record,
@@ -118,11 +128,11 @@ two experiments can ask the same sentence.
 ### Corrections
 
 `amend` corrects what was written down, keeping the history beside it: the
-question's `answer` and `negative` mark, or an observation's `note`,
-`result`, `settings`, `environment` or `inconclusive` reason. `--answer`
-combines with `--negative` or `--clear negative`, so an answer and its
-classification change in one write (two amendments with the same reason),
-never through a contradictory intermediate record. Each amendment records
+question's text, `answer` and `negative` mark, or an observation's `note`,
+`result`, `settings`, `environment` or `inconclusive` reason. `--question`,
+`--answer` and `--negative` or `--clear negative` combine, so a question
+and its answer and classification change in one write (one amendment each,
+with the same reason), never through a contradictory intermediate record. Each amendment records
 the UTC time, the reason, and the value before and after (either absent
 when the field was added or cleared; a negative mark's value is `"true"`). `show` prints the history under the current value. Search
 indexes current values only.
@@ -134,19 +144,36 @@ lets it count again; the corrected measurement is then a new `observe`. A
 void observation's codes no longer match `list --code`, and search skips it.
 Marking a run inconclusive after the fact (`amend --inconclusive`) is for a
 run that was measured correctly but did not test the claim; `--clear
-inconclusive` makes it count again. Status is recomputed from the result, and
-the write is validated like any other, so clearing a runtime `result` is
-refused.
+inconclusive` makes it count again, and it then gets the contradiction
+warning `observe` gives a new observation (see Sources, strength and
+status), led by `after clearing inconclusive on #N`. Status is recomputed
+from the result, and the write is validated like any other, so clearing a
+runtime `result` is refused.
 
-An amended answer is an assertion like the original: po never checks that
-the observations, citations or premises supporting a question imply its
-answer, so `amend --answer` prints (stderr, unless `--quiet`) what the answer
-now rests on, computed from the state it wrote: the deciding editor / chart
-observations and weaker counting ones by `#N` plus the active citations
-(stale ones marked), or the premises with their dispositions, and the
-resulting status. Amendments are allowed on retired
-questions (they correct the record, they do not measure); there the former
-answer rests on nothing and the summary says so.
+**Rewording a question.** `amend --question` is for a wording correction:
+every retained observation still tests the reworded claim, and the retained
+citations or premises still support the answer to it. It is the fix when
+splitting a question off left the parent's text describing both halves and
+all of the parent's evidence is about the half it keeps. When the evidence
+splits too, the claim changed: retire the question with `--replaced-by` and
+re-observe under the new questions. Rewording is refused on a retired
+question, whose text is what its replacements replaced (the whole write is
+refused, an answer amended alongside included). Search indexes the current
+text; see Capture keys for keyed `add` reruns.
+
+An amended question or answer is an assertion like the original: po never
+checks that the observations, citations or premises supporting a question
+imply its answer, so a question-level `amend` prints (stderr, unless
+`--quiet`) what the answer now rests on, computed from the state it wrote:
+the counting editor / chart observations and weaker counting ones by `#N`
+plus the active citations (stale ones marked), or the premises with their
+dispositions; the resulting status; and the questions resting on this one
+(the active ones using it as a premise, with their dispositions, and the
+ones it replaces). A counting editor / chart observation need not decide: a
+runtime run whose candidates are all consistent or undecided counts without
+settling anything. Amendments are allowed on retired questions, except for
+the question text (they correct the record, they do not measure); there the
+former answer rests on nothing and the summary says so.
 
 A field's amendments must chain (each `was` is the previous `now`) and end
 at the current value, so an amended field edited by hand without its history
@@ -214,7 +241,30 @@ Status is decided by the counting editor/chart observations (the top tier):
 |---|---|---|
 | `settled` | Top observations agree on the outcome, the set of error codes and the set of warning codes | Top runs don't conflict, and at least one decides: it declares no candidates, or it selects or refutes one |
 | `conflict` | Top observations differ on the outcome, the error codes or the warning codes | A candidate selected by one run and refuted by another, or runs whose error codes differ (one halts, one runs clean) |
-| `open` | No top observation (endpoint only, only crashes, or nothing yet) | No top run, or only runs whose candidates are all undecided |
+| `open` | No top observation (endpoint only, only crashes, or nothing yet) | No top run, or only runs whose candidates are all consistent or undecided |
+
+### Candidates
+
+A runtime observation may declare candidates (`--candidate "name|model"`),
+competing models of what TradingView does, and say what its run did to each.
+Every state is about that one run, never about the evidence as a whole:
+
+| State | Flag | The run's result | Decides | Opposes |
+|---|---|---|---|---|
+| `selected` | `--selected` | establishes the model | yes | a run refuting it |
+| `consistent` | `--consistent` | fits the model without establishing it: it fits another candidate too | no | nothing |
+| `refuted` | `--refuted` | rules the model out | yes | a run selecting it |
+| `undecided` | (neither) | does not speak to the model | no | nothing |
+
+A run that cannot separate A from B marks both `consistent`, not both
+`selected`: a later run that does separate them (selects A, refutes B) then
+settles the question, where two selections would make it a conflict. A
+`consistent` A and a later run refuting A are both true, so they do not
+conflict. Candidates are not assumed mutually exclusive: one run may select
+two (a run establishing "adds left to right" and "skips na" at once), and
+exclusivity is said only by refuting. A run whose candidates are all
+`consistent` or `undecided` still counts, so its halt codes are compared
+with the other runs' as usual.
 
 A question that would be `open` is `documented` instead when its manual
 citations hold (see Manual citations). `documented` is never a measurement:
@@ -237,18 +287,51 @@ wrongly recorded observation is voided (see Corrections).
 
 `observe` warns (stderr, unless `--quiet`) when the observation it just
 wrote contradicts counting observations of the same strength already under
-the question, by the agreement rules above. The warning names each
+the question, by the agreement rules above (`amend --clear inconclusive`
+warns the same way, see Corrections). The warning names each
 contradicted `#N` with its outcome and codes (runtime: how the run halts and
-what it selects or refutes) and gives the question's disposition as `show`
-prints it, before and after: `is now conflict (was settled)` (or `was open`:
+what it selects, is consistent with or refutes), then says in brackets what
+differs, from the same comparison that decides the conflict: `the outcome
+differs`, `error codes differ (only in #3: CE10147; only in #1: CE10099)`,
+the same for warning codes, or `#2 selects A that #1 refutes`. It gives the
+question's disposition as `show` prints it, before and after: `is now conflict (was settled)` (or `was open`:
 runs with only undecided candidates still contradict when they halt
 differently), `stays conflict`, and, between two endpoint observations,
 `weaker source only` with whatever the question stays (`settled`,
 `documented`, `inferred (...)`). The write still happens, since a real
-conflict is a legitimate record. Mixed outcomes are usually fixtures testing
-different claims, though: void the new observation and file it under its own
-question, before more pile up. An endpoint disagreeing with the editor is
-the known gap and is not warned about (`show` annotates it).
+conflict is a legitimate record. Mixed outcomes or codes are usually
+fixtures testing different claims, though (a control filed under the
+question it controls, most often: see Controls): void the new observation
+and file it under its own question, before more pile up. An endpoint
+disagreeing with the editor is the known gap and is not warned about (`show`
+annotates it).
+
+### Controls
+
+A control is a fixture that differs from the experiment in the one thing
+the question is about, so it is expected to behave differently: the script
+without the construct that the experiment's reject is blamed on. Filed
+under the experiment's question it is a contradicting observation, and the
+question becomes a conflict. Marking it inconclusive or void would hide it,
+and a hidden control proves nothing: the question would then settle on the
+experiment alone, even if the control rejected too.
+
+A control is a claim of its own, so it is a question of its own. Record:
+
+1. the experiment E (`fixture with X rejects with CE10099`), measured;
+2. the control C (`the same fixture without X accepts`), measured;
+3. the conclusion Q (`X causes CE10099`), inferred: `add --basis E --basis C`.
+
+Q is `inferred (settled)` only once both E and C are settled, and `inferred
+(open via C)` while the control is outstanding, so an unrun or conflicting
+control blocks the conclusion rather than disappearing. po checks the
+premises' dispositions, not that they imply the answer, nor that C really
+controls E: Q's answer must say why (same symbol, timeframe and settings,
+fixtures that differ only in X). A control whose answer came out unexpected
+(C rejects too) still settles; reading it is the author's job, through Q's
+answer, like any other evidence. If C turns out mis-scoped, rework Q's
+`basis` first (`retire` refuses a premise of an active question), then
+retire C with `--replaced-by` the corrected control.
 
 `observe --dry-run` makes every check and warning `observe` makes and
 writes no record and no fixture. It is a read: it loads under the shared
@@ -460,7 +543,7 @@ are annotated against the top ones:
 So an endpoint accept under an editor reject reads as a weaker observation,
 not a contradiction. When the top observations themselves conflict there is
 nothing single to compare against, so weaker ones go unannotated. Runtime
-candidates are shown as selected, refuted or undecided.
+candidates are shown as selected, consistent, refuted or undecided.
 
 ## Records directory
 
@@ -523,13 +606,14 @@ reason = "The editor refuses the method declaration (CE10236) before the length 
 replaced_by = ["9fa2f155", "120605ec", "00524fc4"]
 ```
 
-po has no delete verb. A wrong answer or observation prose is amended, a
-wrong measurement is voided, and a question that was reworded, ill-posed or
-mis-filed is retired rather than deleted, so its id and its evidence stay
-resolvable. An amended observation carries `[[observation.amendment]]`
+po has no delete verb. A wrong answer, observation prose or question
+wording (the claim and its evidence unchanged) is amended, a wrong
+measurement is voided, and a question whose claim changed (reworded into a
+different claim, split along its evidence), ill-posed or mis-filed is
+retired rather than deleted, so its id and its evidence stay resolvable. An amended observation carries `[[observation.amendment]]`
 tables (`at`, `field`, `was`, `now`, `reason`), a voided one an
-`[observation.void]` table (`at`, `reason`); answer amendments are
-question-level `[[amendment]]` tables. Citations are question-level
+`[observation.void]` table (`at`, `reason`); question, answer and negative
+amendments are question-level `[[amendment]]` tables. Citations are question-level
 `[[citation]]` tables (`section`, `quotes`, `digest`, `at`, optional `note`,
 optional `[citation.void]`). A negative answer carries `negative = true`
 among the plain fields (absent when unmarked), and the investigation history
@@ -587,7 +671,7 @@ Errors:
 - accepted with errors, crashed with diagnostics or without a message;
 - a code with the wrong prefix for its kind and severity;
 - a span that is not an ordered, 1-based `line:col-line:col` range;
-- a candidate that is undeclared, listed twice, or both selected and refuted,
+- a candidate that is undeclared, listed twice, or given two states,
   or a candidate name that means different models in different observations
   of one question (runs are compared by candidate name);
 - a citation whose section is not `page#anchor`, with no quotes or an empty
