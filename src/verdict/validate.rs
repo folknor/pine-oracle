@@ -54,7 +54,7 @@ pub(super) fn is_id(s: &str) -> bool {
     s.len() == 8 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
-fn is_sha256(s: &str) -> bool {
+pub(super) fn is_sha256(s: &str) -> bool {
     s.len() == 64 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
@@ -447,13 +447,7 @@ fn observation(kind: Kind, o: &Observation, root: &Path, cx: &Context<'_>) -> Ve
             }
         }
     }
-    for e in &o.evidence {
-        if e.trim().is_empty() {
-            errs.push("empty evidence path".to_string());
-        } else if !root.join(e).is_file() {
-            errs.push(format!("evidence `{e}` is not an existing file"));
-        }
-    }
+    errs.extend(super::evidence::validate(&o.evidence, is_utc_timestamp));
     if let Some(v) = &o.void {
         errs.extend(void(v));
     }

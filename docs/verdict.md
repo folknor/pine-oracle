@@ -24,6 +24,7 @@ po verdict observe  <id> --records <DIR> --source editor|endpoint|chart [--key K
                              [--candidate "name|model"]... [--selected name]...
                              [--consistent name]... [--refuted name]...
                     [--inconclusive "<reason>"] [--evidence <path>]...
+                    [--evidence-raw <path>]...
                     [--environment "..."] [--note "..."] [--dry-run]
 po verdict retire   <id> --records <DIR> --reason "..." [--replaced-by <id>]...
 po verdict close    <id> --records <DIR> --reason "..."
@@ -37,6 +38,10 @@ po verdict amend    <id> --records <DIR> --reason "..."
 po verdict cite     <id> --records <DIR> --section <manual id | page#anchor>
                     --quote "..." [--quote "..."]... [--note "..."]
 po verdict void     <id> --records <DIR> (--observation N | --citation N) --reason "..."
+po verdict evidence move   <old> <new> --records <DIR> --reason "..."
+                           [--old-raw] [--new-raw]
+po verdict evidence attest [<path>...] --records <DIR> --reason "..." [--raw]
+po verdict evidence check  [<id>...] --records <DIR>...
 po verdict search   <query> --records <DIR>... [--limit N]
 po verdict show     <id>... --records <DIR>...
 po verdict list     --records <DIR>... [--identifier X] [--code C]
@@ -122,7 +127,18 @@ payload with the stored record:
 - a retired question: `add` fails, naming what replaced it, rather than
   handing a withdrawn id to the observations that follow;
 - a void observation: `observe` fails. The key stays with the voided record,
-  so the corrected measurement needs a new key.
+  so the corrected measurement needs a new key;
+- evidence is compared as a set, not in order, and by location: each given
+  path must be a location of exactly one stored entry (its current one or
+  one it moved from, see Evidence), and every entry must be named. Where the
+  named file exists, it must decode to the entry's digest under the
+  interpretation recorded for that location; a missing file, or an
+  unfetched Git LFS pointer in its place, is matched by its location alone,
+  since the landing script may predate a move or run on a fresh clone. A former
+  location warns, like a superseded value. A rerun never gives an entry a
+  digest it lacks. Reusing a moved-away path for other content therefore
+  fails the old script's rerun, which is the point: the location names the
+  evidence, the digest proves it.
 
 Unkeyed writes always append: two identical unkeyed chart runs are two
 measurements. There is no key-less deduplication by question text, because
@@ -589,11 +605,100 @@ stored fixture again by its store path (`fixtures/<sha256>.pine`) never
 records the hash as the file name: a keyed rerun carries the name its own
 observation recorded, and a new observation takes the name the store's
 non-void observations of those bytes agree on, or none when they recorded
-different names. Evidence
-is not copied: each `--evidence` path must be an existing file (pass each
-export separately, not a directory) and is stored relative to the
-records directory (`../fieldwork/...`). Keep evidence inside the same git
-repository, or the stored relative path will not resolve on another checkout.
+different names. Evidence is not copied; see Evidence.
+
+## Evidence
+
+An observation's `--evidence` files (chart exports, probe JSON) stay where
+they are, usually elsewhere in the same git repository. Each is recorded as
+an entry with a location and an identity, kept apart so a file can be
+compressed or moved without breaking the records citing it.
+
+**Identity** is the sha256 of the file's decoded content. `observe` reads
+each file once: one starting like a gzip stream is decoded (every member,
+each trailer checked), one starting like a zstd stream (a zstd frame, or a
+skippable frame) likewise (every frame, checksums checked), anything else is
+hashed as it is. The interpretation is recorded as `encoding` (absent: raw)
+and followed on every later read, never re-sniffed. A file that starts like
+a compressed stream but does not decode completely (truncated, a bad
+checksum, trailing bytes, a dictionary frame) is refused, never hashed raw
+instead, as is a compressed stream that decodes to nothing and a Git LFS
+pointer (an unfetched object), raw or decoded. `--evidence-raw` records an
+artifact that merely starts like a compressed stream as it is. So
+`record.json` and its `record.json.zst` are the same evidence, while the
+same JSON rewritten compactly is not: whitespace is content.
+
+A digest recorded by `observe` identifies the bytes supplied when the
+observation was recorded. One established later is marked `attested` with
+its time and reason (see `attest` and `move` below): it identifies the
+content from then on, and says nothing about the capture before. Entries
+recorded before digests existed (a bare path string in the file) have
+neither digest nor interpretation.
+
+**Location** is a path relative to the records directory, `/`-separated.
+Paths are resolved lexically, never through the filesystem: a path given
+relative to the working directory is made absolute, `.` is dropped and `..`
+folds into the directory before it, and po opens exactly the spelling it
+stores. `--records` is resolved the same way, so the directory loaded is the
+one locations are relative to. Symlinks are therefore not resolved: records
+written before digests stored symlink-resolved paths, so a landing script
+that reaches its evidence through a symlinked directory now names a
+different location, and its keyed rerun fails until it names the evidence
+by the stored spelling. Entries are stored `--evidence` first, then
+`--evidence-raw`; the order carries no meaning. Within one observation a location (current or former) belongs to
+one entry. Keep evidence inside the same git repository, or the stored
+relative path will not resolve on another checkout.
+
+**Availability is not validation.** A missing or unfetched evidence file
+never fails a load or blocks a write: a store whose large artifacts are not
+checked out still loads, and its repair is not blocked by the damage it
+repairs. Evidence never affects a question's status: the measurement is
+what the record says, and the file is the artifact behind it.
+
+`po verdict evidence check` is the content audit. It reads every evidence
+file of the given questions (all when none), void observations and retired
+questions included, and prints one line per entry that fails, `<id> #N
+<path>  <state>`: missing, unreadable, not decodable under its
+interpretation, an unfetched Git LFS pointer, changed while being read, or
+`CHANGED since its digest was recorded` (slimmed, rewritten, replaced). It
+exits non-zero when any entry fails. Entries without a digest are listed on
+stderr (unless `--quiet`) and fail only when unavailable. `show` prints each
+entry's state the same way, read when shown, with its digest's provenance
+and the locations it left.
+
+`po verdict evidence move <old> <new>` re-points every entry in the records
+directory whose current location is `<old>`: one file is usually cited by
+many observations. `<new>` must decode to each entry's digest. An entry
+without one is compared with `<old>` as it reads now (`--old-raw`: read it
+as it is) and gains that digest, attested by the move. Every entry is
+checked before any record is written, and the move is refused when `<new>`
+is another evidence entry of the same observation (the same bytes recorded
+twice stay two entries) or a former location of the entry read differently.
+Each entry keeps a `[[moved]]` history (time, former location, its
+encoding, reason). po never deletes evidence: once the move succeeds,
+delete `<old>` yourself, after checking no other records directory cites
+it. Each question file is replaced atomically, so an interrupted move
+leaves a valid store with some entries moved; rerun it to move the rest (it
+reports the entries it moved, and a no-op when none remain at `<old>`). An
+`<old>` that no entry is at or has left is refused, as a likely typo.
+
+`po verdict evidence attest [<path>...]` records the digest of entries that
+have none, at the given locations or, with no path, everywhere in the
+store, marked attested with `--reason`. Run it before slimming anything, so
+the slimming is detectable. A given path must hold some entry; entries there
+that already carry a digest are verified against it and skipped, so a rerun
+after an interruption attests the rest. Every file is read before any record
+is written, and one that cannot be read fails the whole run.
+
+Every verb that reads evidence compares each file's device, inode, size
+and modification time before and after reading it, and again before
+writing: a change refuses the write. This detects a producer still writing;
+it is not a lock, so publish evidence by atomic rename.
+
+To shrink a store's evidence: `evidence attest` (the digests now identify
+what is there), compress each file beside the original, `evidence move` the
+original to the compressed copy, `evidence check`, then delete the
+originals.
 
 Besides question files and `fixtures/`, a records directory may hold markdown
 notes (`*.md`) and dot-files (the write lock, in-flight temp files). Anything else is an error,
@@ -614,7 +719,16 @@ fixture = "520b4a5046d1594580fbf346d728996449c17ee33ee193ea051a4c70826e28b8"
 fixture_name = "editor-export-outside-library.pine"
 outcome = "rejected"
 environment = "TradingView Desktop 3.4.1"
-evidence = ["../fieldwork/capture-campaign-2026-09/editor-probes-2026-09-27/run26-export-outside-library.json"]
+
+[[observation.evidence]]
+path = "../fieldwork/capture-campaign-2026-09/editor-probes-2026-09-27/run26-export-outside-library.json.zst"
+sha256 = "8d1b0c6a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0f9e8d7c"
+encoding = "zstd"
+
+[[observation.evidence.moved]]
+at = 2026-10-10T12:00:00Z
+from = "../fieldwork/capture-campaign-2026-09/editor-probes-2026-09-27/run26-export-outside-library.json"
+reason = "Compressed to keep the LFS store small."
 
 [[observation.error]]
 code = "CE10099"
@@ -645,7 +759,13 @@ tables (`at`, `field`, `was`, `now`, `reason`), a voided one an
 `[observation.void]` table (`at`, `reason`); question, answer and negative
 amendments are question-level `[[amendment]]` tables. Citations are question-level
 `[[citation]]` tables (`section`, `quotes`, `digest`, `at`, optional `note`,
-optional `[citation.void]`). A negative answer carries `negative = true`
+optional `[citation.void]`). Evidence entries are
+`[[observation.evidence]]` tables (`path`, and with a digest `sha256`,
+`encoding` when decoded, an `[observation.evidence.attested]` table (`at`,
+`reason`) when established after the fact, and `[[observation.evidence.moved]]`
+tables (`at`, `from`, `encoding`, `reason`)); an entry recorded before
+digests may be a bare path string, which po rewrites as a table the next
+time it writes the file. A negative answer carries `negative = true`
 and an exclusive question `exclusive = true` among the plain fields (each
 absent when unmarked), and the investigation history
 is question-level `[[closure]]` tables (`at`, `action` = `close` or
@@ -663,7 +783,8 @@ write an invalid record and leave every record and fixture untouched (only the
 persistent `.lock` may be created, as any read may create it). Every read verb loads strictly: one
 invalid record anywhere under the given directories fails the command, listing
 every problem with its file. A successful `po verdict list --records <DIR>`
-therefore validates the whole directory and serves as a CI gate.
+therefore validates the whole directory and serves as a CI gate. It does
+not read evidence files: `po verdict evidence check` is the content gate.
 
 Errors:
 
@@ -724,7 +845,13 @@ Errors:
 - a `fixture_name` without a `fixture`;
 - a stored fixture (referenced or not) that is missing or does not hash to
   its name;
-- an evidence path that is not an existing file;
+- an evidence location (current or former) that is empty, absolute, or not
+  in the stored form (an empty or `.` component, `..` after a directory
+  name), or that two entries of one observation share; an entry revisiting
+  a location under another encoding, or moving in place; a `sha256` that is
+  not a lowercase sha256, or `encoding`, `attested` or `moved` without one;
+  an empty attestation or move reason, or a non-UTC time. Whether the files
+  exist and still match is not validation: see Evidence;
 - a directory entry that is not a question file, `fixtures/`, a markdown note
   or a dot-file (a dot-directory is an error, in `fixtures/` too); an id
   present in two directories.

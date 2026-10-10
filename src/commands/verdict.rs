@@ -1,11 +1,11 @@
 use anyhow::{Result, bail};
 use clap::{ArgGroup, Subcommand};
 use pine_oracle::verdict::{
-    self, AmendField, AmendTarget, Amendment, Citation, ClosureAction, Kind, ListFilter,
-    NewObservation, NewQuestion, Outcome, Question, Ranked, Relation, Source, Status, Store,
-    VoidTarget,
+    self, AmendField, AmendTarget, Amendment, AuditRow, Citation, ClosureAction, Evidence,
+    Inspector, Kind, ListFilter, NewEvidence, NewObservation, NewQuestion, Outcome, Question,
+    Ranked, Relation, Source, Status, Store, VoidTarget,
 };
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::output::Style;
 
@@ -147,6 +147,10 @@ pub(crate) enum VerdictCommand {
         reason: String,
     },
 
+    /// Maintain and audit the evidence files observations point at.
+    #[command(subcommand)]
+    Evidence(EvidenceCommand),
+
     /// BM25 search over questions, answers, results, messages and fixture
     /// source. Prints `<id>  <status>  <kind>  <question>` rows.
     Search {
@@ -197,6 +201,61 @@ pub(crate) enum VerdictCommand {
         retired: bool,
         #[arg(long, value_parser = ["compile", "runtime"])]
         kind: Option<String>,
+    },
+}
+
+/// `po verdict evidence`: evidence files keep their identity (the sha256 of
+/// their decoded content) apart from their location, so they can be
+/// compressed or moved without breaking the records that cite them.
+#[derive(Subcommand)]
+pub(crate) enum EvidenceCommand {
+    /// Re-point every entry whose current location is OLD to NEW, which must
+    /// decode to the same content (an entry without a digest: to OLD as it
+    /// reads now, and it gains that digest, marked attested). Checks every
+    /// entry before writing any record; never deletes a file. Rerun after an
+    /// interruption to move the rest.
+    Move {
+        old: PathBuf,
+        new: PathBuf,
+        /// Records directory to update.
+        #[arg(long)]
+        records: PathBuf,
+        /// Why the file moved (e.g. compressed to save LFS space).
+        #[arg(long)]
+        reason: String,
+        /// Read OLD as it is, never decoded, for entries without a digest.
+        #[arg(long)]
+        old_raw: bool,
+        /// Read NEW as it is, never decoded.
+        #[arg(long)]
+        new_raw: bool,
+    },
+
+    /// Record the digest of entries that have none (those at the given
+    /// paths, or every one in the store), read now and marked attested: it
+    /// identifies the content from now on, not the original capture.
+    Attest {
+        paths: Vec<PathBuf>,
+        /// Records directory to update.
+        #[arg(long)]
+        records: PathBuf,
+        /// Why the files are taken as the observed ones.
+        #[arg(long)]
+        reason: String,
+        /// Read the files as they are, never decoded.
+        #[arg(long)]
+        raw: bool,
+    },
+
+    /// Read every evidence file of the given questions (all when none) and
+    /// compare it with its digest. Fails when any file is missing,
+    /// unreadable, undecodable, an unfetched Git LFS pointer, or changed.
+    /// Entries without a digest fail only when unavailable.
+    Check {
+        ids: Vec<String>,
+        /// Records directory to read. Repeatable.
+        #[arg(long, required = true)]
+        records: Vec<PathBuf>,
     },
 }
 
@@ -270,9 +329,15 @@ pub(crate) struct ObserveArgs {
     /// Why this observation adjudicates nothing. Shown, never counted.
     #[arg(long, value_name = "REASON")]
     inconclusive: Option<String>,
-    /// Evidence file (export, probe JSON). Must exist. Repeatable.
+    /// Evidence file (export, probe JSON), read now: po records its location
+    /// and the sha256 of its content (a gzip or zstd file decoded).
+    /// Repeatable.
     #[arg(long = "evidence", value_name = "PATH")]
     evidence: Vec<PathBuf>,
+    /// Evidence file hashed as it is, never decoded: for an artifact that
+    /// merely starts like a gzip or zstd stream. Repeatable.
+    #[arg(long = "evidence-raw", value_name = "PATH")]
+    evidence_raw: Vec<PathBuf>,
     /// Free text, e.g. `TradingView Desktop 3.4.1`.
     #[arg(long)]
     environment: Option<String>,
@@ -477,6 +542,7 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
             print_warnings(&verdict::void(&records, &id, target, &reason)?, quiet);
             Ok(())
         }
+        VerdictCommand::Evidence(command) => run_evidence(command, quiet),
         VerdictCommand::Search {
             query,
             records,
@@ -493,6 +559,7 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
         }
         VerdictCommand::Show { ids, records } => {
             let store = verdict::load(&records)?;
+            let mut inspector = Inspector::new();
             for (i, id) in ids.iter().enumerate() {
                 let Some(q) = store.get(id) else {
                     bail!("no question `{id}` under the given --records");
@@ -500,7 +567,7 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
                 if i > 0 {
                     println!();
                 }
-                print_question(&store, q, style);
+                print_question(&store, q, &mut inspector, style);
             }
             Ok(())
         }
@@ -531,6 +598,96 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
                 eprintln!("no questions");
             }
             print_rows(&store, &rows, style);
+            Ok(())
+        }
+    }
+}
+
+fn run_evidence(command: EvidenceCommand, quiet: bool) -> Result<()> {
+    match command {
+        EvidenceCommand::Move {
+            old,
+            new,
+            records,
+            reason,
+            old_raw,
+            new_raw,
+        } => {
+            let moved = verdict::relocate(&records, &old, &new, old_raw, new_raw, &reason)?;
+            if moved.entries == 0 {
+                println!(
+                    "every entry that was at {} has moved already: nothing moved",
+                    old.display()
+                );
+            } else {
+                println!(
+                    "moved {} remaining evidence entr{} in {} question(s){}",
+                    moved.entries,
+                    if moved.entries == 1 { "y" } else { "ies" },
+                    moved.questions,
+                    if moved.attested > 0 {
+                        format!(
+                            "; {} had no digest and now carry one attested by this move",
+                            moved.attested
+                        )
+                    } else {
+                        String::new()
+                    }
+                );
+                if !quiet {
+                    eprintln!(
+                        "{} is no longer referenced by this store; other stores may still cite it",
+                        old.display()
+                    );
+                }
+            }
+            Ok(())
+        }
+        EvidenceCommand::Attest {
+            paths,
+            records,
+            reason,
+            raw,
+        } => {
+            let done = verdict::attest(&records, &paths, raw, &reason)?;
+            if done.entries == 0 {
+                println!("no evidence entry without a digest: nothing attested");
+            } else {
+                println!(
+                    "attested {} evidence entr{} ({} file(s)) in {} question(s)",
+                    done.entries,
+                    if done.entries == 1 { "y" } else { "ies" },
+                    done.files,
+                    done.questions
+                );
+            }
+            Ok(())
+        }
+        EvidenceCommand::Check { ids, records } => {
+            let store = verdict::load(&records)?;
+            let audit = verdict::audit(&store, &ids)?;
+            let row =
+                |r: &AuditRow| format!("{} #{}  {}  {}", r.id, r.observation, r.path, r.inspection);
+            for r in &audit.failing {
+                println!("{}", row(r));
+            }
+            if !quiet {
+                for r in &audit.unhashed {
+                    eprintln!("{}", row(r));
+                }
+            }
+            let summary = format!(
+                "{} evidence entr{}: {} match, {} without a digest, {} failing",
+                audit.entries,
+                if audit.entries == 1 { "y" } else { "ies" },
+                audit.matching,
+                audit.unhashed.len(),
+                audit.failing.len()
+            );
+            if !audit.failing.is_empty() {
+                bail!("{summary}");
+            }
+            println!("{summary}");
             Ok(())
         }
     }
@@ -636,7 +793,16 @@ fn new_observation(a: &ObserveArgs) -> Result<NewObservation> {
         selected: a.selected.clone(),
         consistent: a.consistent.clone(),
         refuted: a.refuted.clone(),
-        evidence: a.evidence.clone(),
+        evidence: a
+            .evidence
+            .iter()
+            .map(|p| (p, false))
+            .chain(a.evidence_raw.iter().map(|p| (p, true)))
+            .map(|(path, raw)| NewEvidence {
+                path: path.clone(),
+                raw,
+            })
+            .collect(),
         environment: a.environment.clone(),
         note: a.note.clone(),
         inconclusive: a.inconclusive.clone(),
@@ -675,7 +841,7 @@ fn print_rows(store: &Store, questions: &[&Question], style: Style) {
     }
 }
 
-fn print_question(store: &Store, q: &Question, style: Style) {
+fn print_question(store: &Store, q: &Question, inspector: &mut Inspector, style: Style) {
     println!(
         "{}  {}  {}",
         style.bold(&q.id),
@@ -806,11 +972,11 @@ fn print_question(store: &Store, q: &Question, style: Style) {
     }
     for r in q.ranked() {
         println!();
-        print_observation(&r, style);
+        print_observation(&r, &q.root, inspector, style);
     }
 }
 
-fn print_observation(r: &Ranked<'_>, style: Style) {
+fn print_observation(r: &Ranked<'_>, root: &Path, inspector: &mut Inspector, style: Style) {
     let o = r.observation;
     let verdict = o.outcome.map_or("run", Outcome::as_str);
     let mut head = format!(
@@ -883,7 +1049,7 @@ fn print_observation(r: &Ranked<'_>, style: Style) {
         detail("environment", env);
     }
     for e in &o.evidence {
-        detail("evidence", e);
+        print_evidence(e, root, inspector);
     }
     if let Some(note) = &o.note {
         detail("note", note);
@@ -893,6 +1059,32 @@ fn print_observation(r: &Ranked<'_>, style: Style) {
         detail("voided", &v.at.to_string());
     }
     print_amendments("            ", &o.amendments);
+}
+
+/// One evidence entry: its location, the file's state read now, where its
+/// digest came from, and the locations it left.
+fn print_evidence(e: &Evidence, root: &Path, inspector: &mut Inspector) {
+    let indent = "            ";
+    let read_as = e
+        .encoding
+        .map_or(String::new(), |enc| format!("{}, ", enc.as_str()));
+    println!(
+        "{indent}evidence: {} ({read_as}{})",
+        e.path,
+        inspector.inspect(root, e)
+    );
+    if let Some(sha) = &e.sha256 {
+        match &e.attested {
+            Some(a) => println!(
+                "{indent}  sha256 {sha}, attested {}: {} (identifies the content from then on, not the capture)",
+                a.at, a.reason
+            ),
+            None => println!("{indent}  sha256 {sha}, recorded at capture"),
+        }
+    }
+    for m in &e.moves {
+        println!("{indent}  moved {} from {}: {}", m.at, m.from, m.reason);
+    }
 }
 
 /// One citation: `#N  manual  <8-hex id>  <at>`, then where it points and

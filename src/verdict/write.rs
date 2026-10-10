@@ -19,11 +19,12 @@
 // certifies nothing.
 
 use anyhow::{Context as _, Result, bail};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use toml::value::Datetime;
 
+use super::evidence::{self, Inspector, NewEvidence};
 use super::load::load_unlocked;
 use super::validate::{self, Context, Report, fixture_path, question_path, sha256_hex};
 use super::{
@@ -85,8 +86,9 @@ enum Mode {
 }
 
 /// An observation to append. Paths (`fixture`, `evidence`) are as the caller
-/// named them; `observe` copies the fixture into the store and rewrites
-/// evidence relative to the records directory.
+/// named them; `observe` copies the fixture into the store, and records each
+/// evidence file's location relative to the records directory with the
+/// digest of its decoded content.
 #[derive(Debug, Clone)]
 pub struct NewObservation {
     pub source: Source,
@@ -111,7 +113,7 @@ pub struct NewObservation {
     pub selected: Vec<String>,
     pub consistent: Vec<String>,
     pub refuted: Vec<String>,
-    pub evidence: Vec<PathBuf>,
+    pub evidence: Vec<NewEvidence>,
     pub environment: Option<String>,
     pub note: Option<String>,
     pub inconclusive: Option<String>,
@@ -119,11 +121,12 @@ pub struct NewObservation {
 
 /// Create a question under `root` and return its generated id.
 pub fn add(root: &Path, new: &NewQuestion) -> Result<Added> {
+    let root = &evidence::absolute(root)?;
     let _lock = lock(root)?;
     let store = load_unlocked(root)?;
     let mut q = Question {
         id: String::new(),
-        root: root.to_path_buf(),
+        root: root.clone(),
         kind: new.kind,
         // Keys are exact: stored and matched as given, never normalized.
         key: new.key.clone(),
@@ -324,7 +327,7 @@ fn field_diff<T: serde::Serialize>(stored: &T, given: &T) -> Result<Vec<String>>
 /// write that relies on it. The lock file is a persistent dot-file (the
 /// loader ignores dot-files); it is never deleted, since recreating it would
 /// let two processes lock different files.
-fn lock(root: &Path) -> Result<std::fs::File> {
+pub(super) fn lock(root: &Path) -> Result<std::fs::File> {
     if !root.is_dir() {
         bail!("records directory {} does not exist", root.display());
     }
@@ -346,6 +349,7 @@ fn lock(root: &Path) -> Result<std::fs::File> {
 /// still uses as a premise (retiring it must first force a review of that
 /// inference).
 pub fn retire(root: &Path, id: &str, reason: &str, replaced_by: &[String]) -> Result<Vec<String>> {
+    let root = &evidence::absolute(root)?;
     let _lock = lock(root)?;
     let store = load_unlocked(root)?;
     let Some(existing) = store.get(id) else {
@@ -384,6 +388,7 @@ pub fn retire(root: &Path, id: &str, reason: &str, replaced_by: &[String]) -> Re
 /// close or pursue that premise instead), on one already closed, and on one
 /// that does not resolve open.
 pub fn close(root: &Path, id: &str, reason: &str) -> Result<Vec<String>> {
+    let root = &evidence::absolute(root)?;
     let _lock = lock(root)?;
     let store = load_unlocked(root)?;
     let Some(existing) = store.get(id) else {
@@ -429,6 +434,7 @@ pub fn close(root: &Path, id: &str, reason: &str) -> Result<Vec<String>> {
 /// question currently resolves decided), so a dormant closure can be ended
 /// before it resumes. Refused on a retired question, whose closure is history.
 pub fn reopen(root: &Path, id: &str, reason: &str) -> Result<Vec<String>> {
+    let root = &evidence::absolute(root)?;
     let _lock = lock(root)?;
     let store = load_unlocked(root)?;
     let Some(existing) = store.get(id) else {
@@ -538,6 +544,7 @@ pub fn amend_all(
     changes: &[(AmendTarget, Option<&str>)],
     reason: &str,
 ) -> Result<Amended> {
+    let root = &evidence::absolute(root)?;
     let _lock = lock(root)?;
     let store = load_unlocked(root)?;
     let Some(existing) = store.get(id) else {
@@ -872,6 +879,7 @@ pub enum VoidTarget {
 /// measurement. For a stale citation: void it after review, then cite
 /// again; for one applied in error: void it. Not reversible by po.
 pub fn void(root: &Path, id: &str, target: VoidTarget, reason: &str) -> Result<Vec<String>> {
+    let root = &evidence::absolute(root)?;
     let _lock = lock(root)?;
     let store = load_unlocked(root)?;
     let Some(existing) = store.get(id) else {
@@ -934,6 +942,7 @@ pub fn cite(
     quotes: &[String],
     note: Option<&str>,
 ) -> Result<Cited> {
+    let root = &evidence::absolute(root)?;
     let _lock = lock(root)?;
     let store = load_unlocked(root)?;
     let Some(existing) = store.get(id) else {
@@ -1039,7 +1048,7 @@ fn observation_mut(q: &mut Question, number: usize) -> Result<&mut Observation> 
 }
 
 /// The current UTC time, to the second, as a TOML datetime.
-fn now_utc() -> Result<Datetime> {
+pub(super) fn now_utc() -> Result<Datetime> {
     let stamp = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
     stamp
         .parse::<Datetime>()
@@ -1071,9 +1080,10 @@ fn observe_in(root: &Path, id: &str, new: &NewObservation, mode: Mode) -> Result
     // A dry run is a read: like the read verbs it loads under the shared
     // lock (so it works on a read-only checkout), and what it reports may be
     // overtaken by a writer once the load returns, as any read's may.
+    let root = &evidence::absolute(root)?;
     let (_lock, store) = match mode {
         Mode::Write => (Some(lock(root)?), load_unlocked(root)?),
-        Mode::DryRun => (None, load(&[root.to_path_buf()])?),
+        Mode::DryRun => (None, load(std::slice::from_ref(root))?),
     };
     let Some(existing) = store.get(id) else {
         bail!("no question `{id}` in {}", root.display());
@@ -1110,6 +1120,7 @@ fn observe_in(root: &Path, id: &str, new: &NewObservation, mode: Mode) -> Result
         (Some(sha), Some(name)) if *name == format!("{sha}.pine")
     );
     let fixture_name = if by_store_path { None } else { passed_name };
+    let mut inspector = Inspector::new();
 
     let observation = Observation {
         source: new.source,
@@ -1126,7 +1137,9 @@ fn observe_in(root: &Path, id: &str, new: &NewObservation, mode: Mode) -> Result
         inconclusive: trimmed(new.inconclusive.as_ref()),
         environment: trimmed(new.environment.as_ref()),
         note: trimmed(new.note.as_ref()),
-        evidence: evidence_paths(root, &new.evidence)?,
+        // Read below: a keyed rerun matches evidence by location and digest,
+        // a new observation records it.
+        evidence: Vec::new(),
         errors: new.errors.clone(),
         warnings: new.warnings.clone(),
         candidates: decide_candidates(
@@ -1173,11 +1186,18 @@ fn observe_in(root: &Path, id: &str, new: &NewObservation, mode: Mode) -> Result
                 warnings.push(superseded(field, &format!("observation #{}", i + 1)));
             }
         }
+        // Evidence is compared on its own: by location (a former one names
+        // the entry, since a landing script may predate a move) and by the
+        // digest of whatever file is there now.
+        let (mut diff, moved) =
+            evidence::rerun_differences(root, &stored.evidence, &new.evidence, &mut inspector)?;
+        warnings.extend(moved);
+        given.evidence.clone_from(&stored.evidence);
         let current = Observation {
             amendments: Vec::new(),
             ..stored.clone()
         };
-        let diff = field_diff(&current, &given)?;
+        diff.splice(0..0, field_diff(&current, &given)?);
         if !diff.is_empty() {
             bail!(
                 "key `{key}` belongs to observation #{} of question {}, which differs:\n  {}",
@@ -1186,6 +1206,7 @@ fn observe_in(root: &Path, id: &str, new: &NewObservation, mode: Mode) -> Result
                 diff.join("\n  ")
             );
         }
+        inspector.unchanged()?;
         let now = store.disposition(existing);
         return Ok(Observed {
             id: q.id.clone(),
@@ -1197,6 +1218,7 @@ fn observe_in(root: &Path, id: &str, new: &NewObservation, mode: Mode) -> Result
         });
     }
     let mut observation = observation;
+    observation.evidence = evidence::capture(root, &new.evidence, &mut inspector)?;
     if by_store_path && let Some(sha) = &fixture_sha {
         observation.fixture_name = known_fixture_name(store.questions(), sha);
     }
@@ -1207,6 +1229,7 @@ fn observe_in(root: &Path, id: &str, new: &NewObservation, mode: Mode) -> Result
     let (was, now) = (store.disposition(existing), store.with(&q).disposition(&q));
     warnings.extend(contradiction(&q, q.observations.len(), (&was, &now), mode));
 
+    inspector.unchanged()?;
     if mode == Mode::Write {
         if let (Some(sha), Some(bytes)) = (&fixture_sha, &fixture_bytes) {
             store_fixture(root, sha, bytes)?;
@@ -1360,7 +1383,7 @@ fn store_fixture(root: &Path, sha: &str, bytes: &[u8]) -> Result<()> {
 }
 
 /// Write the question record `q` durably.
-fn write_question(q: &Question) -> Result<()> {
+pub(super) fn write_question(q: &Question) -> Result<()> {
     let text = toml::to_string(q).context("serializing question")?;
     write_atomic(
         &question_path(&q.root, &q.id),
@@ -1442,6 +1465,31 @@ fn check(store: &Store, q: &Question, pending_fixture: Option<&str>) -> Result<V
     Ok(report.warnings)
 }
 
+/// `check` for a write that changes several questions of one store at once:
+/// each is validated against the store with all of them in place.
+pub(super) fn check_many(store: &Store, changed: &[Question]) -> Result<()> {
+    let after_store = store.with_all(changed);
+    let after = after_store.questions();
+    let mut report = Report::default();
+    let mut ids_by_root: BTreeMap<&Path, BTreeMap<String, bool>> = BTreeMap::new();
+    for q in changed {
+        let known_ids = ids_by_root
+            .entry(q.root.as_path())
+            .or_insert_with(|| validate::ids_in(after, &q.root));
+        let cx = Context {
+            known_ids,
+            pending_fixture: None,
+        };
+        validate::question(q, &cx, &mut report);
+    }
+    report.errors.extend(validate::cycles(after));
+    report.errors.extend(validate::duplicate_keys(after));
+    if !report.errors.is_empty() {
+        bail!("refusing to write:\n  {}", report.errors.join("\n  "));
+    }
+    Ok(())
+}
+
 /// The human name the store's observations agree on for fixture `sha`, if
 /// they agree. Identical bytes may have been captured under several names;
 /// picking one of them would attribute another capture's file, so a
@@ -1517,24 +1565,7 @@ fn decide_candidates(
         .collect()
 }
 
-/// Each evidence path must exist now; it is stored relative to the records
-/// directory so the record stays valid wherever the repo is checked out.
-fn evidence_paths(root: &Path, evidence: &[PathBuf]) -> Result<Vec<String>> {
-    let base = root
-        .canonicalize()
-        .with_context(|| format!("resolving {}", root.display()))?;
-    evidence
-        .iter()
-        .map(|p| {
-            let target = p
-                .canonicalize()
-                .with_context(|| format!("evidence {} does not exist", p.display()))?;
-            Ok(relative_path(&base, &target))
-        })
-        .collect()
-}
-
-/// `target` relative to `base` (both absolute and canonical), `/`-separated.
+/// `target` relative to `base` (both absolute and normalized), `/`-separated.
 pub(super) fn relative_path(base: &Path, target: &Path) -> String {
     let b: Vec<Component<'_>> = base.components().collect();
     let t: Vec<Component<'_>> = target.components().collect();

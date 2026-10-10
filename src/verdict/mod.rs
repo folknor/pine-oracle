@@ -8,7 +8,9 @@
 // A records directory holds one `<id>.toml` per question plus a
 // content-addressed `fixtures/<sha256>.pine` store. po writes both (the write
 // verbs in `write`); the read side (`load`) is strict, so any command that succeeds
-// has validated every record under the directories it was given.
+// has validated every record under the directories it was given. Evidence
+// files live outside it and are not part of that guarantee: `evidence`
+// records their identity and audits their content separately.
 //
 // A question records what TradingView did, per oracle source, and never
 // whether any engine matches it. Source strength is editor = chart >
@@ -46,6 +48,7 @@ use std::str::FromStr;
 use toml::value::Datetime;
 
 mod citation;
+mod evidence;
 mod load;
 mod search;
 mod spec;
@@ -54,6 +57,10 @@ mod tests;
 mod validate;
 mod write;
 
+pub use evidence::{
+    Attestation, Attested, Audit, AuditRow, Comparison, Encoding, Evidence, Fault, Inspection,
+    Inspector, Move, NewEvidence, Relocated, attest, audit, relocate,
+};
 pub use load::{ListFilter, Relation, Store, load};
 pub use search::SearchHit;
 pub use spec::{parse_candidate, parse_diag};
@@ -421,13 +428,18 @@ pub struct Observation {
     pub environment: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
-    /// Evidence paths, relative to the records directory.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub evidence: Vec<String>,
     /// Set when the observation was withdrawn (a mis-transcribed outcome,
     /// code or candidate): it stays visible and never counts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub void: Option<Void>,
+    /// The supporting artifacts (exports, probe JSON): a set; the stored
+    /// order carries no meaning. See `Evidence`.
+    #[serde(
+        default,
+        deserialize_with = "evidence::deserialize_entries",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub evidence: Vec<Evidence>,
     #[serde(default, rename = "error", skip_serializing_if = "Vec::is_empty")]
     pub errors: Vec<Diag>,
     #[serde(default, rename = "warning", skip_serializing_if = "Vec::is_empty")]

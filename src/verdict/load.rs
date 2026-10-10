@@ -2,6 +2,8 @@
 // validate all of them, and refuse to return a store if any record is
 // invalid. A successful load is therefore a clean bill of health for every
 // directory passed, which is what lets piners use any read verb as a CI gate.
+// Evidence files are outside it: their availability and content are
+// `evidence::audit`'s, so a missing artifact never blocks a load.
 // For that to hold, nothing in a records directory may be silently skipped:
 // every entry must be a question file, the fixture store, a markdown note, or
 // a dot-file (in-flight temp files).
@@ -72,9 +74,16 @@ fn load_roots(roots: &[PathBuf], coordinate: bool) -> Result<Store> {
     }
     // The same directory named twice (or by two spellings) is one root, not
     // a source of duplicate ids, nor a second lock.
+    // Each root is taken by its lexical spelling (as evidence locations are
+    // resolved against it), so `link/..` names the same directory for the
+    // load as for the evidence it cites.
+    let roots: Vec<PathBuf> = roots
+        .iter()
+        .map(|r| super::evidence::absolute(r))
+        .collect::<Result<_>>()?;
     let mut canonical_roots = BTreeMap::new();
     let mut unique: Vec<&PathBuf> = Vec::new();
-    for root in roots {
+    for root in &roots {
         if !root.is_dir() {
             bail!("records directory {} does not exist", root.display());
         }
@@ -279,6 +288,21 @@ impl Store {
             .cloned()
             .collect();
         questions.push(q.clone());
+        questions.sort_by(|a, b| a.id.cmp(&b.id));
+        Store { questions }
+    }
+
+    /// This store with every question of `changed` replacing its namesake,
+    /// built once: the state a store-wide write is about to produce.
+    pub(super) fn with_all(&self, changed: &[Question]) -> Store {
+        let ids: BTreeSet<&str> = changed.iter().map(|q| q.id.as_str()).collect();
+        let mut questions: Vec<Question> = self
+            .questions
+            .iter()
+            .filter(|x| !ids.contains(x.id.as_str()))
+            .cloned()
+            .chain(changed.iter().cloned())
+            .collect();
         questions.sort_by(|a, b| a.id.cmp(&b.id));
         Store { questions }
     }
