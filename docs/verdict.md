@@ -38,8 +38,9 @@ po verdict amend    <id> --records <DIR> --reason "..."
 po verdict cite     <id> --records <DIR> --section <manual id | page#anchor>
                     --quote "..." [--quote "..."]... [--note "..."]
 po verdict void     <id> --records <DIR> (--observation N | --citation N) --reason "..."
-po verdict evidence move   <old> <new> --records <DIR> --reason "..."
-                           [--old-raw] [--new-raw]
+po verdict evidence move   <old> <new> --records <DIR> --reason "..." [--old-raw]
+po verdict evidence merge  <id> <redundant> <into> --observation N --records <DIR>
+                           --reason "..."
 po verdict evidence attest [<path>...] --records <DIR> --reason "..." [--raw]
 po verdict evidence check  [<id>...] --records <DIR>...
 po verdict search   <query> --records <DIR>... [--limit N]
@@ -129,13 +130,16 @@ payload with the stored record:
 - a void observation: `observe` fails. The key stays with the voided record,
   so the corrected measurement needs a new key;
 - evidence is compared as a set, not in order, and by location: each given
-  path must be a location of exactly one stored entry (its current one or
-  one it moved from, see Evidence), and every entry must be named. Where the
-  named file exists, it must decode to the entry's digest under the
-  interpretation recorded for that location; a missing file, or an
-  unfetched Git LFS pointer in its place, is matched by its location alone,
-  since the landing script may predate a move or run on a fresh clone. A former
-  location warns, like a superseded value. A rerun never gives an entry a
+  path must be a location of exactly one stored entry (its current one, one
+  it moved from, or one of an entry merged into it, see Evidence), no path
+  may be given twice, and every entry must be named. Two distinct locations
+  of one entry may both be given, so a script that cited one capture twice
+  still matches after the merge. Where the named file exists, it must hold
+  the entry's digest, raw or decoded (`--evidence-raw` on a rerun changes
+  nothing: it chooses an identity only when one is established); a missing
+  file, or an unfetched Git LFS pointer in its place, is matched by its
+  location alone, since the landing script may predate a move or run on a
+  fresh clone. A former or merged location warns, like a superseded value. A rerun never gives an entry a
   digest it lacks. Reusing a moved-away path for other content therefore
   fails the old script's rerun, which is the point: the location names the
   evidence, the digest proves it.
@@ -614,31 +618,40 @@ they are, usually elsewhere in the same git repository. Each is recorded as
 an entry with a location and an identity, kept apart so a file can be
 compressed or moved without breaking the records citing it.
 
-**Identity** is the sha256 of the file's decoded content. `observe` reads
-each file once: one starting like a gzip stream is decoded (every member,
+**Identity** is the sha256 of the file's content. Establishing one
+(`observe`, `attest`, a move of an entry that has none) reads the file by
+its leading bytes: one starting like a gzip stream is decoded (every member,
 each trailer checked), one starting like a zstd stream (a zstd frame, or a
 skippable frame) likewise (every frame, checksums checked), anything else is
-hashed as it is. The interpretation is recorded as `encoding` (absent: raw).
-A later read follows it first, and only when that misses the digest tries
-the interpretation the file's leading bytes show now. So an artifact
-recorded with `--evidence-raw` is never mis-decoded, while a file compressed
-or decompressed in place, or replaced by a symlink to its compressed copy,
-still matches: `check` and `show` report it as `matches its digest, read
-zstd (recorded raw)`, and the recorded `encoding` stays as written. A file that starts like
-a compressed stream but does not decode completely (truncated, a bad
-checksum, trailing bytes, a dictionary frame) is refused, never hashed raw
-instead, as is a compressed stream that decodes to nothing and a Git LFS
-pointer (an unfetched object), raw or decoded. `--evidence-raw` records an
-artifact that merely starts like a compressed stream as it is. So
-`record.json` and its `record.json.zst` are the same evidence, while the
-same JSON rewritten compactly is not: whitespace is content.
+hashed as it is. A file that starts like a compressed stream but does not
+decode completely (truncated, a bad checksum, trailing bytes, a dictionary
+frame) is refused, never hashed raw instead, as is a compressed stream that
+decodes to nothing and a Git LFS pointer (an unfetched object), raw or
+decoded. `--evidence-raw` (`attest --raw`, `move --old-raw`) hashes an
+artifact that merely starts like a compressed stream as it is.
+
+Verifying an identity (`check`, `show`, `move`, `attest`, keyed reruns) is
+guided by the digest: the file's raw bytes are tried first, then, when they
+start like a stream, the decoded content, and either matching is the same
+evidence. How a file was read is not recorded, because it was only ever how
+the bytes were reached: a file compressed or decompressed in place, a
+symlink to a compressed copy, and a raw artifact that starts like a stream
+all match. So `record.json` and its `record.json.zst` are the same
+evidence, while the same JSON rewritten compactly is not: whitespace is
+content. When nothing matches, an LFS pointer found by either reading is
+reported as the pointer it is (a raw match still wins over a pointer inside
+the stream); otherwise `CHANGED` names every reading tried (`raw 1a2b...,
+as zstd 3c4d...`, or why the stream did not decode). Records written while
+po stored the reading carry an `encoding` key on entries and moves; it is
+accepted, decides nothing, and is dropped the next time po rewrites the
+file.
 
 A digest recorded by `observe` identifies the bytes supplied when the
 observation was recorded. One established later is marked `attested` with
 its time and reason (see `attest` and `move` below): it identifies the
 content from then on, and says nothing about the capture before. Entries
-recorded before digests existed (a bare path string in the file) have
-neither digest nor interpretation.
+recorded before digests existed (a bare path string in the file) have no
+digest.
 
 **Location** is a path relative to the records directory, `/`-separated.
 Paths are resolved lexically, never through the filesystem: a path given
@@ -652,10 +665,12 @@ different location, and its keyed rerun fails until it names the evidence
 by the stored spelling. For the same reason a path reached through a
 symlink is a location of its own: an observation citing a file directly and
 through a link to it holds two entries, and no move merges them (a location
-belongs to one entry). Entries are stored `--evidence` first, then
-`--evidence-raw`; the order carries no meaning. Within one observation a location (current or former) belongs to
-one entry. Keep evidence inside the same git repository, or the stored
-relative path will not resolve on another checkout.
+belongs to one entry); `evidence merge` does. Entries are stored
+`--evidence` first, then `--evidence-raw`; the order carries no meaning.
+Within one observation a location (current, former, or one of an entry
+merged into it) belongs to one entry, for good: a location an entry left
+stays reserved to it. Keep evidence inside the same git repository, or the
+stored relative path will not resolve on another checkout.
 
 **Availability is not validation.** A missing or unfetched evidence file
 never fails a load or blocks a write: a store whose large artifacts are not
@@ -666,24 +681,29 @@ what the record says, and the file is the artifact behind it.
 `po verdict evidence check` is the content audit. It reads every evidence
 file of the given questions (all when none), void observations and retired
 questions included, and prints one line per entry that fails, `<id> #N
-<path>  <state>`: missing, unreadable, not decodable under its
-interpretation, an unfetched Git LFS pointer, changed while being read, or
-`CHANGED since its digest was recorded` (slimmed, rewritten, replaced). It
-exits non-zero when any entry fails. Entries without a digest are listed on
-stderr (unless `--quiet`) and fail only when unavailable. `show` prints each
-entry's state the same way, read when shown, with its digest's provenance
-and the locations it left.
+<path>  <state>`: missing, unreadable, an unfetched Git LFS pointer,
+changed while being read, or `CHANGED since its digest was recorded`
+(slimmed, rewritten, replaced; the readings tried follow). It exits
+non-zero when any entry fails. Entries without a digest are listed on
+stderr (unless `--quiet`) and fail only when unavailable (a file starting
+like a stream that does not decode is unavailable). Only an entry's current
+location is read: its former locations and the entries merged into it are
+history. `show` prints each entry's state the same way, read when shown,
+with its digest's provenance, the locations it left and what was merged
+into it; when a file changed while `show` read it, it says so after
+printing and exits non-zero, since the states shown are not one snapshot.
 
 `po verdict evidence move <old> <new>` re-points every entry in the records
 directory whose current location is `<old>`: one file is usually cited by
-many observations. `<new>` must decode to each entry's digest. An entry
-without one is compared with `<old>` as it reads now (`--old-raw`: read it
-as it is) and gains that digest, attested by the move. Every entry is
-checked before any record is written, and the move is refused when `<new>`
-is another evidence entry of the same observation (the same bytes recorded
-twice stay two entries) or a former location of the entry read differently.
-Each entry keeps a `[[moved]]` history (time, former location, its
-encoding, reason). po never deletes evidence: once the move succeeds,
+many observations. `<new>` must hold each entry's digest, raw or decoded
+(entries at one file may identify different readings of it, and each is
+checked). An entry without one is compared with `<old>` as it reads now
+(`--old-raw`: read it as it is) and gains that digest, attested by the
+move. Every entry is checked before any record is written, and the move is
+refused when `<new>` is a location of another evidence entry of the same
+observation (merge those instead). Moving back to a location the entry
+left is a move like any other. Each entry keeps a `[[moved]]` history
+(time, former location, reason). po never deletes evidence: once the move succeeds,
 delete `<old>` yourself, after checking no other records directory cites
 it. Each question file is replaced atomically, so an interrupted move
 leaves a valid store with some entries moved; rerun it to move the rest (it
@@ -695,8 +715,24 @@ have none, at the given locations or, with no path, everywhere in the
 store, marked attested with `--reason`. Run it before slimming anything, so
 the slimming is detectable. A given path must hold some entry; entries there
 that already carry a digest are verified against it and skipped, so a rerun
-after an interruption attests the rest. Every file is read before any record
-is written, and one that cannot be read fails the whole run.
+after an interruption attests the rest. Those entries also fix the identity
+the others there may take: the digest read (by leading bytes, or `--raw`)
+must equal theirs, or the run is refused rather than letting two records of
+one file name different evidence. Every file is read before any record is
+written, and one that cannot be read fails the whole run.
+
+`po verdict evidence merge <id> <redundant> <into> --observation N` folds
+one evidence entry of an observation into another when both cite the same
+content: a capture cited directly and through a probe's copy or link, say.
+Both must be the entries' current locations and carry equal digests (attest
+first otherwise); no file is read, so it works where the evidence is not
+checked out. The redundant entry is kept whole in the survivor's
+`[[merged]]` history (time, reason, the entry with its own digest
+provenance, moves and merges), so its locations stay the survivor's, a
+landing script naming them still matches, and `check` reads only the
+survivor. Rerunning a finished merge is a no-op. Entries with different
+digests never merge: a wrongly cited file is a measurement question, void
+and re-observe.
 
 Every verb that reads evidence compares each file's device, inode, size
 and modification time before and after reading it, and again before
@@ -731,7 +767,6 @@ environment = "TradingView Desktop 3.4.1"
 [[observation.evidence]]
 path = "../fieldwork/capture-campaign-2026-09/editor-probes-2026-09-27/run26-export-outside-library.json.zst"
 sha256 = "8d1b0c6a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0f9e8d7c"
-encoding = "zstd"
 
 [[observation.evidence.moved]]
 at = 2026-10-10T12:00:00Z
@@ -768,10 +803,11 @@ tables (`at`, `field`, `was`, `now`, `reason`), a voided one an
 amendments are question-level `[[amendment]]` tables. Citations are question-level
 `[[citation]]` tables (`section`, `quotes`, `digest`, `at`, optional `note`,
 optional `[citation.void]`). Evidence entries are
-`[[observation.evidence]]` tables (`path`, and with a digest `sha256`,
-`encoding` when decoded, an `[observation.evidence.attested]` table (`at`,
-`reason`) when established after the fact, and `[[observation.evidence.moved]]`
-tables (`at`, `from`, `encoding`, `reason`)); an entry recorded before
+`[[observation.evidence]]` tables (`path`, and with a digest `sha256`, an
+`[observation.evidence.attested]` table (`at`, `reason`) when established
+after the fact, `[[observation.evidence.moved]]` tables (`at`, `from`,
+`reason`), and `[[observation.evidence.merged]]` tables (`at`, `reason`, and
+the merged entry as an `entry` table of the same shape)); an entry recorded before
 digests may be a bare path string, which po rewrites as a table the next
 time it writes the file. A negative answer carries `negative = true`
 and an exclusive question `exclusive = true` among the plain fields (each
@@ -853,12 +889,13 @@ Errors:
 - a `fixture_name` without a `fixture`;
 - a stored fixture (referenced or not) that is missing or does not hash to
   its name;
-- an evidence location (current or former) that is empty, absolute, or not
-  in the stored form (an empty or `.` component, `..` after a directory
-  name), or that two entries of one observation share; an entry revisiting
-  a location under another encoding, or moving in place; a `sha256` that is
-  not a lowercase sha256, or `encoding`, `attested` or `moved` without one;
-  an empty attestation or move reason, or a non-UTC time. Whether the files
+- an evidence location (current, former or merged) that is empty,
+  absolute, or not in the stored form (an empty or `.` component, `..`
+  after a directory name), or that two entries of one observation share; an
+  entry moving in place; a `sha256` that is not a lowercase sha256, or
+  `attested`, `moved` or `merged` without one; a merged entry whose digest
+  differs from its survivor's; an empty attestation, move or merge reason,
+  or a non-UTC time. Whether the files
   exist and still match is not validation: see Evidence;
 - a directory entry that is not a question file, `fixtures/`, a markdown note
   or a dot-file (a dot-directory is an error, in `fixtures/` too); an id

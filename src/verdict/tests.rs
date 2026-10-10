@@ -167,7 +167,7 @@ fn run26_editor_reject_outranks_endpoint_accept() {
         evidence.sha256.as_deref(),
         Some(validate::sha256_hex(&bytes).as_str())
     );
-    assert_eq!((evidence.encoding, &evidence.attested), (None, &None));
+    assert_eq!(evidence.attested, None);
     assert_eq!(q.codes().into_iter().collect::<Vec<_>>(), vec!["CE10099"]);
 }
 
@@ -1823,7 +1823,8 @@ fn strict_load_rejects_every_documented_problem() {
         (
             good.replace(
                 "settings = ",
-                "evidence = [{ path = \"x.json\", encoding = \"zstd\" }]\nsettings = ",
+                "evidence = [{ path = \"x.json\", attested = { at = 2026-01-01T00:00:00Z, \
+                 reason = \"r\" } }]\nsettings = ",
             ),
             "need a `sha256`",
         ),
@@ -3624,27 +3625,23 @@ fn compressed_evidence_keeps_its_identity_through_a_move() {
     let value: serde_json::Value = serde_json::from_slice(&bytes).expect("json");
     std::fs::write(&compact, serde_json::to_vec(&value).expect("compact")).expect("write");
     refused(
-        relocate(&root, &json, &compact, false, false, "compact"),
+        relocate(&root, &json, &compact, false, "compact"),
         "but the entry's content is",
     );
 
     let zst = ev_dir.join("run26.json.zst");
     std::fs::write(&zst, zstd_of(&bytes)).expect("zst");
-    let moved = relocate(&root, &json, &zst, false, false, "compressed for LFS").expect("move");
+    let moved = relocate(&root, &json, &zst, false, "compressed for LFS").expect("move");
     assert_eq!((moved.entries, moved.questions, moved.attested), (2, 2, 0));
     for q in [&id, &other] {
         let e = reload(&root, q).observations[0].evidence[0].clone();
         assert_eq!(e.path, "../ev/run26.json.zst");
         assert_eq!(e.sha256.as_deref(), Some(digest.as_str()));
-        assert_eq!(e.encoding, Some(Encoding::Zstd));
         assert_eq!(e.moves.len(), 1);
-        assert_eq!(
-            (e.moves[0].from.as_str(), e.moves[0].encoding),
-            ("../ev/run26.json", None)
-        );
+        assert_eq!(e.moves[0].from, "../ev/run26.json");
     }
     // Rerunning resumes: nothing is left at the old location.
-    let again = relocate(&root, &json, &zst, false, false, "compressed for LFS").expect("again");
+    let again = relocate(&root, &json, &zst, false, "compressed for LFS").expect("again");
     assert_eq!(again.entries, 0);
 
     std::fs::remove_file(&json).expect("delete the original");
@@ -3685,11 +3682,12 @@ fn compressed_evidence_keeps_its_identity_through_a_move() {
 
 /// The piners migration: one capture cited twice in an observation, once
 /// directly and once through a probe's copy. The record is compressed and
-/// moved; the probe's copy becomes a link to the compressed file. The probe
-/// entry was recorded raw, yet it still matches: the digest is the identity.
+/// moved; the probe's copy becomes a link to the compressed file. Both still
+/// match (the digest is the identity, however the bytes are reached), and
+/// the redundant citation merges into the other.
 #[cfg(unix)]
 #[test]
-fn a_link_to_compressed_evidence_matches_a_raw_recorded_digest() {
+fn a_link_to_compressed_evidence_matches_and_merges() {
     let (root, ev_dir, bytes) = evidence_store("evidence-link");
     let record = ev_dir.join("run26.json");
     let probe = ev_dir.join("tv_record.json");
@@ -3698,25 +3696,30 @@ fn a_link_to_compressed_evidence_matches_a_raw_recorded_digest() {
 
     let zst = ev_dir.join("run26.json.zst");
     std::fs::write(&zst, zstd_of(&bytes)).expect("zst");
-    relocate(&root, &record, &zst, false, false, "compressed").expect("move");
+    relocate(&root, &record, &zst, false, "compressed").expect("move");
     std::fs::remove_file(&record).expect("delete the original");
     std::fs::remove_file(&probe).expect("drop the copy");
     std::os::unix::fs::symlink("run26.json.zst", &probe).expect("link");
+
+    // A record written while the reading was stored: the legacy key loads,
+    // decides nothing, and is gone on the next rewrite.
+    let file = root.join(format!("{id}.toml"));
+    let text = std::fs::read_to_string(&file).expect("read");
+    let legacy = text.replace(
+        "path = \"../ev/tv_record.json\"",
+        "path = \"../ev/tv_record.json\"\nencoding = \"gzip\"",
+    );
+    assert_ne!(legacy, text);
+    std::fs::write(&file, legacy).expect("legacy");
 
     let store = load(std::slice::from_ref(&root)).expect("loads");
     let audit = audit(&store, &[]).expect("audit");
     assert_eq!((audit.entries, audit.matching), (2, 2), "{audit:?}");
     let row = store.get(&id).expect("question").observations[0].evidence[1].clone();
-    assert_eq!(row.encoding, None, "the recorded reading is history, kept");
-    let inspection = Inspector::new().inspect(&root, &row);
     assert_eq!(
-        inspection.comparison,
-        Comparison::MatchesAs {
-            recorded: None,
-            now: Some(Encoding::Zstd)
-        }
+        Inspector::new().inspect(&root, &row).comparison,
+        Comparison::Matches
     );
-    assert!(inspection.to_string().contains("read zstd (recorded raw)"));
 
     // The landing script naming both locations is still a no-op rerun.
     let rerun = NewObservation {
@@ -3726,12 +3729,233 @@ fn a_link_to_compressed_evidence_matches_a_raw_recorded_digest() {
     };
     assert!(observe(&root, &id, &rerun).expect("rerun").existing);
 
-    // Other content behind the link is still a change.
-    std::fs::remove_file(&probe).expect("unlink");
-    std::fs::write(&probe, zstd_of(b"{\"other\": 1}")).expect("other");
+    // Merging needs the current locations, equal digests, a reason.
+    refused(merge(&root, &id, 1, &probe, &zst, " "), "needs a --reason");
+    refused(merge(&root, &id, 2, &probe, &zst, "r"), "no observation #2");
+    refused(
+        merge(&root, &id, 1, &probe, &record, "r"),
+        "former or merged location",
+    );
+    assert_eq!(
+        merge(&root, &id, 1, &probe, &zst, "one capture, cited twice").expect("merge"),
+        Merged::Merged
+    );
+    assert!(
+        !std::fs::read_to_string(&file)
+            .expect("read")
+            .contains("encoding"),
+        "the legacy key is dropped on rewrite"
+    );
+    assert_eq!(
+        merge(&root, &id, 1, &probe, &zst, "again").expect("rerun"),
+        Merged::Already
+    );
+    let e = reload(&root, &id).observations[0].evidence.clone();
+    assert_eq!(e.len(), 1);
+    assert_eq!(e[0].merged[0].entry.path, "../ev/tv_record.json");
+    let store = load(std::slice::from_ref(&root)).expect("loads");
+    let audit = super::audit(&store, &[]).expect("audit");
+    assert_eq!((audit.entries, audit.matching), (1, 1), "{audit:?}");
+
+    // The landing script naming both is still the one entry; naming either
+    // alone covers it too; naming one location twice does not.
+    assert!(observe(&root, &id, &rerun).expect("merged rerun").existing);
+    let probe_only = NewObservation {
+        evidence: vec![ev(probe.clone())],
+        ..rerun.clone()
+    };
+    let observed = observe(&root, &id, &probe_only).expect("alias alone");
+    assert!(
+        observed.warnings.join("\n").contains("was merged into"),
+        "{:?}",
+        observed.warnings
+    );
+    let twice = NewObservation {
+        evidence: vec![ev(zst.clone()), ev(zst.clone())],
+        ..rerun.clone()
+    };
+    refused(observe(&root, &id, &twice), "given twice");
+
+    // A move of the survivor keeps what was merged into it.
+    let elsewhere = ev_dir.join("elsewhere.json");
+    std::fs::write(&elsewhere, &bytes).expect("copy");
+    relocate(&root, &zst, &elsewhere, false, "rename").expect("move survivor");
+    let e = reload(&root, &id).observations[0].evidence[0].clone();
+    assert_eq!(e.merged.len(), 1, "a move keeps the merged history");
+
+    // Other content behind the survivor is still a change.
+    std::fs::write(&elsewhere, zstd_of(b"{\"other\": 1}")).expect("other");
     let store = load(std::slice::from_ref(&root)).expect("loads");
     let audit = super::audit(&store, &[]).expect("audit");
     assert_eq!(audit.failing.len(), 1, "{audit:?}");
+    assert!(
+        audit.failing[0].inspection.to_string().contains("raw "),
+        "every reading tried is named: {}",
+        audit.failing[0].inspection
+    );
+}
+
+#[test]
+fn merging_needs_one_content() {
+    let (root, ev_dir, bytes) = evidence_store("evidence-merge-digests");
+    let a = ev_dir.join("run26.json");
+    let b = ev_dir.join("other.json");
+    std::fs::write(&b, b"{\"other\": 1}").expect("other");
+    let id = observed_with(&root, "k", vec![ev(a.clone()), ev(b.clone())]);
+    refused(
+        merge(&root, &id, 1, &b, &a, "r"),
+        "only the same content merges",
+    );
+    // Equal digests merge even with no file checked out.
+    std::fs::write(&b, &bytes).expect("same");
+    let id = observed_with(&root, "k2", vec![ev(a.clone()), ev(b.clone())]);
+    std::fs::remove_file(&a).expect("gone");
+    std::fs::remove_file(&b).expect("gone");
+    assert_eq!(
+        merge(&root, &id, 1, &b, &a, "r").expect("merge"),
+        Merged::Merged
+    );
+    // A hand-edited merged entry with another digest is caught on load.
+    let file = root.join(format!("{id}.toml"));
+    let text = std::fs::read_to_string(&file).expect("read");
+    let digest = validate::sha256_hex(&bytes);
+    let n = text.matches(digest.as_str()).count();
+    assert_eq!(n, 2, "{text}");
+    let tampered = text
+        .replacen(&digest, &"0".repeat(64), 2)
+        .replacen(&"0".repeat(64), &digest, 1);
+    std::fs::write(&file, tampered).expect("tamper");
+    refused(load(std::slice::from_ref(&root)), "has another digest");
+}
+
+#[test]
+fn merged_locations_stay_reserved_and_merges_rerun_after_moves() {
+    let (root, ev_dir, bytes) = evidence_store("evidence-merge-reserve");
+    let [a, b, c, d] = ["a.json", "b.json", "c.json", "d.json"].map(|n| {
+        let p = ev_dir.join(n);
+        std::fs::write(&p, &bytes).expect("copy");
+        p
+    });
+    let other = ev_dir.join("other.json");
+    std::fs::write(&other, b"{\"other\": 1}").expect("other");
+    let id = observed_with(
+        &root,
+        "k",
+        vec![
+            ev(a.clone()),
+            ev(b.clone()),
+            ev(c.clone()),
+            ev(other.clone()),
+        ],
+    );
+    // B into A (B after A in the list), then A into C (A before C): nested.
+    assert_eq!(
+        merge(&root, &id, 1, &b, &a, "r").expect("b"),
+        Merged::Merged
+    );
+    assert_eq!(
+        merge(&root, &id, 1, &a, &c, "r").expect("a"),
+        Merged::Merged
+    );
+    let e = reload(&root, &id).observations[0].evidence.clone();
+    assert_eq!(e.len(), 2);
+    assert_eq!(e[0].path, "../ev/c.json");
+    assert_eq!(e[0].merged[0].entry.merged[0].entry.path, "../ev/b.json");
+    // Both earlier merges rerun as no-ops, though A is no longer current.
+    assert_eq!(
+        merge(&root, &id, 1, &b, &a, "r").expect("b again"),
+        Merged::Already
+    );
+    assert_eq!(
+        merge(&root, &id, 1, &a, &c, "r").expect("a again"),
+        Merged::Already
+    );
+    // ... and after the survivor moves.
+    relocate(&root, &c, &d, false, "rename").expect("move c");
+    assert_eq!(
+        merge(&root, &id, 1, &b, &a, "r").expect("after move"),
+        Merged::Already
+    );
+
+    // Another entry cannot move onto a nested merged location ...
+    std::fs::write(&b, b"{\"other\": 1}").expect("other content at b");
+    refused(
+        relocate(&root, &other, &b, false, "r"),
+        "is a location of its other evidence",
+    );
+    // ... while the survivor may return to one of its own.
+    std::fs::write(&b, &bytes).expect("same content at b");
+    relocate(&root, &d, &b, false, "back").expect("own merged location");
+    load(std::slice::from_ref(&root)).expect("still valid");
+    // The merge reruns as a no-op even with the survivor now at B.
+    assert_eq!(
+        merge(&root, &id, 1, &b, &a, "r").expect("survivor at the alias"),
+        Merged::Already
+    );
+    // A location only a merged entry left still counts as moved from.
+    let moved = relocate(&root, &a, &d, false, "r").expect("finished");
+    assert_eq!(moved.entries, 0);
+}
+
+/// A raw-captured artifact that merely starts like a gzip stream, wrapped in
+/// zstd and unwrapped again: its raw bytes are its identity, and the
+/// verifier tries them whatever the file once was.
+#[test]
+fn a_raw_artifact_survives_a_round_trip_through_compression() {
+    let (root, ev_dir, _) = evidence_store("evidence-raw-roundtrip");
+    let odd = ev_dir.join("odd.bin");
+    let raw_bytes = [0x1f, 0x8b, b'n', b'o', b't', b' ', b'g', b'z'];
+    std::fs::write(&odd, raw_bytes).expect("odd");
+    let id = observed_with(
+        &root,
+        "k",
+        vec![NewEvidence {
+            path: odd.clone(),
+            raw: true,
+        }],
+    );
+    let zst = ev_dir.join("odd.bin.zst");
+    std::fs::write(&zst, zstd_of(&raw_bytes)).expect("zst");
+    relocate(&root, &odd, &zst, false, "wrap").expect("wrap");
+    std::fs::remove_file(&odd).expect("rm");
+    // Unwrapped in place under the old name, and moved back.
+    std::fs::write(&odd, raw_bytes).expect("unwrap");
+    relocate(&root, &zst, &odd, false, "unwrap").expect("back to a former location");
+    let store = load(std::slice::from_ref(&root)).expect("loads");
+    let audit = audit(&store, &[]).expect("audit");
+    assert_eq!((audit.entries, audit.matching), (1, 1), "{audit:?}");
+    let e = &reload(&root, &id).observations[0].evidence[0];
+    assert_eq!(e.moves.len(), 2);
+}
+
+/// A compressed artifact captured raw identifies the stream's bytes; a
+/// decoded LFS pointer inside it does not override that match.
+#[test]
+fn a_raw_match_outranks_a_decoded_pointer() {
+    let (root, ev_dir, _) = evidence_store("evidence-raw-pointer");
+    let pointer = format!(
+        "version https://git-lfs.github.com/spec/v1\noid sha256:{}\nsize 12\n",
+        "a".repeat(64)
+    );
+    let gz = ev_dir.join("pointer.gz");
+    std::fs::write(&gz, gzip(pointer.as_bytes())).expect("gz");
+    observed_with(
+        &root,
+        "k",
+        vec![NewEvidence {
+            path: gz.clone(),
+            raw: true,
+        }],
+    );
+    let store = load(std::slice::from_ref(&root)).expect("loads");
+    let audit = audit(&store, &[]).expect("audit");
+    assert_eq!((audit.entries, audit.matching), (1, 1), "{audit:?}");
+    // A different stream around the same pointer matches nothing: the
+    // pointer is the reason.
+    std::fs::write(&gz, zstd_of(pointer.as_bytes())).expect("other wrapper");
+    let store = load(std::slice::from_ref(&root)).expect("loads");
+    let audit = super::audit(&store, &[]).expect("audit");
+    assert_eq!(audit.failing[0].inspection.fault, Some(Fault::Pointer));
 }
 
 #[test]
@@ -3800,7 +4024,6 @@ fn legacy_entries_gain_only_attested_digests() {
     assert_eq!((done.entries, done.files), (1, 1));
     let e = reload(&root, &id).observations[0].evidence.clone();
     assert_eq!(e[0].sha256, None);
-    assert_eq!(e[1].encoding, Some(Encoding::Gzip));
     assert_eq!(
         e[1].sha256.as_deref(),
         Some(validate::sha256_hex(b"{\"other\": true}\n").as_str())
@@ -3817,18 +4040,10 @@ fn legacy_entries_gain_only_attested_digests() {
     let zst = ev_dir.join("run26.json.zst");
     std::fs::write(&zst, zstd_of(&bytes)).expect("zst");
     refused(
-        relocate(&root, &ev_dir.join("run26.json"), &zst, false, false, ""),
+        relocate(&root, &ev_dir.join("run26.json"), &zst, false, ""),
         "needs a --reason",
     );
-    let moved = relocate(
-        &root,
-        &ev_dir.join("run26.json"),
-        &zst,
-        false,
-        false,
-        "compress",
-    )
-    .expect("move");
+    let moved = relocate(&root, &ev_dir.join("run26.json"), &zst, false, "compress").expect("move");
     assert_eq!(moved.attested, 1);
     let e = &reload(&root, &id).observations[0].evidence[0];
     assert_eq!(
@@ -3839,7 +4054,6 @@ fn legacy_entries_gain_only_attested_digests() {
         e.attested.as_ref().map(|a| a.reason.as_str()),
         Some("compress")
     );
-    assert_eq!(e.moves[0].encoding, None);
     refused(
         attest(&root, &[ev_dir.join("nothing.json")], false, "r"),
         "no evidence entry is at",
@@ -3926,7 +4140,6 @@ fn decoding_is_complete_or_refused() {
     };
     observe(&root, &id, &raw).expect("raw");
     let e = &reload(&root, &id).observations[1].evidence[0];
-    assert_eq!(e.encoding, None);
     assert_eq!(
         e.sha256.as_deref(),
         Some(validate::sha256_hex(&[0x1f, 0x8b, b'x', b'y']).as_str())
@@ -3957,7 +4170,7 @@ fn keyed_reruns_must_name_every_entry_once() {
             &id,
             &rerun(vec![ev(a.clone()), ev(a.clone()), ev(b.clone())]),
         ),
-        "both name stored",
+        "is given twice",
     );
     let c = ev_dir.join("c.json");
     refused(
@@ -3976,16 +4189,16 @@ fn a_move_never_lands_on_another_entry() {
     // Same content, but `b` is the observation's other entry: merging them
     // would drop an independently recorded artifact.
     refused(
-        relocate(&root, &a, &b, false, false, "dedupe"),
+        relocate(&root, &a, &b, false, "dedupe"),
         "is a location of its other evidence",
     );
     // Nor onto a location the other entry has left: an old landing script
     // naming it would then match two entries.
     let b2 = ev_dir.join("b2.json");
     std::fs::copy(&b, &b2).expect("copy");
-    relocate(&root, &b, &b2, false, false, "rename").expect("move b");
+    relocate(&root, &b, &b2, false, "rename").expect("move b");
     refused(
-        relocate(&root, &a, &b, false, false, "reuse"),
+        relocate(&root, &a, &b, false, "reuse"),
         "is a location of its other evidence",
     );
 }
@@ -3997,11 +4210,11 @@ fn interrupted_maintenance_resumes() {
     let zst = ev_dir.join("run26.json.zst");
     std::fs::write(&zst, zstd_of(&bytes)).expect("zst");
     let first = observed_with(&root, "k", vec![ev(json.clone())]);
-    relocate(&root, &json, &zst, false, false, "compress").expect("move");
+    relocate(&root, &json, &zst, false, "compress").expect("move");
     // The state an interrupted move leaves: some references moved, one
     // still at the old location.
     let second = observed_with(&root, "k", vec![ev(json.clone())]);
-    let moved = relocate(&root, &json, &zst, false, false, "compress").expect("resume");
+    let moved = relocate(&root, &json, &zst, false, "compress").expect("resume");
     assert_eq!((moved.entries, moved.questions), (1, 1));
     for id in [&first, &second] {
         assert_eq!(
@@ -4118,7 +4331,7 @@ fn unfetched_lfs_objects_and_typos() {
         Some(Fault::Pointer)
     );
     refused(
-        relocate(&root, &ev_dir.join("run62.json"), &json, false, false, "r"),
+        relocate(&root, &ev_dir.join("run62.json"), &json, false, "r"),
         "no evidence entry is or was at",
     );
 }
@@ -4165,7 +4378,7 @@ fn moves_refuse_disagreeing_references() {
     std::fs::write(&json, b"{\"rewritten\": true}").expect("rewrite");
     observed_with(&root, "k", vec![ev(json.clone())]);
     refused(
-        relocate(&root, &json, &zst, false, false, "compress"),
+        relocate(&root, &json, &zst, false, "compress"),
         "but the entry's content is",
     );
 
@@ -4197,36 +4410,81 @@ fn moves_refuse_disagreeing_references() {
     .expect("legacy");
     std::fs::write(&json, b"{\"slimmed\": true}").expect("slim");
     refused(
-        relocate(&root, &json, &zst, false, false, "compress"),
+        relocate(&root, &json, &zst, false, "compress"),
         "but the entry's content is",
     );
     refused(
-        relocate(&root, &json, &zst, true, false, "compress"),
+        relocate(&root, &json, &zst, true, "compress"),
         "but the entry's content is",
     );
 }
 
 #[test]
-fn revisiting_a_location_needs_the_same_reading() {
+fn revisiting_a_location_needs_only_the_same_content() {
     let (root, ev_dir, bytes) = evidence_store("evidence-revisit");
     let json = ev_dir.join("run26.json");
     let zst = ev_dir.join("run26.json.zst");
     std::fs::write(&zst, zstd_of(&bytes)).expect("zst");
     let id = observed_with(&root, "k", vec![ev(json.clone())]);
-    relocate(&root, &json, &zst, false, false, "compress").expect("there");
-    relocate(&root, &zst, &json, false, false, "decompress").expect("and back");
+    relocate(&root, &json, &zst, false, "compress").expect("there");
+    relocate(&root, &zst, &json, false, "decompress").expect("and back");
     let e = &reload(&root, &id).observations[0].evidence[0];
-    assert_eq!(
-        (e.path.as_str(), e.encoding, e.moves.len()),
-        ("../ev/run26.json", None, 2)
-    );
+    assert_eq!((e.path.as_str(), e.moves.len()), ("../ev/run26.json", 2));
 
-    relocate(&root, &json, &zst, false, false, "compress").expect("there again");
-    // The original name now holds gzip: the entry read it raw before.
+    relocate(&root, &json, &zst, false, "compress").expect("there again");
+    // The original name now holds gzip of the same content: no reading is
+    // pinned to a location, so it is the same evidence.
     std::fs::write(&json, gzip(&bytes)).expect("gzip in place");
+    relocate(&root, &zst, &json, false, "back").expect("same content");
+    // Other content there is not.
+    relocate(&root, &json, &zst, false, "compress").expect("once more");
+    std::fs::write(&json, gzip(b"{\"other\": 1}")).expect("other");
     refused(
-        relocate(&root, &zst, &json, false, false, "back"),
-        "read raw; it now reads gzip",
+        relocate(&root, &zst, &json, false, "back"),
+        "but the entry's content is",
+    );
+}
+
+#[test]
+fn attest_takes_only_the_identity_already_at_a_location() {
+    let (root, ev_dir, bytes) = evidence_store("evidence-attest-conflict");
+    let zst = ev_dir.join("run26.json.zst");
+    std::fs::write(&zst, zstd_of(&bytes)).expect("zst");
+    // A hashed entry identifying the decoded content ...
+    observed_with(&root, "k", vec![ev(zst.clone())]);
+    // ... and a legacy one at the same file.
+    let id = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    observe(
+        &root,
+        &id,
+        &compile(Source::Editor, "2026-09-27", Outcome::Accepted),
+    )
+    .expect("observe");
+    let path = root.join(format!("{id}.toml"));
+    let text = std::fs::read_to_string(&path).expect("read");
+    std::fs::write(
+        &path,
+        text.replace(
+            "outcome = ",
+            "evidence = [\"../ev/run26.json.zst\"]\noutcome = ",
+        ),
+    )
+    .expect("legacy");
+    // Raw would identify the stream's bytes: two records of one file would
+    // name different evidence.
+    refused(
+        attest(&root, std::slice::from_ref(&zst), true, "r"),
+        "but entries already there identify",
+    );
+    let done = attest(&root, &[zst], false, "r").expect("decoded agrees");
+    assert_eq!(done.entries, 1);
+    assert_eq!(
+        reload(&root, &id).observations[0].evidence[0]
+            .sha256
+            .as_deref(),
+        Some(validate::sha256_hex(&bytes).as_str())
     );
 }
 

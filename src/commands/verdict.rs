@@ -210,10 +210,10 @@ pub(crate) enum VerdictCommand {
 #[derive(Subcommand)]
 pub(crate) enum EvidenceCommand {
     /// Re-point every entry whose current location is OLD to NEW, which must
-    /// decode to the same content (an entry without a digest: to OLD as it
-    /// reads now, and it gains that digest, marked attested). Checks every
-    /// entry before writing any record; never deletes a file. Rerun after an
-    /// interruption to move the rest.
+    /// hold the same content, raw or decoded (an entry without a digest: as
+    /// OLD reads now, and it gains that digest, marked attested). Checks
+    /// every entry before writing any record; never deletes a file. Rerun
+    /// after an interruption to move the rest.
     Move {
         old: PathBuf,
         new: PathBuf,
@@ -226,9 +226,26 @@ pub(crate) enum EvidenceCommand {
         /// Read OLD as it is, never decoded, for entries without a digest.
         #[arg(long)]
         old_raw: bool,
-        /// Read NEW as it is, never decoded.
+    },
+
+    /// Merge the entry at REDUNDANT into the entry at INTO, two evidence
+    /// entries of one observation citing the same content (equal digests;
+    /// no file is read). The redundant entry is kept under the survivor, so
+    /// its locations still name it in keyed reruns. A rerun is a no-op.
+    Merge {
+        /// Question id.
+        id: String,
+        redundant: PathBuf,
+        into: PathBuf,
+        /// The observation's #N.
         #[arg(long)]
-        new_raw: bool,
+        observation: usize,
+        /// Records directory to update.
+        #[arg(long)]
+        records: PathBuf,
+        /// Why the two entries are one citation.
+        #[arg(long)]
+        reason: String,
     },
 
     /// Record the digest of entries that have none (those at the given
@@ -569,7 +586,7 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
                 }
                 print_question(&store, q, &mut inspector, style);
             }
-            Ok(())
+            inspector.stable()
         }
         VerdictCommand::List {
             records,
@@ -611,9 +628,8 @@ fn run_evidence(command: EvidenceCommand, quiet: bool) -> Result<()> {
             records,
             reason,
             old_raw,
-            new_raw,
         } => {
-            let moved = verdict::relocate(&records, &old, &new, old_raw, new_raw, &reason)?;
+            let moved = verdict::relocate(&records, &old, &new, old_raw, &reason)?;
             if moved.entries == 0 {
                 println!(
                     "every entry that was at {} has moved already: nothing moved",
@@ -640,6 +656,28 @@ fn run_evidence(command: EvidenceCommand, quiet: bool) -> Result<()> {
                         old.display()
                     );
                 }
+            }
+            Ok(())
+        }
+        EvidenceCommand::Merge {
+            id,
+            redundant,
+            into,
+            observation,
+            records,
+            reason,
+        } => {
+            match verdict::merge(&records, &id, observation, &redundant, &into, &reason)? {
+                verdict::Merged::Merged => println!(
+                    "merged {} into {} ({id} #{observation})",
+                    redundant.display(),
+                    into.display()
+                ),
+                verdict::Merged::Already => println!(
+                    "{} is already merged into {}: nothing to do",
+                    redundant.display(),
+                    into.display()
+                ),
             }
             Ok(())
         }
@@ -1061,29 +1099,39 @@ fn print_observation(r: &Ranked<'_>, root: &Path, inspector: &mut Inspector, sty
     print_amendments("            ", &o.amendments);
 }
 
-/// One evidence entry: its location, the file's state read now, where its
-/// digest came from, and the locations it left.
+/// One evidence entry: its location, the file's state read now, then its
+/// history.
 fn print_evidence(e: &Evidence, root: &Path, inspector: &mut Inspector) {
     let indent = "            ";
-    let read_as = e
-        .encoding
-        .map_or(String::new(), |enc| format!("{}, ", enc.as_str()));
     println!(
-        "{indent}evidence: {} ({read_as}{})",
+        "{indent}evidence: {} ({})",
         e.path,
         inspector.inspect(root, e)
     );
+    print_evidence_history(e, &format!("{indent}  "));
+}
+
+/// Where an entry's digest came from, the locations it left, and the
+/// entries merged into it (never read: history, each with its own).
+fn print_evidence_history(e: &Evidence, indent: &str) {
     if let Some(sha) = &e.sha256 {
         match &e.attested {
             Some(a) => println!(
-                "{indent}  sha256 {sha}, attested {}: {} (identifies the content from then on, not the capture)",
+                "{indent}sha256 {sha}, attested {}: {} (identifies the content from then on, not the capture)",
                 a.at, a.reason
             ),
-            None => println!("{indent}  sha256 {sha}, recorded at capture"),
+            None => println!("{indent}sha256 {sha}, recorded at capture"),
         }
     }
     for m in &e.moves {
-        println!("{indent}  moved {} from {}: {}", m.at, m.from, m.reason);
+        println!("{indent}moved {} from {}: {}", m.at, m.from, m.reason);
+    }
+    for m in &e.merged {
+        println!(
+            "{indent}merged {} from {}: {}",
+            m.at, m.entry.path, m.reason
+        );
+        print_evidence_history(&m.entry, &format!("{indent}  "));
     }
 }
 
