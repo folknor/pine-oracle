@@ -3683,6 +3683,57 @@ fn compressed_evidence_keeps_its_identity_through_a_move() {
     refused(observe(&root, &id, &rerun), "not the stored");
 }
 
+/// The piners migration: one capture cited twice in an observation, once
+/// directly and once through a probe's copy. The record is compressed and
+/// moved; the probe's copy becomes a link to the compressed file. The probe
+/// entry was recorded raw, yet it still matches: the digest is the identity.
+#[cfg(unix)]
+#[test]
+fn a_link_to_compressed_evidence_matches_a_raw_recorded_digest() {
+    let (root, ev_dir, bytes) = evidence_store("evidence-link");
+    let record = ev_dir.join("run26.json");
+    let probe = ev_dir.join("tv_record.json");
+    std::fs::write(&probe, &bytes).expect("probe copy");
+    let id = observed_with(&root, "k", vec![ev(record.clone()), ev(probe.clone())]);
+
+    let zst = ev_dir.join("run26.json.zst");
+    std::fs::write(&zst, zstd_of(&bytes)).expect("zst");
+    relocate(&root, &record, &zst, false, false, "compressed").expect("move");
+    std::fs::remove_file(&record).expect("delete the original");
+    std::fs::remove_file(&probe).expect("drop the copy");
+    std::os::unix::fs::symlink("run26.json.zst", &probe).expect("link");
+
+    let store = load(std::slice::from_ref(&root)).expect("loads");
+    let audit = audit(&store, &[]).expect("audit");
+    assert_eq!((audit.entries, audit.matching), (2, 2), "{audit:?}");
+    let row = store.get(&id).expect("question").observations[0].evidence[1].clone();
+    assert_eq!(row.encoding, None, "the recorded reading is history, kept");
+    let inspection = Inspector::new().inspect(&root, &row);
+    assert_eq!(
+        inspection.comparison,
+        Comparison::MatchesAs {
+            recorded: None,
+            now: Some(Encoding::Zstd)
+        }
+    );
+    assert!(inspection.to_string().contains("read zstd (recorded raw)"));
+
+    // The landing script naming both locations is still a no-op rerun.
+    let rerun = NewObservation {
+        key: Some("k".into()),
+        evidence: vec![ev(zst.clone()), ev(probe.clone())],
+        ..compile(Source::Editor, "2026-09-27", Outcome::Accepted)
+    };
+    assert!(observe(&root, &id, &rerun).expect("rerun").existing);
+
+    // Other content behind the link is still a change.
+    std::fs::remove_file(&probe).expect("unlink");
+    std::fs::write(&probe, zstd_of(b"{\"other\": 1}")).expect("other");
+    let store = load(std::slice::from_ref(&root)).expect("loads");
+    let audit = super::audit(&store, &[]).expect("audit");
+    assert_eq!(audit.failing.len(), 1, "{audit:?}");
+}
+
 #[test]
 fn slimmed_evidence_is_detected_without_changing_status() {
     let (root, ev_dir, _) = evidence_store("evidence-slimmed");

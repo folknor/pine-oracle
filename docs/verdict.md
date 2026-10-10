@@ -618,8 +618,13 @@ compressed or moved without breaking the records citing it.
 each file once: one starting like a gzip stream is decoded (every member,
 each trailer checked), one starting like a zstd stream (a zstd frame, or a
 skippable frame) likewise (every frame, checksums checked), anything else is
-hashed as it is. The interpretation is recorded as `encoding` (absent: raw)
-and followed on every later read, never re-sniffed. A file that starts like
+hashed as it is. The interpretation is recorded as `encoding` (absent: raw).
+A later read follows it first, and only when that misses the digest tries
+the interpretation the file's leading bytes show now. So an artifact
+recorded with `--evidence-raw` is never mis-decoded, while a file compressed
+or decompressed in place, or replaced by a symlink to its compressed copy,
+still matches: `check` and `show` report it as `matches its digest, read
+zstd (recorded raw)`, and the recorded `encoding` stays as written. A file that starts like
 a compressed stream but does not decode completely (truncated, a bad
 checksum, trailing bytes, a dictionary frame) is refused, never hashed raw
 instead, as is a compressed stream that decodes to nothing and a Git LFS
@@ -644,7 +649,10 @@ one locations are relative to. Symlinks are therefore not resolved: records
 written before digests stored symlink-resolved paths, so a landing script
 that reaches its evidence through a symlinked directory now names a
 different location, and its keyed rerun fails until it names the evidence
-by the stored spelling. Entries are stored `--evidence` first, then
+by the stored spelling. For the same reason a path reached through a
+symlink is a location of its own: an observation citing a file directly and
+through a link to it holds two entries, and no move merges them (a location
+belongs to one entry). Entries are stored `--evidence` first, then
 `--evidence-raw`; the order carries no meaning. Within one observation a location (current or former) belongs to
 one entry. Keep evidence inside the same git repository, or the stored
 relative path will not resolve on another checkout.

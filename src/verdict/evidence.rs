@@ -6,9 +6,13 @@
 //
 // Identity is the sha256 of the DECODED content. A file is read raw, or as a
 // gzip or zstd stream (every member / frame, each checksum, nothing trailing),
-// and the interpretation is recorded beside the location and followed on
-// every later read, never re-sniffed. So a record compressed to
-// `record.json.zst` is the same evidence, while compacting its JSON is not.
+// and the interpretation is recorded beside the location. A later read
+// follows it first, and only when that misses the digest tries the
+// interpretation the leading bytes show now, so a raw artifact that merely
+// starts like a stream is never mis-decoded, while a file compressed in place
+// (or a link now naming a compressed file) still matches. So a record
+// compressed to `record.json.zst` is the same evidence, while compacting its
+// JSON is not.
 // A digest computed when `observe` recorded the entry identifies the bytes
 // supplied then; one established later (`attest`, or a `relocate` of an entry
 // that had none) is marked `attested`: it identifies the bytes from then on,
@@ -489,6 +493,34 @@ impl Inspector {
         result.map(|(h, _)| h)
     }
 
+    /// Compare the file at `path` with a recorded digest. It is read under
+    /// the recorded interpretation first; when that does not yield the
+    /// digest, under the one its leading bytes show now. A file compressed
+    /// or decompressed in place, or replaced by a link to such a file, is
+    /// still the same content: the digest is the identity, the interpretation
+    /// only how it was reached. When neither reading matches, the recorded
+    /// reading's outcome stands.
+    fn verify(
+        &mut self,
+        path: &Path,
+        recorded: Option<Encoding>,
+        sha256: &str,
+    ) -> Result<Verified, Fault> {
+        let first = self.hash(path, Reading::As(recorded));
+        if let Ok(h) = &first
+            && h.sha256 == sha256
+        {
+            return Ok(Verified::Matches { now: recorded });
+        }
+        if let Ok(h) = self.hash(path, Reading::Sniff)
+            && h.encoding != recorded
+            && h.sha256 == sha256
+        {
+            return Ok(Verified::Matches { now: h.encoding });
+        }
+        first.map(|h| Verified::Changed { now: h.sha256 })
+    }
+
     /// The files this operation read successfully that no longer carry a
     /// fingerprint they were read with.
     fn changed_since_read(&self) -> Vec<PathBuf> {
@@ -533,14 +565,21 @@ impl Inspector {
             }
         };
         match &e.sha256 {
-            Some(recorded) => match self.hash(&path, Reading::As(e.encoding)) {
-                Ok(h) if h.sha256 == *recorded => Inspection {
+            Some(recorded) => match self.verify(&path, e.encoding, recorded) {
+                Ok(Verified::Matches { now }) if now == e.encoding => Inspection {
                     fault: None,
                     comparison: Comparison::Matches,
                 },
-                Ok(h) => Inspection {
+                Ok(Verified::Matches { now }) => Inspection {
                     fault: None,
-                    comparison: Comparison::Changed { now: h.sha256 },
+                    comparison: Comparison::MatchesAs {
+                        recorded: e.encoding,
+                        now,
+                    },
+                },
+                Ok(Verified::Changed { now }) => Inspection {
+                    fault: None,
+                    comparison: Comparison::Changed { now },
                 },
                 Err(fault) => Inspection {
                     fault: Some(fault),
@@ -555,10 +594,26 @@ impl Inspector {
     }
 }
 
+/// What `Inspector::verify` found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Verified {
+    /// The digest matches, read under `now`.
+    Matches { now: Option<Encoding> },
+    /// It decodes (under the recorded interpretation) to other content.
+    Changed { now: String },
+}
+
 /// How an entry's file compares with its recorded digest.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Comparison {
     Matches,
+    /// It matches, but only read as its leading bytes show now, not as
+    /// recorded: compressed or decompressed in place, or now a link to such
+    /// a file.
+    MatchesAs {
+        recorded: Option<Encoding>,
+        now: Option<Encoding>,
+    },
     /// It decodes to other content: slimmed, rewritten or replaced.
     Changed {
         now: String,
@@ -589,6 +644,11 @@ impl fmt::Display for Inspection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let comparison = match &self.comparison {
             Comparison::Matches => "matches its digest".to_string(),
+            Comparison::MatchesAs { recorded, now } => format!(
+                "matches its digest, read {} (recorded {})",
+                interpretation(*now),
+                interpretation(*recorded)
+            ),
             Comparison::Changed { now } => format!(
                 "CHANGED since its digest was recorded (decodes to {})",
                 short(now)
@@ -691,16 +751,15 @@ pub(super) fn rerun_differences(
                 "`evidence`: `{location}` is given raw but was recorded as {}",
                 encoding.as_str()
             )),
-            (Some(recorded), encoding) => match inspector.hash(&path, Reading::As(encoding)) {
-                Ok(h) if h.sha256 == *recorded => {}
-                Ok(h) => diffs.push(format!(
-                    "`evidence`: `{location}` decodes to {}, not the stored {}",
-                    short(&h.sha256),
-                    short(recorded)
-                )),
+            (Some(recorded), encoding) => match inspector.verify(&path, encoding, recorded) {
                 // An unfetched LFS object is absent content, as on a fresh
                 // clone: the location alone names the entry.
-                Err(Fault::Missing | Fault::Pointer) => {}
+                Ok(Verified::Matches { .. }) | Err(Fault::Missing | Fault::Pointer) => {}
+                Ok(Verified::Changed { now }) => diffs.push(format!(
+                    "`evidence`: `{location}` decodes to {}, not the stored {}",
+                    short(&now),
+                    short(recorded)
+                )),
                 Err(fault) => diffs.push(format!("`evidence`: `{location}`: {fault}")),
             },
             // No digest to compare: matched by location only, and never
@@ -1058,12 +1117,12 @@ pub fn attest(root: &Path, paths: &[PathBuf], raw: bool, reason: &str) -> Result
         for s in &here {
             let e = &questions[s.0].observations[s.1].evidence[s.2];
             let Some(recorded) = &e.sha256 else { continue };
-            match inspector.hash(&located(root, location)?, Reading::As(e.encoding)) {
-                Ok(h) if h.sha256 == *recorded => {}
-                Ok(h) => problems.push(format!(
+            match inspector.verify(&located(root, location)?, e.encoding, recorded) {
+                Ok(Verified::Matches { .. }) => {}
+                Ok(Verified::Changed { now }) => problems.push(format!(
                     "{}: `{location}` decodes to {}, not its digest {}",
                     label(&questions[s.0], s.1),
-                    short(&h.sha256),
+                    short(&now),
                     short(recorded)
                 )),
                 Err(fault) => problems.push(format!(
