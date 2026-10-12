@@ -1741,6 +1741,179 @@ fn a_directory_turned_link_after_a_read_is_a_change() {
     );
 }
 
+/// `po verdict citations` judges each cited id by its resolved status:
+/// settled passes bare; open and conflict pass only with their own word
+/// after the id; a retired id fails and names where the work continued; an
+/// id not in the store fails.
+#[test]
+fn citations_are_judged_by_resolved_status() {
+    let root = scratch("cited-check");
+    let settled = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    observe(
+        &root,
+        &settled,
+        &compile(Source::Editor, "2026-09-27", Outcome::Accepted),
+    )
+    .expect("settle");
+    let open = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    observe(
+        &root,
+        &open,
+        &compile(Source::Endpoint, "2026-09-27", Outcome::Accepted),
+    )
+    .expect("endpoint alone leaves it open");
+    let conflict = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    observe(
+        &root,
+        &conflict,
+        &compile(Source::Editor, "2026-09-27", Outcome::Accepted),
+    )
+    .expect("accept");
+    let reject = NewObservation {
+        errors: vec![parse_diag("CE10099|Only libraries can export.|1:1-1:5").expect("diag")],
+        ..compile(Source::Editor, "2026-09-28", Outcome::Rejected)
+    };
+    observe(&root, &conflict, &reject).expect("reject");
+    let retired = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    retire(&root, &retired, "reworded", std::slice::from_ref(&settled)).expect("retire");
+    let store = load(&root).expect("load");
+    assert_eq!(resolved(&root, &conflict).status(), Some(Status::Conflict));
+
+    let source = format!(
+        "// verdict {settled}\n\
+         // verdicts {open} (open), {conflict} (conflict)\n\
+         // verdict {open}\n\
+         // verdict {conflict} (open)\n\
+         // verdict {retired} (retired)\n\
+         // verdict deadbeef\n"
+    );
+    let failures = cited::check(&store, &cited::scan(&source));
+    let got: Vec<(usize, String)> = failures.iter().map(|f| (f.line, f.id.clone())).collect();
+    assert_eq!(
+        got,
+        vec![
+            (3, open.clone()),
+            (4, conflict.clone()),
+            (5, retired.clone()),
+            (6, "deadbeef".to_string()),
+        ],
+        "{failures:?}"
+    );
+    assert!(failures[1].why.contains("is conflict"), "{failures:?}");
+    assert!(
+        failures[2].why.contains(&format!("cite {settled}")),
+        "{failures:?}"
+    );
+    assert!(failures[3].why.contains("not in the store"), "{failures:?}");
+}
+
+/// The marker is the resolved status word, whatever qualifies it: documented,
+/// inferred (settled / open via / documented via) and settled-negative map
+/// as `show` resolves them. Markers are whole words and belong to the id
+/// they follow; a retired chain names where the work stands now.
+#[test]
+fn citation_markers_follow_the_resolved_word() {
+    let root = scratch("cited-words");
+    let settled = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    observe(
+        &root,
+        &settled,
+        &compile(Source::Editor, "2026-09-27", Outcome::Accepted),
+    )
+    .expect("settle");
+    let open = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    let documented = add(&root, &question(Kind::Runtime, &["request.security"]))
+        .expect("add")
+        .id;
+    cite(&root, &documented, LOWER_TF, &quotes(&[LOOKAHEAD_ON]), None).expect("cite");
+    let inferred = |basis: &str| {
+        add(
+            &root,
+            &NewQuestion {
+                question: format!("From {basis}?"),
+                basis: vec![basis.to_string()],
+                ..question(Kind::Compile, &["export"])
+            },
+        )
+        .expect("add inferred")
+        .id
+    };
+    let (inf_settled, inf_open, inf_documented) =
+        (inferred(&settled), inferred(&open), inferred(&documented));
+    let negative = add(
+        &root,
+        &NewQuestion {
+            question: "Negative?".into(),
+            negative: true,
+            ..question(Kind::Compile, &["export"])
+        },
+    )
+    .expect("add")
+    .id;
+    observe(
+        &root,
+        &negative,
+        &compile(Source::Editor, "2026-09-27", Outcome::Accepted),
+    )
+    .expect("settle");
+    // A retired chain: first -> second (also retired) -> settled.
+    let first = add(
+        &root,
+        &NewQuestion {
+            question: "First?".into(),
+            ..question(Kind::Compile, &["export"])
+        },
+    )
+    .expect("add")
+    .id;
+    let second = add(
+        &root,
+        &NewQuestion {
+            question: "Second?".into(),
+            ..question(Kind::Compile, &["export"])
+        },
+    )
+    .expect("add")
+    .id;
+    retire(&root, &first, "split", std::slice::from_ref(&second)).expect("retire first");
+    retire(&root, &second, "reworded", std::slice::from_ref(&settled)).expect("retire second");
+    let store = load(&root).expect("load");
+
+    let source = format!(
+        "// verdict {documented} (documented)\n\
+         // verdict {inf_settled}\n\
+         // verdict {inf_open} (open)\n\
+         // verdict {inf_documented} (documented)\n\
+         // verdict {negative}\n\
+         // verdict {open} (reopened)\n\
+         // verdicts {open}, {inf_open} (open)\n\
+         // verdict {first}\n"
+    );
+    let failures = cited::check(&store, &cited::scan(&source));
+    let got: Vec<(usize, String)> = failures.iter().map(|f| (f.line, f.id.clone())).collect();
+    assert_eq!(
+        got,
+        vec![(6, open.clone()), (7, open.clone()), (8, first.clone())],
+        "{failures:?}"
+    );
+    assert!(
+        failures[2].why.contains(&format!("cite {settled}")),
+        "{failures:?}"
+    );
+}
+
 /// A write that is refused creates nothing in a repository that never held
 /// verdicts beyond `verdicts/.lock`.
 #[test]

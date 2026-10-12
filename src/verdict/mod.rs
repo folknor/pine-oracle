@@ -47,6 +47,7 @@ use std::str::FromStr;
 use toml::value::Datetime;
 
 mod citation;
+pub mod cited;
 mod evidence;
 mod load;
 mod search;

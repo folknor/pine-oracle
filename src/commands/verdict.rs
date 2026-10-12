@@ -1,9 +1,9 @@
-use anyhow::{Result, bail};
+use anyhow::{Context as _, Result, bail};
 use clap::{ArgGroup, Subcommand};
 use pine_oracle::verdict::{
     self, AmendField, AmendTarget, Amendment, AuditRow, Citation, ClosureAction, Evidence,
     Inspector, Kind, ListFilter, NewEvidence, NewObservation, NewQuestion, Outcome, Question,
-    Ranked, Relation, Source, Status, Store, VoidTarget,
+    Ranked, Relation, Source, Status, Store, VoidTarget, cited,
 };
 use std::path::{Path, PathBuf};
 
@@ -138,6 +138,20 @@ pub(crate) enum VerdictCommand {
         query: String,
         #[arg(long, default_value_t = 8)]
         limit: usize,
+    },
+
+    /// Check every verdict cited in the repository: each cited id exists and
+    /// is settled, or its line says `open`, `conflict` or `documented` after
+    /// the id, matching its status; a retired one always fails. A citation
+    /// is an 8-hex id after the word `verdict` or `verdicts`. Prints
+    /// `path:line: verdict <id> ...` per failure; fails on any, and when
+    /// nothing is cited at all. `verdicts/` is never scanned.
+    Citations {
+        /// Git pathspecs to scan (tracked files, and untracked ones git does
+        /// not ignore), relative to the working directory; `:(exclude)...`
+        /// works. None scans the whole repository.
+        #[arg(value_name = "PATHSPEC")]
+        pathspecs: Vec<String>,
     },
 
     /// Print question(s) in full, strongest observation first.
@@ -507,6 +521,64 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
             }
             let rows: Vec<&Question> = hits.iter().filter_map(|h| store.get(&h.id)).collect();
             print_rows(&store, &rows, style);
+            Ok(())
+        }
+        VerdictCommand::Citations { pathspecs } => {
+            let store = verdict::load(&root)?;
+            let repo = root.parent().unwrap_or(&root);
+            let cwd = std::env::current_dir()?;
+            let (mut cited, mut failing, mut files) = (0, 0, 0);
+            let mut ids = std::collections::BTreeSet::new();
+            for path in cited::files(repo, &cwd, &pathspecs)? {
+                let full = repo.join(&path);
+                // Skipped, as citing nothing here: a tracked file deleted
+                // from the working tree, a submodule (listed as its
+                // directory; its own repository is checked on its own), and
+                // a link (its target is another file, or outside the tree).
+                match std::fs::symlink_metadata(&full) {
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                    Ok(m) if m.is_dir() || m.file_type().is_symlink() => continue,
+                    _ => {}
+                }
+                let text = match std::fs::read(&full) {
+                    // Binary (a NUL byte, valid UTF-8 or not) cites nothing;
+                    // text that does not decode might, so it is named.
+                    Ok(bytes) if bytes.contains(&0) => continue,
+                    Ok(bytes) => match String::from_utf8(bytes) {
+                        Ok(text) => text,
+                        Err(_) => {
+                            if !quiet {
+                                eprintln!("warning: {path} is not UTF-8 text: not scanned");
+                            }
+                            continue;
+                        }
+                    },
+                    Err(e) => return Err(e).with_context(|| format!("reading {path}")),
+                };
+                files += 1;
+                let found = cited::scan(&text);
+                cited += found.len();
+                ids.extend(found.iter().map(|c| c.id.clone()));
+                for f in cited::check(&store, &found) {
+                    failing += 1;
+                    println!("{path}:{}: verdict {} {}", f.line, f.id, f.why);
+                }
+            }
+            if cited == 0 {
+                bail!(
+                    "no verdict citations in {files} file(s): the pathspecs match nothing that cites, \
+                     so the check proves nothing"
+                );
+            }
+            if failing > 0 {
+                bail!("{failing} of {cited} citation(s) break the settlement rule");
+            }
+            // A fixed line, so a CI step can match it; the counts go to
+            // stderr.
+            println!("citations ok.");
+            if !quiet {
+                eprintln!("{cited} cited, {} ids, {files} files", ids.len());
+            }
             Ok(())
         }
         VerdictCommand::Show { ids } => {

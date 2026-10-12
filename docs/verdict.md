@@ -43,6 +43,7 @@ po verdict evidence move   <old> <new> --reason "..." [--old-raw]
 po verdict evidence merge  <id> <redundant> <into> --observation N --reason "..."
 po verdict evidence attest [<path>...] --reason "..." [--raw]
 po verdict evidence check  [<id>...]
+po verdict citations [<pathspec>...]
 po verdict search   <query> [--limit N]
 po verdict show     <id>...
 po verdict list     [--identifier X] [--code C]
@@ -596,6 +597,60 @@ So an endpoint accept under an editor reject reads as a weaker observation,
 not a contradiction. When the top observations themselves conflict there is
 nothing single to compare against, so weaker ones go unannotated. Runtime
 candidates are shown as selected, consistent, refuted or undecided.
+
+## Checking where verdicts are cited
+
+`po verdict citations [<pathspec>...]` enforces one rule over the repository
+that holds the store: every verdict cited in its text is settled, or the
+citing line says which status it rests on. It is meant to run as a CI step.
+
+**What is scanned.** The files git sees under the pathspecs, tracked or
+untracked and not ignored, never `verdicts/` (ids there are data). The
+pathspecs are git's, relative to the working directory, so the repository
+keeps its policy on the command line:
+
+```
+po verdict citations crates scripts docs reference corpus/registry/pins.toml \
+    ':(glob)corpus/piners/*/README.md' ':(exclude)crates/x/tests/scanner_fixtures.rs'
+```
+
+In a plain pathspec `*` also matches `/`; `:(glob)` makes it one path
+component, as above. No pathspec scans the whole repository. A pathspec
+that matches no file fails the run, so a misspelled or renamed area cannot
+drop out of the check unnoticed (exclusions are exempt). The run also fails
+when git's top level is not the repository po found its store in, as when
+`GIT_DIR` or `GIT_WORK_TREE` points elsewhere.
+
+Skipped, as citing nothing: a tracked file deleted from the working tree, a
+submodule (listed as one directory; run the check in its own repository), a
+symbolic link, a binary file (one holding a NUL byte), and other text that
+is not UTF-8 (with a warning, unless `--quiet`). Any other unreadable file fails the run.
+
+**What is a citation.** An 8-hex lowercase id after the word `verdict` or
+`verdicts`, in any letter case, anywhere in the text. A list continues onto
+the next line when a line ends in the keyword, in `and`, or in an id followed
+by a comma; a line with no words (a bare `//` or `#`) keeps it open. Inside a
+list, `open`, `conflict` and `documented` do not end it, so
+`verdicts 0a1df0ea (open), d8a565c9` cites both; any other word does. An id
+standing alone (`see 0a1df0ea`, `"0a1df0ea"`) is not a citation.
+
+**The rule**, for each cited id, by its resolved status:
+
+- settled (`inferred (settled)` and `settled, negative` included): passes;
+- documented, open or conflict: passes only when that exact word appears,
+  lowercase and whole, on the same line after the id and before the next id
+  (`verdict 12e3f8ef (open)`). A stale marker fails: `open` beside a question
+  that is now `conflict`;
+- retired: always fails, marker or not, naming where the work continued;
+- not in the store: fails.
+
+**Output.** One line per failing citation on stdout,
+`path:line: verdict <id> is <status>; <what to do>`, paths from the
+repository root, and a non-zero exit. A clean run prints the fixed line
+`citations ok.` on stdout, for a CI step to match, and the counts
+(`N cited, M ids, F files`) on stderr unless `--quiet`. Finding no citation at all is a
+failure too, so a pathspec that matches nothing cannot pass for a clean
+tree. Like every read verb, the run strictly loads the store first.
 
 ## Verdicts directory
 
