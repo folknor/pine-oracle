@@ -49,6 +49,7 @@ use toml::value::Datetime;
 mod citation;
 pub mod cited;
 mod evidence;
+pub mod json;
 mod load;
 mod search;
 mod spec;

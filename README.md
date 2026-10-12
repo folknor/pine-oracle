@@ -20,7 +20,8 @@ It answers questions *about* Pine; it never executes user strategies.
 | `po verdict add\|observe\|search\|show\|list` | Record and query what TradingView measurably did, per oracle source (editor, `translate_light` endpoint, chart run), and whether each question is settled. Records are TOML plus content-addressed fixtures and capture evidence in `verdicts/` at the git repository root. See [docs/verdict.md](docs/verdict.md) |
 | `po version` | Binary version + pine-data bake counts (functions, variables, constants, keywords, types, annotations, operators), manual page/section counts, recipe entry/category counts, and the pinned snapshot date |
 
-Output is text-only across the board. Text output accepts `--quiet` to suppress
+Output is text-only across the board, except `po verdict show --json` and
+`list --json` for tools. Text output accepts `--quiet` to suppress
 non-data headers and status lines where a command emits them.
 
 ## Where the data comes from

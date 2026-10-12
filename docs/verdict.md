@@ -45,8 +45,8 @@ po verdict evidence attest [<path>...] --reason "..." [--raw]
 po verdict evidence check  [<id>...]
 po verdict citations [<pathspec>...]
 po verdict search   <query> [--limit N]
-po verdict show     <id>...
-po verdict list     [--identifier X] [--code C]
+po verdict show     <id>... [--json]
+po verdict list     [--json] [--identifier X] [--code C]
                     [--status settled|documented|conflict|open] [--closed] [--negative]
                     [--inferred] [--retired] [--kind compile|runtime]
 ```
@@ -79,6 +79,9 @@ po verdict list     [--identifier X] [--code C]
   case) lists that question first, in one of the `--limit` rows and never
   twice, followed by the questions whose text matches it. An 8-hex token that
   is no loaded id is a plain word.
+- `show --json` and `list --json` print questions as JSON, for tools that
+  would otherwise read the record files and so depend on their format and
+  layout; see JSON output below.
 - Each write verb holds an exclusive lock on `verdicts/.lock` from its read
   of the directory through its last write, and each file write is atomic
   (temp file + rename), so concurrent writers serialize instead of losing
@@ -597,6 +600,66 @@ So an endpoint accept under an editor reject reads as a weaker observation,
 not a contradiction. When the top observations themselves conflict there is
 nothing single to compare against, so weaker ones go unannotated. Runtime
 candidates are shown as selected, consistent, refuted or undecided.
+
+## JSON output
+
+`po verdict show <id>... --json` prints the given questions, in the order
+given; `po verdict list --json` prints the questions `list` would, filters
+included (an empty `questions` when none match). Both print one envelope:
+
+```
+{"schema": 1, "questions": [ ... ]}
+```
+
+`schema` changes on any change a consumer could notice other than an added
+key. Every key below is always present, in the order listed, null (or an
+empty list) when unrecorded. Paths are spelled from the repository root
+with `/`. No evidence file is read: the output says nothing about whether
+evidence is available (`evidence check` does). Like every read, it strictly
+loads the whole store first, so one invalid record anywhere fails the call,
+and an unknown id fails it with nothing printed.
+
+A question:
+
+- `id`, `kind` (`compile` / `runtime`);
+- `status`: the resolved word, `settled`, `documented`, `conflict`, `open`,
+  or `retired` (exactly when `retired` is true);
+- `disposition`: the text `show` prints (`inferred (open via 3fa91c02)`,
+  `settled, negative`). Display text: read the fields below, never parse it;
+- `retired`, `replaced_by`, `inferred` (answered from `basis` premises),
+  `via` (the premise an inferred status came from, or null), `basis`,
+  `follow_up_to`, `negative`, `closed` (open and its investigation stopped);
+- `question`, `answer`, `identifiers`;
+- `observations`, in file order.
+
+An observation:
+
+- `number`: its `#N`, the 1-based position in the file (what `void
+  --observation N` takes);
+- `source` (`editor` / `endpoint` / `chart`), `date` or `date_before`
+  (ISO dates; exactly one is set);
+- `outcome` (`accepted` / `rejected` / `crashed`, null for runtime),
+  `crash`;
+- `counts`: whether it is one of the observations status is derived from:
+  not void, not inconclusive, not crashed. It does not mean it decides the
+  status (that also weighs source strength); a tool after "not withdrawn"
+  alone reads `void == null`;
+- `void` (the reason, or null), `inconclusive` (the reason, or null);
+- `errors`, `warnings`: each `code`, `message`, `span`, `bar`, `ctx` (an
+  object of strings);
+- `result`, `settings`, `candidates` (each `name`, `model`, `state`:
+  `selected` / `consistent` / `refuted` / `undecided`);
+- `fixture` (the sha256), `fixture_path`, `fixture_name`;
+- `evidence`: each `path` and `sha256` (null for an entry recorded before
+  digests). Attestation, move and merge history is not included;
+- `environment`, `note`.
+
+`negative` and `closed` are the disposition's, as `status` is: a retired
+question reads `negative: false` even when its former answer was marked
+negative (text `show` prints that history).
+
+Not included: manual citations, `exclusive`, capture keys, the retirement
+reason, closure history and amendment history. `show` prints those.
 
 ## Checking where verdicts are cited
 

@@ -154,15 +154,25 @@ pub(crate) enum VerdictCommand {
         pathspecs: Vec<String>,
     },
 
-    /// Print question(s) in full, strongest observation first.
+    /// Print question(s) in full, strongest observation first (with
+    /// `--json`, observations are in file order).
     Show {
         #[arg(required = true)]
         ids: Vec<String>,
+        /// Print JSON instead (`{"schema": 1, "questions": [...]}`, one
+        /// question per id in the order given; see docs/verdict.md). Paths
+        /// are from the repository root; evidence files are not read.
+        #[arg(long)]
+        json: bool,
     },
 
     /// List questions, optionally filtered. A successful run means every
     /// record under `verdicts/` is valid.
     List {
+        /// Print the listed questions as JSON, in full, as `show --json`
+        /// does (an empty `questions` when none match).
+        #[arg(long)]
+        json: bool,
         /// Only questions concerning this identifier.
         #[arg(long)]
         identifier: Option<String>,
@@ -581,7 +591,22 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
             }
             Ok(())
         }
-        VerdictCommand::Show { ids } => {
+        VerdictCommand::Show { ids, json: true } => {
+            let store = verdict::load(&root)?;
+            let mut out = Vec::new();
+            for id in &ids {
+                let Some(q) = store.get(id) else {
+                    bail!("no question `{id}` in {}", root.display());
+                };
+                out.push(store.json(q));
+            }
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&verdict::json::envelope(&out))?
+            );
+            Ok(())
+        }
+        VerdictCommand::Show { ids, json: false } => {
             let store = verdict::load(&root)?;
             let mut inspector = Inspector::new();
             for (i, id) in ids.iter().enumerate() {
@@ -596,6 +621,7 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
             inspector.stable()
         }
         VerdictCommand::List {
+            json,
             identifier,
             code,
             status,
@@ -617,6 +643,14 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
                 kind: kind.as_deref().map(str::parse::<Kind>).transpose()?,
             };
             let rows = store.list(&filter);
+            if json {
+                let out: Vec<_> = rows.iter().map(|q| store.json(q)).collect();
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&verdict::json::envelope(&out))?
+                );
+                return Ok(());
+            }
             if rows.is_empty() && !quiet {
                 eprintln!("no questions");
             }

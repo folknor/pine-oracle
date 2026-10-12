@@ -1914,6 +1914,213 @@ fn citation_markers_follow_the_resolved_word() {
     );
 }
 
+/// `show --json` carries what consumers read record files for: the resolved
+/// status, observations in file order with whether each counts, codes, the
+/// fixture by hash and path, evidence spelled from the repository root.
+#[test]
+fn show_json_carries_the_resolved_question() {
+    let root = scratch("show-json");
+    let id = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    let editor = NewObservation {
+        fixture: Some(testdata("editor-export-outside-library.pine")),
+        errors: vec![
+            parse_diag("CE10099|Only libraries can contain exported functions.|9:1-10:5")
+                .expect("diag"),
+        ],
+        evidence: vec![ev(evidence_copy(
+            &root,
+            "run26-export-outside-library.json",
+        ))],
+        ..compile(Source::Editor, "2026-09-27", Outcome::Rejected)
+    };
+    observe(&root, &id, &editor).expect("editor");
+    observe(
+        &root,
+        &id,
+        &compile(Source::Endpoint, "2026-09-06", Outcome::Accepted),
+    )
+    .expect("endpoint");
+    void(&root, &id, VoidTarget::Observation(2), "mis-transcribed").expect("void");
+    let retired = add(
+        &root,
+        &NewQuestion {
+            question: "Old?".into(),
+            ..question(Kind::Compile, &["export"])
+        },
+    )
+    .expect("add")
+    .id;
+    retire(&root, &retired, "reworded", std::slice::from_ref(&id)).expect("retire");
+    let store = load(&root).expect("load");
+
+    let j = store.json(store.get(&id).expect("question"));
+    assert_eq!(j["id"], id.as_str());
+    assert_eq!(j["kind"], "compile");
+    assert_eq!(j["status"], "settled");
+    assert_eq!(j["retired"], false);
+    let obs = j["observations"].as_array().expect("array");
+    assert_eq!(obs.len(), 2);
+    assert_eq!(
+        (obs[0]["number"].as_u64(), obs[1]["number"].as_u64()),
+        (Some(1), Some(2))
+    );
+    assert_eq!(obs[0]["source"], "editor");
+    assert_eq!(obs[0]["outcome"], "rejected");
+    assert_eq!(obs[0]["counts"], true);
+    assert_eq!(obs[0]["errors"][0]["code"], "CE10099");
+    assert_eq!(obs[0]["fixture"], RUN26_SHA);
+    assert_eq!(
+        obs[0]["fixture_path"],
+        format!("verdicts/fixtures/{RUN26_SHA}.pine").as_str()
+    );
+    assert_eq!(obs[0]["fixture_name"], "editor-export-outside-library.pine");
+    assert_eq!(
+        obs[0]["evidence"][0]["path"],
+        "verdicts/evidence/run26-export-outside-library.json"
+    );
+    assert_eq!(obs[0]["void"], serde_json::Value::Null);
+    assert_eq!(obs[0]["date"], "2026-09-27");
+    assert_eq!(obs[0]["date_before"], serde_json::Value::Null);
+    // Every key present, null when unrecorded, inside errors too.
+    assert_eq!(obs[0]["errors"][0]["bar"], serde_json::Value::Null);
+    assert_eq!(obs[1]["void"], "mis-transcribed");
+    assert_eq!(obs[1]["counts"], false);
+
+    let r = store.json(store.get(&retired).expect("retired"));
+    assert_eq!(r["status"], "retired");
+    assert_eq!(r["retired"], true);
+    assert_eq!(r["replaced_by"][0], id.as_str());
+
+    // Not counting without being void: inconclusive, and crashed.
+    let other = add(
+        &root,
+        &NewQuestion {
+            question: "Other?".into(),
+            ..question(Kind::Compile, &["export"])
+        },
+    )
+    .expect("add")
+    .id;
+    let unsure = NewObservation {
+        inconclusive: Some("the fixture never armed".into()),
+        date: None,
+        date_before: Some("2026-09-01".into()),
+        ..compile(Source::Editor, "2026-09-27", Outcome::Accepted)
+    };
+    observe(&root, &other, &unsure).expect("inconclusive");
+    let crashed = NewObservation {
+        crash: Some("translate_light threw".into()),
+        ..compile(Source::Endpoint, "2026-09-28", Outcome::Crashed)
+    };
+    observe(&root, &other, &crashed).expect("crashed");
+    let store = load(&root).expect("load");
+    let o = store.json(store.get(&other).expect("other"));
+    let obs = o["observations"].as_array().expect("array");
+    for ob in obs {
+        assert_eq!(
+            (ob["counts"].as_bool(), &ob["void"]),
+            (Some(false), &serde_json::Value::Null)
+        );
+    }
+    assert_eq!(obs[0]["date"], serde_json::Value::Null);
+    assert_eq!(obs[0]["date_before"], "2026-09-01");
+    assert_eq!(obs[1]["outcome"], "crashed");
+    assert_eq!(o["status"], "open");
+
+    // Every object's complete key sequence, as documented: presence, not
+    // just null-ness (indexing a missing key also yields null).
+    let keys = |v: &serde_json::Value| -> Vec<String> {
+        v.as_object().expect("object").keys().cloned().collect()
+    };
+    let env = json::envelope(&[o]);
+    assert_eq!(env["schema"], json::SCHEMA);
+    assert_eq!(keys(&env), ["schema", "questions"]);
+    let q = store.json(store.get(&id).expect("question"));
+    assert_eq!(
+        keys(&q),
+        [
+            "id",
+            "kind",
+            "status",
+            "disposition",
+            "retired",
+            "replaced_by",
+            "inferred",
+            "via",
+            "basis",
+            "follow_up_to",
+            "negative",
+            "closed",
+            "question",
+            "answer",
+            "identifiers",
+            "observations",
+        ]
+    );
+    let ob = &q["observations"][0];
+    assert_eq!(
+        keys(ob),
+        [
+            "number",
+            "source",
+            "date",
+            "date_before",
+            "outcome",
+            "crash",
+            "counts",
+            "void",
+            "inconclusive",
+            "errors",
+            "warnings",
+            "result",
+            "settings",
+            "candidates",
+            "fixture",
+            "fixture_path",
+            "fixture_name",
+            "evidence",
+            "environment",
+            "note",
+        ]
+    );
+    assert_eq!(
+        keys(&ob["errors"][0]),
+        ["code", "message", "span", "bar", "ctx"]
+    );
+    assert_eq!(keys(&ob["evidence"][0]), ["path", "sha256"]);
+
+    // Runtime candidates, and an inferred question naming its premise.
+    let run = add(&root, &question(Kind::Runtime, &[])).expect("add").id;
+    let with_candidates = NewObservation {
+        candidates: vec![parse_candidate("A|fills at the open").expect("candidate")],
+        selected: vec!["A".into()],
+        ..runtime("2026-09-20")
+    };
+    observe(&root, &run, &with_candidates).expect("observe");
+    let inferred = add(
+        &root,
+        &NewQuestion {
+            question: "From it?".into(),
+            basis: vec![other.clone()],
+            ..question(Kind::Compile, &["export"])
+        },
+    )
+    .expect("add")
+    .id;
+    let store = load(&root).expect("load");
+    let c = &store.json(store.get(&run).expect("run"))["observations"][0]["candidates"][0];
+    assert_eq!(keys(c), ["name", "model", "state"]);
+    assert_eq!((&c["name"], &c["state"]), (&"A".into(), &"selected".into()));
+    let i = store.json(store.get(&inferred).expect("inferred"));
+    assert_eq!(
+        (&i["inferred"], &i["status"]),
+        (&true.into(), &"open".into())
+    );
+    assert_eq!(i["via"], other.as_str());
+}
+
 /// A write that is refused creates nothing in a repository that never held
 /// verdicts beyond `verdicts/.lock`.
 #[test]
