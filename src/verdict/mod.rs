@@ -1,16 +1,15 @@
 // Measured TradingView behavior ("verdicts"), backing `po verdict`. Unlike the
 // baked corpora (`behavior`, `manual`, `recipe`), verdicts are NOT embedded:
-// they live in a caller-named records directory (in practice piners' git) and
-// every command names it with `--records`. There is no default location, no
-// env var and no discovery - an answer must be reproducible from the command
-// line that produced it.
+// they live in the caller's git repository (in practice piners), in the
+// `verdicts/` directory at its root, which po owns (`locate`).
 //
-// A records directory holds one `<id>.toml` per question plus a
-// content-addressed `fixtures/<sha256>.pine` store. po writes both (the write
-// verbs in `write`); the read side (`load`) is strict, so any command that succeeds
-// has validated every record under the directories it was given. Evidence
-// files live outside it and are not part of that guarantee: `evidence`
-// records their identity and audits their content separately.
+// The verdicts directory holds `records/` (one `<id>.toml` per question),
+// the content-addressed `fixtures/<sha256>.pine` store, and `evidence/`, the
+// capture artifacts observations cite. po writes the first two (the write
+// verbs in `write`); the read side (`load`) is strict, so any command that
+// succeeds has validated every record. Evidence files are the caller's and
+// are not part of that guarantee: `evidence` records their identity and
+// audits their content separately, and refuses any outside `evidence/`.
 //
 // A question records what TradingView did, per oracle source, and never
 // whether any engine matches it. Source strength is editor = chart >
@@ -70,6 +69,27 @@ pub use write::{
     Added, AmendTarget, Amended, Cited, NewObservation, NewQuestion, Observed, VoidTarget, add,
     amend, amend_all, cite, close, observe, observe_dry_run, reopen, retire, void,
 };
+
+/// The verdicts directory of the git repository the working directory is in:
+/// `verdicts/` beside the nearest enclosing `.git` (a directory, or the file
+/// a linked worktree or submodule has). It need not exist yet; the first
+/// write creates it.
+pub fn locate() -> anyhow::Result<PathBuf> {
+    let cwd = std::env::current_dir()
+        .map_err(|e| anyhow::anyhow!("reading the working directory: {e}"))?;
+    locate_from(&cwd)
+}
+
+/// `locate` from directory `start`.
+fn locate_from(start: &std::path::Path) -> anyhow::Result<PathBuf> {
+    match start.ancestors().find(|dir| dir.join(".git").exists()) {
+        Some(repo) => Ok(repo.join("verdicts")),
+        None => anyhow::bail!(
+            "{} is not inside a git repository: verdicts live in `verdicts/` at the repository root",
+            start.display()
+        ),
+    }
+}
 
 /// Whether a question is about compilation (accept / reject) or about what a
 /// script does when it runs on a chart.
@@ -452,7 +472,7 @@ pub struct Observation {
 }
 
 /// One question and every observation of it. `id` (the file stem) and `root`
-/// (the records directory it was loaded from) are not stored in the file.
+/// (the verdicts directory it was loaded from) are not stored in the file.
 /// Field order is the on-disk order: `retired` is a table, so it follows the
 /// plain values and precedes the observation array of tables.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -463,7 +483,7 @@ pub struct Question {
     #[serde(skip)]
     pub root: PathBuf,
     pub kind: Kind,
-    /// Caller-chosen capture key, unique within the records directory:
+    /// Caller-chosen capture key, unique within the store:
     /// adding under an existing key returns that question when the payload
     /// matches and fails when it differs, so capture scripts can be rerun.
     #[serde(default, skip_serializing_if = "Option::is_none")]

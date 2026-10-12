@@ -4,18 +4,19 @@
 put to it, per oracle source, and answers whether each question is settled.
 It records TradingView's behavior only, never whether some engine matches it.
 
-Verdicts are not baked into the binary. Every verb takes `--records <DIR>`,
-which is required and never defaulted: no environment variable, no discovery,
-no user-level folder. An answer is reproducible from the command line that
-produced it.
+Verdicts are not baked into the binary. They live in `verdicts/` at the root
+of the git repository the command runs in (the nearest directory above the
+working directory holding a `.git`), which po owns: no flag, no environment
+variable, no user-level folder. Outside a git repository every verb fails.
+See Verdicts directory for its layout.
 
 ## Commands
 
 ```
-po verdict add      --records <DIR> --kind compile|runtime --question "..." --answer "..."
+po verdict add      --kind compile|runtime --question "..." --answer "..."
                     [--identifier X]... [--follow-up-to <id>]... [--basis <id>]...
                     [--negative] [--exclusive] [--key K]
-po verdict observe  <id> --records <DIR> --source editor|endpoint|chart [--key K]
+po verdict observe  <id> --source editor|endpoint|chart [--key K]
                     (--date YYYY-MM-DD | --date-before YYYY-MM-DD)
                     (--fixture <file.pine> | --no-fixture)
                     compile: (--accepted | --rejected | --crashed "<message>")
@@ -26,26 +27,25 @@ po verdict observe  <id> --records <DIR> --source editor|endpoint|chart [--key K
                     [--inconclusive "<reason>"] [--evidence <path>]...
                     [--evidence-raw <path>]...
                     [--environment "..."] [--note "..."] [--dry-run]
-po verdict retire   <id> --records <DIR> --reason "..." [--replaced-by <id>]...
-po verdict close    <id> --records <DIR> --reason "..."
-po verdict reopen   <id> --records <DIR> --reason "..."
-po verdict amend    <id> --records <DIR> --reason "..."
+po verdict retire   <id> --reason "..." [--replaced-by <id>]...
+po verdict close    <id> --reason "..."
+po verdict reopen   <id> --reason "..."
+po verdict amend    <id> --reason "..."
                     ([--question "..."] [--answer "..."] [--negative | --clear negative]
                      [--exclusive | --clear exclusive]
                      | --observation N (--note "..." | --result "..."
                      | --settings "..." | --environment "..." | --inconclusive "..."
                      | --clear note|environment|inconclusive))
-po verdict cite     <id> --records <DIR> --section <manual id | page#anchor>
+po verdict cite     <id> --section <manual id | page#anchor>
                     --quote "..." [--quote "..."]... [--note "..."]
-po verdict void     <id> --records <DIR> (--observation N | --citation N) --reason "..."
-po verdict evidence move   <old> <new> --records <DIR> --reason "..." [--old-raw]
-po verdict evidence merge  <id> <redundant> <into> --observation N --records <DIR>
-                           --reason "..."
-po verdict evidence attest [<path>...] --records <DIR> --reason "..." [--raw]
-po verdict evidence check  [<id>...] --records <DIR>...
-po verdict search   <query> --records <DIR>... [--limit N]
-po verdict show     <id>... --records <DIR>...
-po verdict list     --records <DIR>... [--identifier X] [--code C]
+po verdict void     <id> (--observation N | --citation N) --reason "..."
+po verdict evidence move   <old> <new> --reason "..." [--old-raw]
+po verdict evidence merge  <id> <redundant> <into> --observation N --reason "..."
+po verdict evidence attest [<path>...] --reason "..." [--raw]
+po verdict evidence check  [<id>...]
+po verdict search   <query> [--limit N]
+po verdict show     <id>...
+po verdict list     [--identifier X] [--code C]
                     [--status settled|documented|conflict|open] [--closed] [--negative]
                     [--inferred] [--retired] [--kind compile|runtime]
 ```
@@ -63,8 +63,10 @@ po verdict list     --records <DIR>... [--identifier X] [--code C]
 - `close` / `reopen` stop and resume the investigation of an open question,
   and `--negative` marks an answer that identifies nothing (see Negative
   answers and closed investigations).
-- The write verbs take one `--records` directory, which must already exist.
-  The read verbs accept `--records` more than once.
+- The first write verb creates `verdicts/` (to hold its lock) and the first
+  record written creates `records/`; `evidence/` is yours to create. Before
+  that, the read verbs see an empty store (a `verdicts` link to nothing is
+  an error, not an empty store).
 - `search` and `list` print `<id>  <status>  <kind>  <question>` rows. `show`
   prints the full question, strongest observation first, each observation
   headed by `#N`, its 1-based position in the file (display order is by
@@ -76,7 +78,7 @@ po verdict list     --records <DIR>... [--identifier X] [--code C]
   case) lists that question first, in one of the `--limit` rows and never
   twice, followed by the questions whose text matches it. An 8-hex token that
   is no loaded id is a plain word.
-- Each write verb holds an exclusive lock on `<records>/.lock` from its read
+- Each write verb holds an exclusive lock on `verdicts/.lock` from its read
   of the directory through its last write, and each file write is atomic
   (temp file + rename), so concurrent writers serialize instead of losing
   each other's work. The lock file stays in place; leave it (or gitignore
@@ -100,7 +102,7 @@ po verdict list     --records <DIR>... [--identifier X] [--code C]
 ### Capture keys
 
 A script that records captures in a loop must be safe to rerun. `--key`
-gives a question (unique in its records directory) or an observation (unique
+gives a question (unique in the store) or an observation (unique
 in its question) a caller-chosen name, such as the capture's run and probe
 name. Keys match exactly, byte for byte. Adding or observing under a key that is already held compares the
 payload with the stored record:
@@ -467,7 +469,7 @@ or is simply not owed. It is not an observation: the manual is not a
 measurement of TradingView, and a citation never makes a question `settled`.
 
 ```
-po verdict cite 127addd2 --records <DIR> --section b3541569 \
+po verdict cite 127addd2 --section b3541569 \
     --quote "barmerge.lookahead_on returns the *first* intrabar of the period historically, but the *last* intrabar in realtime." \
     --quote "barmerge.lookahead_off always returns the last intrabar for both historical and realtime data."
 ```
@@ -595,14 +597,16 @@ not a contradiction. When the top observations themselves conflict there is
 nothing single to compare against, so weaker ones go unannotated. Runtime
 candidates are shown as selected, consistent, refuted or undecided.
 
-## Records directory
+## Verdicts directory
 
 ```
-<records>/<id>.toml                   one question and all its observations
-<records>/fixtures/<sha256>.pine      content-addressed fixture store
+verdicts/records/<id>.toml            one question and all its observations
+verdicts/fixtures/<sha256>.pine       content-addressed fixture store
+verdicts/evidence/...                 capture evidence, laid out as you like
 ```
 
-po writes both. `observe --fixture` copies the file into `fixtures/`, named by
+po writes the first two; evidence files are yours, put in place before
+`observe` cites them. `observe --fixture` copies the file into `fixtures/`, named by
 the sha256 po computes from the stored bytes, so a recorded hash always
 matches its file and observations sharing a fixture share one copy. Passing a
 stored fixture again by its store path (`fixtures/<sha256>.pine`) never
@@ -614,7 +618,9 @@ different names. Evidence is not copied; see Evidence.
 ## Evidence
 
 An observation's `--evidence` files (chart exports, probe JSON) stay where
-they are, usually elsewhere in the same git repository. Each is recorded as
+they are, which must be inside `verdicts/evidence/`: a path anywhere else
+is refused (by `observe`, and by `evidence move`, `merge` and `attest`
+alike), so every location resolves on any checkout. Each is recorded as
 an entry with a location and an identity, kept apart so a file can be
 compressed or moved without breaking the records citing it.
 
@@ -653,12 +659,14 @@ content from then on, and says nothing about the capture before. Entries
 recorded before digests existed (a bare path string in the file) have no
 digest.
 
-**Location** is a path relative to the records directory, `/`-separated.
-Paths are resolved lexically, never through the filesystem: a path given
-relative to the working directory is made absolute, `.` is dropped and `..`
-folds into the directory before it, and po opens exactly the spelling it
-stores. `--records` is resolved the same way, so the directory loaded is the
-one locations are relative to. Symlinks are therefore not resolved: records
+**Location** is a path relative to `verdicts/evidence/`, `/`-separated,
+never climbing out of it (a stored location with a `..` component fails the
+load). Paths are resolved lexically, never through the filesystem: a path
+given relative to the working directory is made absolute, `.` is dropped and
+`..` folds into the directory before it, the result must lie inside
+`verdicts/evidence/`, and po opens exactly the spelling it stores. Symlinks
+are therefore not resolved: a link inside `evidence/` may point anywhere,
+but it is cited by its own spelling. Records
 written before digests stored symlink-resolved paths, so a landing script
 that reaches its evidence through a symlinked directory now names a
 different location, and its keyed rerun fails until it names the evidence
@@ -669,8 +677,7 @@ belongs to one entry); `evidence merge` does. Entries are stored
 `--evidence` first, then `--evidence-raw`; the order carries no meaning.
 Within one observation a location (current, former, or one of an entry
 merged into it) belongs to one entry, for good: a location an entry left
-stays reserved to it. Keep evidence inside the same git repository, or the
-stored relative path will not resolve on another checkout.
+stays reserved to it.
 
 **Availability is not validation.** A missing or unfetched evidence file
 never fails a load or blocks a write: a store whose large artifacts are not
@@ -693,8 +700,8 @@ with its digest's provenance, the locations it left and what was merged
 into it; when a file changed while `show` read it, it says so after
 printing and exits non-zero, since the states shown are not one snapshot.
 
-`po verdict evidence move <old> <new>` re-points every entry in the records
-directory whose current location is `<old>`: one file is usually cited by
+`po verdict evidence move <old> <new>` re-points every entry in the store
+whose current location is `<old>`: one file is usually cited by
 many observations. `<new>` must hold each entry's digest, raw or decoded
 (entries at one file may identify different readings of it, and each is
 checked). An entry without one is compared with `<old>` as it reads now
@@ -704,8 +711,7 @@ refused when `<new>` is a location of another evidence entry of the same
 observation (merge those instead). Moving back to a location the entry
 left is a move like any other. Each entry keeps a `[[moved]]` history
 (time, former location, reason). po never deletes evidence: once the move succeeds,
-delete `<old>` yourself, after checking no other records directory cites
-it. Each question file is replaced atomically, so an interrupted move
+delete `<old>` yourself. Each question file is replaced atomically, so an interrupted move
 leaves a valid store with some entries moved; rerun it to move the rest (it
 reports the entries it moved, and a no-op when none remain at `<old>`). An
 `<old>` that no entry is at or has left is refused, as a likely typo.
@@ -744,9 +750,11 @@ what is there), compress each file beside the original, `evidence move` the
 original to the compressed copy, `evidence check`, then delete the
 originals.
 
-Besides question files and `fixtures/`, a records directory may hold markdown
-notes (`*.md`) and dot-files (the write lock, in-flight temp files). Anything else is an error,
-so nothing in the directory is silently skipped.
+Besides `records/`, `fixtures/` and `evidence/`, `verdicts/` may hold
+markdown notes (`*.md`) and dot-files (the write lock); `records/` likewise
+holds only question files, notes and dot-files (in-flight temp files).
+Anything else is an error, so nothing is silently skipped. What lies in
+`evidence/` is never vetted by the load.
 
 ```toml
 kind = "compile"
@@ -765,12 +773,12 @@ outcome = "rejected"
 environment = "TradingView Desktop 3.4.1"
 
 [[observation.evidence]]
-path = "../fieldwork/capture-campaign-2026-09/editor-probes-2026-09-27/run26-export-outside-library.json.zst"
+path = "capture-campaign-2026-09/editor-probes-2026-09-27/run26-export-outside-library.json.zst"
 sha256 = "8d1b0c6a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0f9e8d7c"
 
 [[observation.evidence.moved]]
 at = 2026-10-10T12:00:00Z
-from = "../fieldwork/capture-campaign-2026-09/editor-probes-2026-09-27/run26-export-outside-library.json"
+from = "capture-campaign-2026-09/editor-probes-2026-09-27/run26-export-outside-library.json"
 reason = "Compressed to keep the LFS store small."
 
 [[observation.error]]
@@ -824,9 +832,10 @@ as lineage, so each one needs a decision, usually `follow_up_to`.
 
 The same rules guard both directions. Every write verb refuses to
 write an invalid record and leave every record and fixture untouched (only the
-persistent `.lock` may be created, as any read may create it). Every read verb loads strictly: one
-invalid record anywhere under the given directories fails the command, listing
-every problem with its file. A successful `po verdict list --records <DIR>`
+persistent `.lock` may be created, with `verdicts/` to hold it, as any
+read may create the lock). Every read verb loads strictly: one
+invalid record anywhere under `verdicts/` fails the command, listing
+every problem with its file. A successful `po verdict list`
 therefore validates the whole directory and serves as a CI gate. It does
 not read evidence files: `po verdict evidence check` is the content gate.
 
@@ -890,8 +899,9 @@ Errors:
 - a stored fixture (referenced or not) that is missing or does not hash to
   its name;
 - an evidence location (current, former or merged) that is empty,
-  absolute, or not in the stored form (an empty or `.` component, `..`
-  after a directory name), or that two entries of one observation share; an
+  absolute, or not in the stored form (an empty or `.` component, or a
+  `..` climbing out of `evidence/`), or that two entries of one observation
+  share; an
   entry moving in place; a `sha256` that is not a lowercase sha256, or
   `attested`, `moved` or `merged` without one; a merged entry whose digest
   differs from its survivor's; an empty attestation, move or merge reason,

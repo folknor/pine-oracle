@@ -24,7 +24,7 @@ pub(super) struct Report {
 
 /// What validation needs beyond the question itself.
 pub(super) struct Context<'a> {
-    /// Every question id in the question's own records directory, mapped to
+    /// Every question id in the store, mapped to
     /// whether that question is retired (an active question may not rest on
     /// a retired premise).
     pub(super) known_ids: &'a BTreeMap<String, bool>,
@@ -33,12 +33,22 @@ pub(super) struct Context<'a> {
     pub(super) pending_fixture: Option<&'a str>,
 }
 
-/// The records file a question lives in.
-pub(super) fn question_path(root: &Path, id: &str) -> PathBuf {
-    root.join(format!("{id}.toml"))
+/// The directory holding the question files.
+pub(super) fn records_dir(root: &Path) -> PathBuf {
+    root.join("records")
 }
 
-/// The content-addressed fixture store under a records directory.
+/// The directory every evidence location is relative to.
+pub(super) fn evidence_dir(root: &Path) -> PathBuf {
+    root.join("evidence")
+}
+
+/// The records file a question lives in.
+pub(super) fn question_path(root: &Path, id: &str) -> PathBuf {
+    records_dir(root).join(format!("{id}.toml"))
+}
+
+/// The content-addressed fixture store under the verdicts directory.
 pub(super) fn fixture_path(root: &Path, sha256: &str) -> PathBuf {
     root.join("fixtures").join(format!("{sha256}.pine"))
 }
@@ -275,38 +285,27 @@ pub(super) fn cycles(questions: &[Question]) -> Vec<String> {
     out
 }
 
-/// Every capture key held by more than one question of one records directory.
-/// A key identifies one question per directory, so a rerun capture script can
-/// find the question it created.
+/// Every capture key held by more than one question. A key identifies one
+/// question per store, so a rerun capture script can find the question it
+/// created.
 pub(super) fn duplicate_keys(questions: &[Question]) -> Vec<String> {
-    let mut holders: BTreeMap<(&Path, &str), Vec<&str>> = BTreeMap::new();
+    let mut holders: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
     for q in questions {
         if let Some(key) = &q.key {
-            holders
-                .entry((q.root.as_path(), key.as_str()))
-                .or_default()
-                .push(q.id.as_str());
+            holders.entry(key.as_str()).or_default().push(q.id.as_str());
         }
     }
     holders
         .into_iter()
         .filter(|(_, ids)| ids.len() > 1)
-        .map(|((root, key), ids)| {
-            format!(
-                "{}: key `{key}` is held by questions {}",
-                root.display(),
-                ids.join(", ")
-            )
-        })
+        .map(|(key, ids)| format!("key `{key}` is held by questions {}", ids.join(", ")))
         .collect()
 }
 
-/// Question id -> retired, for every question in `questions` that lives in
-/// `root` (relations resolve within a question's own directory only).
-pub(super) fn ids_in(questions: &[Question], root: &Path) -> BTreeMap<String, bool> {
+/// Question id -> retired, for every question in `questions`.
+pub(super) fn ids_in(questions: &[Question]) -> BTreeMap<String, bool> {
     questions
         .iter()
-        .filter(|q| q.root == root)
         .map(|q| (q.id.clone(), q.is_retired()))
         .collect()
 }

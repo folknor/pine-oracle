@@ -11,16 +11,12 @@ use crate::output::Style;
 
 /// `po verdict` records and answers what TradingView measurably did, per
 /// oracle source. It is deliberately separate from `lookup` / `search`:
-/// verdicts are not baked into the binary, every verb names its records
-/// directory with `--records`, and nothing is ever read from a default
-/// location.
+/// verdicts are not baked into the binary but live in `verdicts/` at the root
+/// of the git repository the command runs in.
 #[derive(Subcommand)]
 pub(crate) enum VerdictCommand {
     /// Create a question. Prints its generated 8-hex id.
     Add {
-        /// Records directory to write into (must already exist).
-        #[arg(long)]
-        records: PathBuf,
         #[arg(long, value_parser = ["compile", "runtime"])]
         kind: String,
         /// Capture key, unique in the directory. If a question already holds
@@ -64,9 +60,6 @@ pub(crate) enum VerdictCommand {
     /// observations as history and has no status from then on.
     Retire {
         id: String,
-        /// Records directory holding the question.
-        #[arg(long)]
-        records: PathBuf,
         /// Why the question is withdrawn.
         #[arg(long)]
         reason: String,
@@ -80,9 +73,6 @@ pub(crate) enum VerdictCommand {
     /// out of `list --status open`.
     Close {
         id: String,
-        /// Records directory holding the question.
-        #[arg(long)]
-        records: PathBuf,
         /// Why the investigation stops.
         #[arg(long)]
         reason: String,
@@ -91,9 +81,6 @@ pub(crate) enum VerdictCommand {
     /// Resume the investigation of a closed question.
     Reopen {
         id: String,
-        /// Records directory holding the question.
-        #[arg(long)]
-        records: PathBuf,
         /// Why the investigation resumes.
         #[arg(long)]
         reason: String,
@@ -111,9 +98,6 @@ pub(crate) enum VerdictCommand {
     /// measured decides becomes `documented`, never `settled`.
     Cite {
         id: String,
-        /// Records directory holding the question.
-        #[arg(long)]
-        records: PathBuf,
         /// The manual section: the 8-hex id `po search` prints, or
         /// `page#anchor`.
         #[arg(long)]
@@ -133,9 +117,6 @@ pub(crate) enum VerdictCommand {
     #[command(group(ArgGroup::new("record").required(true).args(["observation", "citation"])))]
     Void {
         id: String,
-        /// Records directory holding the question.
-        #[arg(long)]
-        records: PathBuf,
         /// The observation's `#N`, as `show` prints it.
         #[arg(long, value_name = "N")]
         observation: Option<usize>,
@@ -155,9 +136,6 @@ pub(crate) enum VerdictCommand {
     /// source. Prints `<id>  <status>  <kind>  <question>` rows.
     Search {
         query: String,
-        /// Records directory to read. Repeatable.
-        #[arg(long, required = true)]
-        records: Vec<PathBuf>,
         #[arg(long, default_value_t = 8)]
         limit: usize,
     },
@@ -166,17 +144,11 @@ pub(crate) enum VerdictCommand {
     Show {
         #[arg(required = true)]
         ids: Vec<String>,
-        /// Records directory to read. Repeatable.
-        #[arg(long, required = true)]
-        records: Vec<PathBuf>,
     },
 
     /// List questions, optionally filtered. A successful run means every
-    /// record under the given directories is valid.
+    /// record under `verdicts/` is valid.
     List {
-        /// Records directory to read. Repeatable.
-        #[arg(long, required = true)]
-        records: Vec<PathBuf>,
         /// Only questions concerning this identifier.
         #[arg(long)]
         identifier: Option<String>,
@@ -217,9 +189,6 @@ pub(crate) enum EvidenceCommand {
     Move {
         old: PathBuf,
         new: PathBuf,
-        /// Records directory to update.
-        #[arg(long)]
-        records: PathBuf,
         /// Why the file moved (e.g. compressed to save LFS space).
         #[arg(long)]
         reason: String,
@@ -240,9 +209,6 @@ pub(crate) enum EvidenceCommand {
         /// The observation's #N.
         #[arg(long)]
         observation: usize,
-        /// Records directory to update.
-        #[arg(long)]
-        records: PathBuf,
         /// Why the two entries are one citation.
         #[arg(long)]
         reason: String,
@@ -253,9 +219,6 @@ pub(crate) enum EvidenceCommand {
     /// identifies the content from now on, not the original capture.
     Attest {
         paths: Vec<PathBuf>,
-        /// Records directory to update.
-        #[arg(long)]
-        records: PathBuf,
         /// Why the files are taken as the observed ones.
         #[arg(long)]
         reason: String,
@@ -268,12 +231,7 @@ pub(crate) enum EvidenceCommand {
     /// compare it with its digest. Fails when any file is missing,
     /// unreadable, undecodable, an unfetched Git LFS pointer, or changed.
     /// Entries without a digest fail only when unavailable.
-    Check {
-        ids: Vec<String>,
-        /// Records directory to read. Repeatable.
-        #[arg(long, required = true)]
-        records: Vec<PathBuf>,
-    },
+    Check { ids: Vec<String> },
 }
 
 #[derive(clap::Args)]
@@ -283,9 +241,6 @@ pub(crate) enum EvidenceCommand {
 pub(crate) struct ObserveArgs {
     /// Question id from `po verdict add`.
     id: String,
-    /// Records directory holding the question.
-    #[arg(long)]
-    records: PathBuf,
     #[arg(long, value_parser = ["editor", "endpoint", "chart"])]
     source: String,
     /// Capture key, unique in the question. If an observation already holds
@@ -346,13 +301,14 @@ pub(crate) struct ObserveArgs {
     /// Why this observation adjudicates nothing. Shown, never counted.
     #[arg(long, value_name = "REASON")]
     inconclusive: Option<String>,
-    /// Evidence file (export, probe JSON), read now: po records its location
-    /// and the sha256 of its content (a gzip or zstd file decoded).
-    /// Repeatable.
+    /// Evidence file (export, probe JSON) under `verdicts/evidence/`, read
+    /// now: po records its location and the sha256 of its content (a gzip or
+    /// zstd file decoded). Repeatable.
     #[arg(long = "evidence", value_name = "PATH")]
     evidence: Vec<PathBuf>,
-    /// Evidence file hashed as it is, never decoded: for an artifact that
-    /// merely starts like a gzip or zstd stream. Repeatable.
+    /// Evidence file under `verdicts/evidence/` hashed as it is, never
+    /// decoded: for an artifact that merely starts like a gzip or zstd
+    /// stream. Repeatable.
     #[arg(long = "evidence-raw", value_name = "PATH")]
     evidence_raw: Vec<PathBuf>,
     /// Free text, e.g. `TradingView Desktop 3.4.1`.
@@ -373,9 +329,6 @@ pub(crate) struct ObserveArgs {
 pub(crate) struct AmendArgs {
     /// Question id.
     id: String,
-    /// Records directory holding the question.
-    #[arg(long)]
-    records: PathBuf,
     /// Why the old value was wrong.
     #[arg(long)]
     reason: String,
@@ -424,9 +377,9 @@ pub(crate) struct AmendArgs {
 }
 
 pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<()> {
+    let root = verdict::locate()?;
     match command {
         VerdictCommand::Add {
-            records,
             kind,
             key,
             question,
@@ -438,7 +391,7 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
             exclusive,
         } => {
             let added = verdict::add(
-                &records,
+                &root,
                 &NewQuestion {
                     kind: kind.parse()?,
                     key,
@@ -460,22 +413,18 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
         }
         VerdictCommand::Retire {
             id,
-            records,
             reason,
             replaced_by,
         } => {
-            print_warnings(
-                &verdict::retire(&records, &id, &reason, &replaced_by)?,
-                quiet,
-            );
+            print_warnings(&verdict::retire(&root, &id, &reason, &replaced_by)?, quiet);
             Ok(())
         }
         VerdictCommand::Observe(args) => {
             let new = new_observation(&args)?;
             let observed = if args.dry_run {
-                verdict::observe_dry_run(&args.records, &args.id, &new)?
+                verdict::observe_dry_run(&root, &args.id, &new)?
             } else {
-                verdict::observe(&args.records, &args.id, &new)?
+                verdict::observe(&root, &args.id, &new)?
             };
             print_warnings(&observed.warnings, quiet);
             let (id, n, was, now) = (&observed.id, observed.number, &observed.was, &observed.now);
@@ -495,20 +444,12 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
             }
             Ok(())
         }
-        VerdictCommand::Close {
-            id,
-            records,
-            reason,
-        } => {
-            print_warnings(&verdict::close(&records, &id, &reason)?, quiet);
+        VerdictCommand::Close { id, reason } => {
+            print_warnings(&verdict::close(&root, &id, &reason)?, quiet);
             Ok(())
         }
-        VerdictCommand::Reopen {
-            id,
-            records,
-            reason,
-        } => {
-            print_warnings(&verdict::reopen(&records, &id, &reason)?, quiet);
+        VerdictCommand::Reopen { id, reason } => {
+            print_warnings(&verdict::reopen(&root, &id, &reason)?, quiet);
             Ok(())
         }
         VerdictCommand::Amend(args) => {
@@ -516,7 +457,7 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
             let changes = amend_changes(&a)?;
             let borrowed: Vec<(AmendTarget, Option<&str>)> =
                 changes.iter().map(|(t, v)| (*t, v.as_deref())).collect();
-            let amended = verdict::amend_all(&a.records, &a.id, &borrowed, &a.reason)?;
+            let amended = verdict::amend_all(&root, &a.id, &borrowed, &a.reason)?;
             print_warnings(&amended.warnings, quiet);
             if let Some(support) = amended.support
                 && !quiet
@@ -527,12 +468,11 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
         }
         VerdictCommand::Cite {
             id,
-            records,
             section,
             quotes,
             note,
         } => {
-            let cited = verdict::cite(&records, &id, &section, &quotes, note.as_deref())?;
+            let cited = verdict::cite(&root, &id, &section, &quotes, note.as_deref())?;
             print_warnings(&cited.warnings, quiet);
             if !quiet {
                 if cited.existing {
@@ -546,7 +486,6 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
         }
         VerdictCommand::Void {
             id,
-            records,
             observation,
             citation,
             reason,
@@ -556,16 +495,12 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
                 (None, Some(n)) => VoidTarget::Citation(n),
                 (None, None) => bail!("name --observation N or --citation N"),
             };
-            print_warnings(&verdict::void(&records, &id, target, &reason)?, quiet);
+            print_warnings(&verdict::void(&root, &id, target, &reason)?, quiet);
             Ok(())
         }
-        VerdictCommand::Evidence(command) => run_evidence(command, quiet),
-        VerdictCommand::Search {
-            query,
-            records,
-            limit,
-        } => {
-            let store = verdict::load(&records)?;
+        VerdictCommand::Evidence(command) => run_evidence(command, &root, quiet),
+        VerdictCommand::Search { query, limit } => {
+            let store = verdict::load(&root)?;
             let hits = store.search(&query, limit)?;
             if hits.is_empty() {
                 bail!("no verdict matches `{query}`");
@@ -574,12 +509,12 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
             print_rows(&store, &rows, style);
             Ok(())
         }
-        VerdictCommand::Show { ids, records } => {
-            let store = verdict::load(&records)?;
+        VerdictCommand::Show { ids } => {
+            let store = verdict::load(&root)?;
             let mut inspector = Inspector::new();
             for (i, id) in ids.iter().enumerate() {
                 let Some(q) = store.get(id) else {
-                    bail!("no question `{id}` under the given --records");
+                    bail!("no question `{id}` in {}", root.display());
                 };
                 if i > 0 {
                     println!();
@@ -589,7 +524,6 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
             inspector.stable()
         }
         VerdictCommand::List {
-            records,
             identifier,
             code,
             status,
@@ -599,7 +533,7 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
             retired,
             kind,
         } => {
-            let store = verdict::load(&records)?;
+            let store = verdict::load(&root)?;
             let filter = ListFilter {
                 identifier: identifier.as_deref(),
                 code: code.as_deref(),
@@ -620,16 +554,15 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
     }
 }
 
-fn run_evidence(command: EvidenceCommand, quiet: bool) -> Result<()> {
+fn run_evidence(command: EvidenceCommand, root: &Path, quiet: bool) -> Result<()> {
     match command {
         EvidenceCommand::Move {
             old,
             new,
-            records,
             reason,
             old_raw,
         } => {
-            let moved = verdict::relocate(&records, &old, &new, old_raw, &reason)?;
+            let moved = verdict::relocate(root, &old, &new, old_raw, &reason)?;
             if moved.entries == 0 {
                 println!(
                     "every entry that was at {} has moved already: nothing moved",
@@ -664,10 +597,9 @@ fn run_evidence(command: EvidenceCommand, quiet: bool) -> Result<()> {
             redundant,
             into,
             observation,
-            records,
             reason,
         } => {
-            match verdict::merge(&records, &id, observation, &redundant, &into, &reason)? {
+            match verdict::merge(root, &id, observation, &redundant, &into, &reason)? {
                 verdict::Merged::Merged => println!(
                     "merged {} into {} ({id} #{observation})",
                     redundant.display(),
@@ -681,13 +613,8 @@ fn run_evidence(command: EvidenceCommand, quiet: bool) -> Result<()> {
             }
             Ok(())
         }
-        EvidenceCommand::Attest {
-            paths,
-            records,
-            reason,
-            raw,
-        } => {
-            let done = verdict::attest(&records, &paths, raw, &reason)?;
+        EvidenceCommand::Attest { paths, reason, raw } => {
+            let done = verdict::attest(root, &paths, raw, &reason)?;
             if done.entries == 0 {
                 println!("no evidence entry without a digest: nothing attested");
             } else {
@@ -701,8 +628,8 @@ fn run_evidence(command: EvidenceCommand, quiet: bool) -> Result<()> {
             }
             Ok(())
         }
-        EvidenceCommand::Check { ids, records } => {
-            let store = verdict::load(&records)?;
+        EvidenceCommand::Check { ids } => {
+            let store = verdict::load(root)?;
             let audit = verdict::audit(&store, &ids)?;
             let row =
                 |r: &AuditRow| format!("{} #{}  {}  {}", r.id, r.observation, r.path, r.inspection);

@@ -1,21 +1,22 @@
-// Strict read side: load every question under the named records directories,
+// Strict read side: load every question under the verdicts directory,
 // validate all of them, and refuse to return a store if any record is
-// invalid. A successful load is therefore a clean bill of health for every
-// directory passed, which is what lets piners use any read verb as a CI gate.
+// invalid. A successful load is therefore a clean bill of health for the
+// whole directory, which is what lets piners use any read verb as a CI gate.
 // Evidence files are outside it: their availability and content are
 // `evidence::audit`'s, so a missing artifact never blocks a load.
-// For that to hold, nothing in a records directory may be silently skipped:
-// every entry must be a question file, the fixture store, a markdown note, or
-// a dot-file (in-flight temp files).
+// For that to hold, nothing in the verdicts directory or its `records/` may
+// be silently skipped: every entry must be one of the three subdirectories,
+// a question file, a fixture, a markdown note, or a dot-file (in-flight temp
+// files).
 
 use anyhow::{Context as _, Result, bail};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
 use super::validate::{self, Context, Report};
 use super::{Disposition, Kind, Question, Resolved, Status};
 
-/// Every question loaded from the given records directories, validated.
+/// Every question loaded from the verdicts directory, validated.
 #[derive(Debug)]
 pub struct Store {
     questions: Vec<Question>,
@@ -46,92 +47,62 @@ pub struct ListFilter<'a> {
     pub kind: Option<Kind>,
 }
 
-/// Load and validate every question under each root. Roots are never
-/// defaulted or discovered; each must be an existing directory. Any invalid
-/// record or unexpected entry fails the whole load, listing every problem.
-/// Warnings (e.g. empty identifiers) are a write-time concern and are not
-/// reported here, so reads over a deliberate corpus stay quiet.
+/// Load and validate every question under the verdicts directory `root`.
+/// Any invalid record or unexpected entry fails the whole load, listing every
+/// problem. A directory that does not exist yet (nothing was ever recorded in
+/// this repository) loads as an empty store. Warnings (e.g. empty
+/// identifiers) are a write-time concern and are not reported here, so reads
+/// over a deliberate corpus stay quiet.
 ///
-/// Each root's `.lock` is held shared for the whole load, so a writer (which
+/// The root's `.lock` is held shared for the whole load, so a writer (which
 /// holds it exclusively) cannot change the directory between the listing and
 /// the reads and checks: an unlocked reader can assemble a state that never
 /// existed (a retirement naming a replacement added after the listing) and
 /// fail a valid directory. See `shared_lock` for when a read goes unlocked.
-pub fn load(roots: &[PathBuf]) -> Result<Store> {
-    load_roots(roots, true)
+pub fn load(root: &Path) -> Result<Store> {
+    load_root(root, true)
 }
 
-/// `load` of one root without taking its lock, for a writer that already
-/// holds it exclusively (a second lock on the same file from the same
-/// process would deadlock).
+/// `load` without taking the lock, for a writer that already holds it
+/// exclusively (a second lock on the same file from the same process would
+/// deadlock).
 pub(super) fn load_unlocked(root: &Path) -> Result<Store> {
-    load_roots(&[root.to_path_buf()], false)
+    load_root(root, false)
 }
 
-fn load_roots(roots: &[PathBuf], coordinate: bool) -> Result<Store> {
-    if roots.is_empty() {
-        bail!("no records directory given (pass --records <DIR>)");
+fn load_root(root: &Path, coordinate: bool) -> Result<Store> {
+    // Taken by its lexical spelling, as evidence locations are resolved
+    // against it.
+    let root = &super::evidence::absolute(root)?;
+    // Only a directory that is truly absent is "nothing recorded yet": an
+    // unreadable path or a broken link must fail, never pass as empty.
+    use std::io::ErrorKind::NotFound;
+    match std::fs::metadata(root) {
+        Ok(m) if m.is_dir() => {}
+        Ok(_) => bail!("{} is not a directory", root.display()),
+        Err(e) if e.kind() == NotFound => match std::fs::symlink_metadata(root) {
+            Err(e) if e.kind() == NotFound => {
+                return Ok(Store {
+                    questions: Vec::new(),
+                });
+            }
+            Ok(_) => bail!("{} is a link to nothing", root.display()),
+            Err(e) => return Err(e).with_context(|| format!("reading {}", root.display())),
+        },
+        Err(e) => return Err(e).with_context(|| format!("reading {}", root.display())),
     }
-    // The same directory named twice (or by two spellings) is one root, not
-    // a source of duplicate ids, nor a second lock.
-    // Each root is taken by its lexical spelling (as evidence locations are
-    // resolved against it), so `link/..` names the same directory for the
-    // load as for the evidence it cites.
-    let roots: Vec<PathBuf> = roots
-        .iter()
-        .map(|r| super::evidence::absolute(r))
-        .collect::<Result<_>>()?;
-    let mut canonical_roots = BTreeMap::new();
-    let mut unique: Vec<&PathBuf> = Vec::new();
-    for root in &roots {
-        if !root.is_dir() {
-            bail!("records directory {} does not exist", root.display());
-        }
-        let canonical = root
-            .canonicalize()
-            .with_context(|| format!("resolving {}", root.display()))?;
-        if let std::collections::btree_map::Entry::Vacant(e) = canonical_roots.entry(canonical) {
-            e.insert(root);
-            unique.push(root);
-        }
-    }
-    // Held until the load returns. Taken in canonical order.
-    let mut locks = Vec::new();
-    if coordinate {
-        for root in canonical_roots.values() {
-            locks.extend(shared_lock(root)?);
-        }
-    }
+    // Held until the load returns.
+    let _lock = if coordinate { shared_lock(root)? } else { None };
 
     let mut questions: Vec<Question> = Vec::new();
     let mut problems = Vec::new();
-    for root in unique {
-        read_root(root, &mut questions, &mut problems)?;
-    }
+    read_root(root, &mut questions, &mut problems)?;
 
-    let mut seen = BTreeSet::new();
-    for q in &questions {
-        if !seen.insert(q.id.clone()) {
-            problems.push(format!(
-                "question id {} appears in more than one records directory",
-                q.id
-            ));
-        }
-    }
-
-    // Question relations resolve within the question's own directory only,
-    // so a record validates the same whether its directory is loaded alone
-    // (as the write path does) or alongside others.
-    let mut ids_by_root: BTreeMap<&Path, BTreeMap<String, bool>> = BTreeMap::new();
-    for q in &questions {
-        ids_by_root
-            .entry(q.root.as_path())
-            .or_insert_with(|| validate::ids_in(&questions, &q.root));
-    }
+    let known_ids = validate::ids_in(&questions);
     let mut report = Report::default();
     for q in &questions {
         let cx = Context {
-            known_ids: &ids_by_root[q.root.as_path()],
+            known_ids: &known_ids,
             pending_fixture: None,
         };
         validate::question(q, &cx, &mut report);
@@ -186,27 +157,47 @@ fn shared_lock(root: &Path) -> Result<Option<std::fs::File>> {
     Ok(Some(file))
 }
 
-/// Parse every question file under `root` and vet every other entry.
+/// Parse every question file under `root/records` and vet every other entry.
 /// Parse failures and unexpected entries are collected as problems; I/O
 /// failures abort.
 fn read_root(root: &Path, questions: &mut Vec<Question>, problems: &mut Vec<String>) -> Result<()> {
-    let mut paths = Vec::new();
+    // Dot-files (the lock, in-flight temp files) and notes are skipped; a
+    // dot-directory is not a dot-file, and skipping it would hide whatever
+    // it holds from the strict load.
+    let skipped = |name: &str, path: &Path| {
+        (name.starts_with('.') || name.ends_with(".md")) && path.is_file()
+    };
+    let mut records = None;
     for path in dir_entries(root)? {
         let name = file_name(&path);
-        // Dot-files (the lock, in-flight temp files) and notes are skipped;
-        // a dot-directory is not a dot-file, and skipping it would hide
-        // whatever it holds from the strict load.
-        if (name.starts_with('.') || name.ends_with(".md")) && path.is_file() {
+        if skipped(&name, &path) {
             continue;
         }
-        if name == "fixtures" && path.is_dir() {
-            check_fixture_store(&path, problems)?;
+        match name.as_str() {
+            "records" if path.is_dir() => records = Some(path),
+            "fixtures" if path.is_dir() => check_fixture_store(&path, problems)?,
+            // The capture artifacts are the caller's files, read only as
+            // evidence (`evidence::audit`), never vetted by the load.
+            "evidence" if path.is_dir() => {}
+            _ => problems.push(format!(
+                "{}: not `records/`, `fixtures/`, `evidence/`, a markdown note or a dot-file",
+                path.display()
+            )),
+        }
+    }
+    let Some(records) = records else {
+        return Ok(());
+    };
+    let mut paths = Vec::new();
+    for path in dir_entries(&records)? {
+        let name = file_name(&path);
+        if skipped(&name, &path) {
             continue;
         }
         match name.strip_suffix(".toml") {
             Some(stem) if validate::is_id(stem) && path.is_file() => paths.push(path),
             _ => problems.push(format!(
-                "{}: not a question file (`<8-hex id>.toml`), the `fixtures` store, a markdown note or a dot-file",
+                "{}: not a question file (`<8-hex id>.toml`), a markdown note or a dot-file",
                 path.display()
             )),
         }

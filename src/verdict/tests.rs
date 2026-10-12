@@ -1,5 +1,5 @@
 // End-to-end verdict tests: write through `add` / `observe` into a scratch
-// records directory under `target/`, read back through the strict `load`.
+// verdicts directory under `target/`, read back through the strict `load`.
 // Runs 24 and 26 use the real capture-campaign fixtures and editor-probe
 // evidence from piners (copied into `testdata/verdict/`); their sha256s are
 // the ones TradingView's editor probe recorded.
@@ -17,7 +17,8 @@ fn testdata(name: &str) -> PathBuf {
         .join(name)
 }
 
-/// A fresh, empty records directory unique to one test.
+/// A fresh verdicts directory unique to one test, with empty `records/` and
+/// `evidence/`.
 fn scratch(test: &str) -> PathBuf {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("target/verdict-tests")
@@ -25,8 +26,21 @@ fn scratch(test: &str) -> PathBuf {
     if dir.exists() {
         std::fs::remove_dir_all(&dir).expect("clear scratch dir");
     }
-    std::fs::create_dir_all(&dir).expect("create scratch dir");
+    std::fs::create_dir_all(dir.join("records")).expect("create scratch dir");
+    std::fs::create_dir_all(dir.join("evidence")).expect("create evidence dir");
     dir
+}
+
+/// The file question `id` lives in under `root`.
+fn record(root: &Path, id: &str) -> PathBuf {
+    root.join("records").join(format!("{id}.toml"))
+}
+
+/// The testdata file `name` copied into `root`'s evidence directory.
+fn evidence_copy(root: &Path, name: &str) -> PathBuf {
+    let path = root.join("evidence").join(name);
+    std::fs::copy(testdata(name), &path).expect("copy evidence");
+    path
 }
 
 /// An evidence file to `observe`, read by its leading bytes.
@@ -88,7 +102,7 @@ fn runtime(date: &str) -> NewObservation {
 }
 
 fn reload(root: &Path, id: &str) -> Question {
-    load(&[root.to_path_buf()])
+    load(root)
         .expect("store loads")
         .get(id)
         .expect("question present")
@@ -116,7 +130,10 @@ fn run26_editor_reject_outranks_endpoint_accept() {
                 .expect("diag"),
         ],
         environment: Some("TradingView Desktop 3.4.1".to_string()),
-        evidence: vec![ev(testdata("run26-export-outside-library.json"))],
+        evidence: vec![ev(evidence_copy(
+            &root,
+            "run26-export-outside-library.json",
+        ))],
         ..compile(Source::Editor, "2026-09-27", Outcome::Rejected)
     };
     observe(&root, &added.id, &editor).expect("editor observation");
@@ -151,16 +168,10 @@ fn run26_editor_reject_outranks_endpoint_accept() {
             .is_file()
     );
     assert_eq!(ranked[1].observation.fixture, None);
-    // Evidence is stored relative to the records directory.
+    // Evidence is stored relative to the evidence directory.
     let evidence = &editor_obs.evidence[0];
-    assert!(evidence.path.starts_with("../"));
-    // Resolved lexically, as po opens it: `target/` may be a symlink, which
-    // the kernel would resolve `..` through.
-    assert!(
-        evidence::absolute(&root.join(&evidence.path))
-            .expect("absolute")
-            .is_file()
-    );
+    assert_eq!(evidence.path, "run26-export-outside-library.json");
+    assert!(root.join("evidence").join(&evidence.path).is_file());
     // ... with the digest of its content, recorded at capture.
     let bytes = std::fs::read(testdata("run26-export-outside-library.json")).expect("read");
     assert_eq!(
@@ -193,7 +204,7 @@ fn run24_editor_confirms_endpoint() {
 
     let editor = NewObservation {
         fixture: Some(testdata("editor-risk-drawdown-na.pine")),
-        evidence: vec![ev(testdata("run24-risk-drawdown-na.json"))],
+        evidence: vec![ev(evidence_copy(&root, "run24-risk-drawdown-na.json"))],
         ..compile(Source::Editor, "2026-09-27", Outcome::Accepted)
     };
     observe(&root, &id, &editor).expect("editor");
@@ -480,7 +491,7 @@ fn dry_run_reports_the_resulting_status_and_writes_nothing() {
         ..runtime("2026-09-20")
     };
     observe(&root, &id, &halt).expect("halting run");
-    let before = std::fs::read(root.join(format!("{id}.toml"))).expect("read");
+    let before = std::fs::read(record(&root, &id)).expect("read");
 
     let missing_code = NewObservation {
         fixture: Some(testdata("editor-export-outside-library.pine")),
@@ -504,10 +515,7 @@ fn dry_run_reports_the_resulting_status_and_writes_nothing() {
                 .replace("{id}", &id)
         ]
     );
-    assert_eq!(
-        std::fs::read(root.join(format!("{id}.toml"))).expect("read"),
-        before
-    );
+    assert_eq!(std::fs::read(record(&root, &id)).expect("read"), before);
     assert!(!root.join("fixtures").exists());
 
     // An agreeing run reports the status it leaves, and a refused one fails
@@ -567,7 +575,7 @@ fn reads_wait_for_writers_and_read_only_checkouts_still_load() {
         let (tx, rx) = std::sync::mpsc::channel();
         let reader = std::thread::spawn(move || {
             tx.send(None).expect("send");
-            tx.send(load(&[root]).map(|s| s.questions().len()).ok())
+            tx.send(load(&root).map(|s| s.questions().len()).ok())
                 .expect("send");
         });
         assert_eq!(rx.recv().expect("started"), None);
@@ -606,11 +614,7 @@ fn reads_wait_for_writers_and_read_only_checkouts_still_load() {
     };
     let read_only_copy = |name: &str, with_lock: bool| {
         let ro = scratch(name);
-        std::fs::copy(
-            root.join(format!("{id}.toml")),
-            ro.join(format!("{id}.toml")),
-        )
-        .expect("copy");
+        std::fs::copy(record(&root, &id), record(&ro, &id)).expect("copy");
         if with_lock {
             std::fs::write(ro.join(".lock"), "").expect("lock file");
             set_mode(&ro.join(".lock"), 0o444);
@@ -622,7 +626,7 @@ fn reads_wait_for_writers_and_read_only_checkouts_still_load() {
     // A privileged test run ignores the permissions; the fallback cannot be
     // reached then, only the load checked.
     let enforced = std::fs::File::create(fresh.join(".probe")).is_err();
-    let loaded = load(std::slice::from_ref(&fresh)).map(|s| s.questions().len());
+    let loaded = load(&fresh).map(|s| s.questions().len());
     let created = fresh.join(".lock").exists();
     set_mode(&fresh, 0o755);
     assert_eq!(loaded.expect("read-only load"), 1);
@@ -630,7 +634,7 @@ fn reads_wait_for_writers_and_read_only_checkouts_still_load() {
         assert!(!created, "a read in a read-only directory created .lock");
     }
     let locked = read_only_copy("read-lock-ro-locked", true);
-    let loaded = load(std::slice::from_ref(&locked)).map(|s| s.questions().len());
+    let loaded = load(&locked).map(|s| s.questions().len());
     set_mode(&locked, 0o755);
     set_mode(&locked.join(".lock"), 0o644);
     assert_eq!(loaded.expect("read-only lock file"), 1);
@@ -663,7 +667,7 @@ fn invalid_observations_are_refused_and_nothing_is_written() {
         .expect("add")
         .id;
     let r = add(&root, &question(Kind::Runtime, &[])).expect("add").id;
-    let before_c = std::fs::read(root.join(format!("{c}.toml"))).expect("read");
+    let before_c = std::fs::read(record(&root, &c)).expect("read");
 
     let re_on_compile = NewObservation {
         errors: vec![parse_diag("RE10044|m").expect("diag")],
@@ -696,10 +700,7 @@ fn invalid_observations_are_refused_and_nothing_is_written() {
     ] {
         refused(observe(&root, &c, o), needle);
     }
-    assert_eq!(
-        std::fs::read(root.join(format!("{c}.toml"))).expect("read"),
-        before_c
-    );
+    assert_eq!(std::fs::read(record(&root, &c)).expect("read"), before_c);
     assert!(
         !root.join("fixtures").exists(),
         "a refused observation must not store its fixture"
@@ -727,7 +728,7 @@ fn invalid_observations_are_refused_and_nothing_is_written() {
         refuted: vec!["A".into()],
         ..runtime("2026-09-20")
     };
-    let before_r = std::fs::read(root.join(format!("{r}.toml"))).expect("read");
+    let before_r = std::fs::read(record(&root, &r)).expect("read");
     for (o, needle) in [
         (&ce_on_runtime, "must be RE followed by five digits"),
         (&runtime_from_endpoint, "come from a chart run"),
@@ -737,10 +738,7 @@ fn invalid_observations_are_refused_and_nothing_is_written() {
     ] {
         refused(observe(&root, &r, o), needle);
     }
-    assert_eq!(
-        std::fs::read(root.join(format!("{r}.toml"))).expect("read"),
-        before_r
-    );
+    assert_eq!(std::fs::read(record(&root, &r)).expect("read"), before_r);
 
     refused(
         add(&root, &question(Kind::Compile, &["no.such.function"])),
@@ -795,7 +793,7 @@ fn empty_identifiers_warn_but_write() {
 
 /// The disposition `id` resolves to under `root`.
 fn resolved(root: &Path, id: &str) -> Resolved {
-    let store = load(&[root.to_path_buf()]).expect("load");
+    let store = load(root).expect("load");
     let q = store.get(id).expect("question").clone();
     store.resolve(&q)
 }
@@ -908,7 +906,7 @@ fn inferred_questions() {
     );
 
     // Filtering matches the resolved status; only measured questions conflict.
-    let store = load(std::slice::from_ref(&root)).expect("load");
+    let store = load(&root).expect("load");
     assert_eq!(
         ids_of(
             &store,
@@ -956,7 +954,7 @@ fn follow_up_is_lineage_only() {
     .expect("a follow-up is measured like any question");
     assert_eq!(resolved(&root, &child), Resolved::Measured(Status::Settled));
     assert_eq!(resolved(&root, &parent), Resolved::Measured(Status::Open));
-    let store = load(std::slice::from_ref(&root)).expect("load");
+    let store = load(&root).expect("load");
     assert_eq!(
         store
             .referrers(&parent, Relation::FollowUpTo)
@@ -1046,7 +1044,7 @@ fn retiring_ill_posed_and_misfiled_questions() {
     .expect("retire");
 
     // Neither shows up as owed work any more, and both keep their evidence.
-    let store = load(std::slice::from_ref(&root)).expect("load");
+    let store = load(&root).expect("load");
     for status in [Status::Open, Status::Conflict] {
         let work = ids_of(
             &store,
@@ -1117,7 +1115,7 @@ fn retirement_rules() {
     let d = add(&root, &q(Vec::new())).expect("add").id;
     retire(&root, &a, "reworded", std::slice::from_ref(&b)).expect("A -> B");
     retire(&root, &b, "split", &[c.clone(), d.clone()]).expect("B -> C, D");
-    let store = load(std::slice::from_ref(&root)).expect("load");
+    let store = load(&root).expect("load");
     assert_eq!(
         store.resolve(store.get(&a).expect("a")).to_string(),
         format!("retired (replaced by {b})")
@@ -1184,13 +1182,13 @@ fn legacy_derived_from_names_the_split() {
     let b = add(&root, &question(Kind::Compile, &["export"]))
         .expect("add")
         .id;
-    let path = root.join(format!("{b}.toml"));
+    let path = record(&root, &b);
     let text = std::fs::read_to_string(&path).expect("read");
 
     // The empty list every record written before the split carries is inert,
     // and the next write drops it.
     std::fs::write(&path, format!("derived_from = []\n{text}")).expect("write");
-    load(std::slice::from_ref(&root)).expect("an empty legacy list claims nothing");
+    load(&root).expect("an empty legacy list claims nothing");
     observe(
         &root,
         &b,
@@ -1202,7 +1200,7 @@ fn legacy_derived_from_names_the_split() {
 
     // A populated one is a decision the author has to make.
     std::fs::write(&path, format!("derived_from = [\"{a}\"]\n{text}")).expect("write");
-    refused(load(&[root]), "`derived_from` was split");
+    refused(load(&root), "`derived_from` was split");
 }
 
 #[test]
@@ -1497,14 +1495,14 @@ fn diagnostics_without_message_text() {
     assert_eq!(q.observations[0].errors[0].message, None);
 
     // An explicitly empty message in a hand-edited file is still an error.
-    let path = root.join(format!("{id}.toml"));
+    let path = record(&root, &id);
     let text = std::fs::read_to_string(&path).expect("read");
     std::fs::write(
         &path,
         text.replace("code = \"CE10271\"", "code = \"CE10271\"\nmessage = \"\""),
     )
     .expect("write");
-    refused(load(&[root]), "has an empty message");
+    refused(load(&root), "has an empty message");
 }
 
 #[test]
@@ -1555,16 +1553,169 @@ fn evidence_must_be_a_file() {
     let id = add(&root, &question(Kind::Compile, &["export"]))
         .expect("add")
         .id;
+    std::fs::create_dir_all(root.join("evidence/run26")).expect("mkdir");
     let dir_evidence = NewObservation {
-        evidence: vec![ev(testdata(""))],
+        evidence: vec![ev(root.join("evidence/run26"))],
         ..compile(Source::Editor, "2026-09-27", Outcome::Accepted)
     };
     refused(observe(&root, &id, &dir_evidence), "not a regular file");
     let missing = NewObservation {
-        evidence: vec![ev(testdata("no-such-export.json"))],
+        evidence: vec![ev(root.join("evidence/no-such-export.json"))],
         ..compile(Source::Editor, "2026-09-27", Outcome::Accepted)
     };
     refused(observe(&root, &id, &missing), "missing");
+}
+
+/// Evidence is cited only from inside the evidence directory: a file
+/// elsewhere (the testdata itself, the records, a `..` escape spelled from
+/// inside) is refused before anything is read or written, and so is the
+/// directory itself.
+#[test]
+fn evidence_outside_the_evidence_tree_is_refused() {
+    let root = scratch("evidence-outside");
+    let id = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    let before = std::fs::read(record(&root, &id)).expect("read");
+    let escape = root.join("evidence/../records").join(format!("{id}.toml"));
+    for path in [
+        testdata("run26-export-outside-library.json"),
+        record(&root, &id),
+        escape,
+        root.join("evidence"),
+    ] {
+        let o = NewObservation {
+            evidence: vec![ev(path)],
+            ..compile(Source::Editor, "2026-09-27", Outcome::Accepted)
+        };
+        refused(observe(&root, &id, &o), "is outside");
+    }
+    assert_eq!(std::fs::read(record(&root, &id)).expect("read"), before);
+    // The same file once inside is accepted.
+    let inside = NewObservation {
+        evidence: vec![ev(evidence_copy(
+            &root,
+            "run26-export-outside-library.json",
+        ))],
+        ..compile(Source::Editor, "2026-09-27", Outcome::Accepted)
+    };
+    observe(&root, &id, &inside).expect("inside the tree");
+    // Moving evidence out of the tree is refused the same way.
+    refused(
+        relocate(
+            &root,
+            &root.join("evidence/run26-export-outside-library.json"),
+            &testdata("run26-export-outside-library.json"),
+            false,
+            "out",
+        ),
+        "is outside",
+    );
+    // So are `merge` and `attest` naming a file outside.
+    let outside = testdata("run26-export-outside-library.json");
+    let inside_path = root.join("evidence/run26-export-outside-library.json");
+    refused(
+        merge(&root, &id, 1, &outside, &inside_path, "r"),
+        "is outside",
+    );
+    refused(attest(&root, &[outside], false, "r"), "is outside");
+}
+
+/// A write that is refused creates nothing in a repository that never held
+/// verdicts beyond `verdicts/.lock`.
+#[test]
+fn a_refused_write_creates_no_store_directories() {
+    let root = scratch("refused-write-dirs").join("verdicts");
+    refused(
+        observe(&root, "deadbeef", &runtime("2026-09-20")),
+        "no question",
+    );
+    let entries: Vec<String> = std::fs::read_dir(&root)
+        .expect("verdicts/ holds the lock")
+        .map(|e| e.expect("entry").file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(entries, vec![".lock".to_string()]);
+}
+
+/// The store is `verdicts/` beside the nearest `.git`, a directory or the
+/// file a linked worktree or submodule has; none above is an error.
+#[test]
+fn locate_finds_the_nearest_repository_root() {
+    let base = scratch("locate");
+    let deep = base.join("repo/a/b");
+    std::fs::create_dir_all(&deep).expect("mkdir");
+    std::fs::create_dir(base.join("repo/.git")).expect("git dir");
+    assert_eq!(
+        locate_from(&deep).expect("found"),
+        base.join("repo/verdicts")
+    );
+    std::fs::write(base.join("repo/a/.git"), "gitdir: elsewhere").expect("git file");
+    assert_eq!(
+        locate_from(&deep).expect("found"),
+        base.join("repo/a/verdicts")
+    );
+    assert!(locate_from(Path::new("/")).is_err() || Path::new("/.git").exists());
+}
+
+/// A stored location that climbs out of the evidence directory fails the
+/// load: no record may cite a file outside the tree.
+#[test]
+fn stored_evidence_outside_the_tree_fails_the_load() {
+    let root = scratch("evidence-outside-stored");
+    let id = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    let o = NewObservation {
+        evidence: vec![ev(evidence_copy(
+            &root,
+            "run26-export-outside-library.json",
+        ))],
+        ..compile(Source::Editor, "2026-09-27", Outcome::Accepted)
+    };
+    observe(&root, &id, &o).expect("observe");
+    let path = record(&root, &id);
+    let text = std::fs::read_to_string(&path).expect("read");
+    std::fs::write(
+        &path,
+        text.replace(
+            "path = \"run26-export-outside-library.json\"",
+            "path = \"../run26-export-outside-library.json\"",
+        ),
+    )
+    .expect("write");
+    refused(load(&root), "climbs out of the evidence directory");
+}
+
+/// The verdicts directory holds only `records/`, `fixtures/`, `evidence/`,
+/// notes and dot-files; a missing directory is an empty store, a dangling
+/// link is an error, and the first write creates it.
+#[test]
+fn verdicts_directory_layout() {
+    let base = scratch("verdicts-layout");
+    let root = base.join("verdicts");
+    assert!(load(&root).expect("absent loads").questions().is_empty());
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(base.join("gone"), &root).expect("link");
+        refused(load(&root), "a link to nothing");
+        std::fs::remove_file(&root).expect("unlink");
+    }
+    let id = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add creates the directory")
+        .id;
+    assert!(record(&root, &id).is_file());
+    // Anything else is refused, at the top and inside `records/`; evidence
+    // contents are the caller's and never vetted.
+    std::fs::create_dir(root.join("evidence")).expect("mkdir");
+    std::fs::write(root.join("evidence/anything.bin"), "x").expect("write");
+    std::fs::write(root.join("README.md"), "notes").expect("write");
+    assert!(load(&root).is_ok());
+    let stray = root.join("12345678.toml");
+    std::fs::write(&stray, "").expect("write");
+    refused(load(&root), "not `records/`");
+    std::fs::remove_file(&stray).expect("rm");
+    std::fs::write(root.join("records/notes.txt"), "").expect("write");
+    refused(load(&root), "not a question file");
 }
 
 #[test]
@@ -1576,7 +1727,7 @@ fn search_treats_query_syntax_as_plain_text() {
         ..runtime("2026-09-20")
     };
     observe(&root, &id, &run).expect("observe");
-    let store = load(&[root]).expect("load");
+    let store = load(&root).expect("load");
     for q in ["NASDAQ:AAPL", "strategy.exit( NASDAQ", "?: NASDAQ"] {
         let hits = store.search(q, 5).expect("search");
         assert_eq!(
@@ -1717,14 +1868,14 @@ fn relation_cycles_are_rejected_per_relation() {
         )
         .expect("add")
         .id;
-        let path = root.join(format!("{a}.toml"));
+        let path = record(&root, &a);
         let text = std::fs::read_to_string(&path).expect("read");
         std::fs::write(
             &path,
             text.replace(&format!("{field} = []"), &format!("{field} = [\"{b}\"]")),
         )
         .expect("write");
-        refused(load(&[root]), &format!("reaches itself through `{field}`"));
+        refused(load(&root), &format!("reaches itself through `{field}`"));
     }
 
     // Across relations is fine: a parent replaced by its own follow-up.
@@ -1745,27 +1896,6 @@ fn relation_cycles_are_rejected_per_relation() {
 }
 
 #[test]
-fn relations_resolve_within_their_own_directory() {
-    let a = scratch("cross-root-a");
-    let b = scratch("cross-root-b");
-    let in_a = add(&a, &question(Kind::Compile, &["export"]))
-        .expect("add")
-        .id;
-    let in_b = add(&b, &question(Kind::Compile, &["export"]))
-        .expect("add")
-        .id;
-    // Hand-edit a cross-directory follow_up_to into b's question.
-    let path = b.join(format!("{in_b}.toml"));
-    let text = std::fs::read_to_string(&path).expect("read");
-    std::fs::write(
-        &path,
-        text.replace("follow_up_to = []", &format!("follow_up_to = [\"{in_a}\"]")),
-    )
-    .expect("write");
-    refused(load(&[a, b]), "names unknown question");
-}
-
-#[test]
 fn truncated_orphan_fixture_blocks_until_removed() {
     let root = scratch("corrupt-fixture");
     let id = add(&root, &question(Kind::Compile, &["export"]))
@@ -1777,7 +1907,7 @@ fn truncated_orphan_fixture_blocks_until_removed() {
     std::fs::create_dir_all(root.join("fixtures")).expect("mkdir");
     let path = root.join("fixtures").join(format!("{RUN26_SHA}.pine"));
     std::fs::write(&path, "//@vers").expect("truncated");
-    refused(load(std::slice::from_ref(&root)), "hashes to");
+    refused(load(&root), "hashes to");
     let editor = NewObservation {
         fixture: Some(testdata("editor-export-outside-library.pine")),
         ..compile(Source::Editor, "2026-09-27", Outcome::Accepted)
@@ -1798,9 +1928,8 @@ fn strict_load_rejects_every_documented_problem() {
     let root = scratch("load-problems");
     let id = add(&root, &question(Kind::Runtime, &[])).expect("add").id;
     observe(&root, &id, &runtime("2026-09-20")).expect("observe");
-    let path = root.join(format!("{id}.toml"));
+    let path = record(&root, &id);
     let good = std::fs::read_to_string(&path).expect("read");
-    let roots = [root.clone()];
 
     for (edit, needle) in [
         (
@@ -1860,36 +1989,35 @@ fn strict_load_rejects_every_documented_problem() {
         ),
     ] {
         std::fs::write(&path, &edit).expect("write");
-        refused(load(&roots), needle);
+        refused(load(&root), needle);
     }
     std::fs::write(&path, &good).expect("restore");
-    assert!(load(&roots).is_ok());
+    assert!(load(&root).is_ok());
 
-    // Nothing in a records directory may be silently skipped.
+    // Nothing in `records/` may be silently skipped.
+    let records = root.join("records");
     for stray in ["ABCD1234.TOML", "notes.txt", "12345678.toml.bak"] {
-        std::fs::write(root.join(stray), "").expect("stray");
-        refused(load(&roots), "not a question file");
-        std::fs::remove_file(root.join(stray)).expect("remove");
+        std::fs::write(records.join(stray), "").expect("stray");
+        refused(load(&root), "not a question file");
+        std::fs::remove_file(records.join(stray)).expect("remove");
     }
-    std::fs::create_dir(root.join("sub")).expect("subdir");
-    refused(load(&roots), "not a question file");
-    std::fs::remove_dir(root.join("sub")).expect("rmdir");
-    // A dot-directory is not a dot-file: it would hide its contents.
-    std::fs::create_dir(root.join(".hidden")).expect("dot dir");
-    refused(load(&roots), "not a question file");
-    std::fs::remove_dir(root.join(".hidden")).expect("rmdir");
+    std::fs::create_dir(records.join("sub")).expect("subdir");
+    refused(load(&root), "not a question file");
+    std::fs::remove_dir(records.join("sub")).expect("rmdir");
+    // Nor at the top. A dot-directory is not a dot-file: it would hide its
+    // contents.
+    for dir in ["sub", ".hidden"] {
+        std::fs::create_dir(root.join(dir)).expect("dir");
+        refused(load(&root), "not `records/`");
+        std::fs::remove_dir(root.join(dir)).expect("rmdir");
+    }
     std::fs::create_dir_all(root.join("fixtures/.hidden")).expect("fixtures dot dir");
-    refused(load(&roots), "not a `<sha256>.pine` fixture");
+    refused(load(&root), "not a `<sha256>.pine` fixture");
     std::fs::remove_dir_all(root.join("fixtures")).expect("rmdir");
     // Markdown notes and dot-files (in-flight temp files) are allowed.
     std::fs::write(root.join("README.md"), "notes").expect("readme");
-    std::fs::write(root.join(".x.toml.1.tmp"), "junk").expect("tmp");
-    assert!(load(&roots).is_ok());
-
-    // The same id in two directories.
-    let other = scratch("load-problems-other");
-    std::fs::copy(&path, other.join(format!("{id}.toml"))).expect("copy");
-    refused(load(&[root, other]), "more than one records directory");
+    std::fs::write(records.join(".x.toml.1.tmp"), "junk").expect("tmp");
+    assert!(load(&root).is_ok());
 }
 
 #[test]
@@ -1920,36 +2048,18 @@ fn strict_load_catches_tampering_and_unknown_fields() {
         ..compile(Source::Editor, "2026-09-27", Outcome::Accepted)
     };
     observe(&root, &id, &editor).expect("observe");
-    let roots = [root.clone()];
-    assert!(load(&roots).is_ok());
+    assert!(load(&root).is_ok());
 
     let fixture = root.join("fixtures").join(format!("{RUN26_SHA}.pine"));
     std::fs::write(&fixture, "//@version=6\n").expect("tamper");
-    let err = load(&roots).expect_err("tampered fixture must fail the load");
+    let err = load(&root).expect_err("tampered fixture must fail the load");
     assert!(err.to_string().contains("hashes to"), "{err}");
     std::fs::copy(testdata("editor-export-outside-library.pine"), &fixture).expect("restore");
 
-    let path = root.join(format!("{id}.toml"));
+    let path = record(&root, &id);
     let text = std::fs::read_to_string(&path).expect("read");
     std::fs::write(&path, format!("sources = \"typo\"\n{text}")).expect("write");
-    assert!(load(&roots).is_err(), "unknown field must fail the load");
-}
-
-#[test]
-fn load_requires_an_existing_named_directory() {
-    assert!(load(&[]).is_err());
-    let root = scratch("same-root-twice");
-    add(&root, &question(Kind::Compile, &["export"])).expect("add");
-    let twice = [root.clone(), root.join(".")];
-    assert_eq!(
-        load(&twice)
-            .expect("one root named twice")
-            .questions()
-            .len(),
-        1
-    );
-    let missing = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/verdict-tests/missing");
-    assert!(load(&[missing]).is_err());
+    assert!(load(&root).is_err(), "unknown field must fail the load");
 }
 
 #[test]
@@ -1973,7 +2083,7 @@ fn search_finds_questions_by_prose_code_and_fixture_source() {
         ..compile(Source::Editor, "2026-09-27", Outcome::Rejected)
     };
     observe(&root, &id, &editor).expect("observe");
-    let store = load(&[root]).expect("load");
+    let store = load(&root).expect("load");
     for q in ["indicator exported function", "CE10099", "plot"] {
         let hits = store.search(q, 5).expect("search");
         assert_eq!(
@@ -2000,13 +2110,7 @@ fn capture_keys_make_reruns_idempotent() {
     let again = add(&root, &keyed).expect("rerun add");
     assert!(again.existing);
     assert_eq!(again.id, first.id);
-    assert_eq!(
-        load(std::slice::from_ref(&root))
-            .expect("load")
-            .questions()
-            .len(),
-        1
-    );
+    assert_eq!(load(&root).expect("load").questions().len(), 1);
     refused(
         add(
             &root,
@@ -2054,10 +2158,10 @@ fn capture_keys_make_reruns_idempotent() {
     let other = add(&root, &question(Kind::Compile, &["export"]))
         .expect("add")
         .id;
-    let path = root.join(format!("{other}.toml"));
+    let path = record(&root, &other);
     let text = std::fs::read_to_string(&path).expect("read");
     std::fs::write(&path, format!("key = \"run26/export\"\n{text}")).expect("write");
-    refused(load(&[root]), "key `run26/export` is held by questions");
+    refused(load(&root), "key `run26/export` is held by questions");
 }
 
 /// The 6293fd8b case: amending a keyed record's wording must not break the
@@ -2258,7 +2362,7 @@ fn amendments_keep_history_and_chain() {
     assert_eq!(o.amendments[1].now, None);
 
     // Search sees current wording only.
-    let store = load(std::slice::from_ref(&root)).expect("load");
+    let store = load(&root).expect("load");
     assert!(store.search("5602", 5).expect("search").is_empty());
 
     // Refusals: a no-op, a missing observation, a required runtime field
@@ -2286,13 +2390,10 @@ fn amendments_keep_history_and_chain() {
     );
 
     // An amended field edited by hand, without its history, fails the load.
-    let path = root.join(format!("{id}.toml"));
+    let path = record(&root, &id);
     let text = std::fs::read_to_string(&path).expect("read");
     std::fs::write(&path, text.replace("answer = \"B.\"", "answer = \"C.\"")).expect("write");
-    refused(
-        load(std::slice::from_ref(&root)),
-        "amend it rather than editing it by hand",
-    );
+    refused(load(&root), "amend it rather than editing it by hand");
     std::fs::write(&path, &text).expect("restore");
 
     // Retired questions take corrections too.
@@ -2379,7 +2480,7 @@ fn inconclusive_and_void_stop_an_observation_counting() {
     // A void observation's codes no longer find the question.
     let by_code = |root: &Path| {
         ids_of(
-            &load(&[root.to_path_buf()]).expect("load"),
+            &load(root).expect("load"),
             &ListFilter {
                 code: Some("CE10099"),
                 ..Default::default()
@@ -2390,7 +2491,7 @@ fn inconclusive_and_void_stop_an_observation_counting() {
     void(&root, &id, VoidTarget::Observation(2), "wrong fixture").expect("void reject");
     assert!(by_code(&root).is_empty());
     assert!(
-        load(std::slice::from_ref(&root))
+        load(&root)
             .expect("load")
             .search("CE10099", 5)
             .expect("search")
@@ -2531,7 +2632,7 @@ fn manual_citations_document_a_question() {
     assert_eq!((again.number, again.existing), (1, true));
 
     // `list --status open` no longer owes it a measurement.
-    let store = load(std::slice::from_ref(&root)).expect("load");
+    let store = load(&root).expect("load");
     let by_status = |status| {
         ids_of(
             &store,
@@ -2667,7 +2768,7 @@ fn stale_citations_stop_counting_without_failing_the_load() {
         .id;
     cite(&root, &id, LOWER_TF, &quotes(&[LOOKAHEAD_ON]), None).expect("cite");
     // Simulate drift: the digest recorded at cite time no longer matches.
-    let path = root.join(format!("{id}.toml"));
+    let path = record(&root, &id);
     let text = std::fs::read_to_string(&path).expect("read");
     let digest = reload(&root, &id).citations[0].digest.clone();
     std::fs::write(&path, text.replace(&digest, &"0".repeat(64))).expect("write");
@@ -2714,7 +2815,7 @@ fn stale_citations_stop_counting_without_failing_the_load() {
         .expect("add")
         .id;
     cite(&root, &gone, LOWER_TF, &quotes(&[LOOKAHEAD_ON]), None).expect("cite");
-    let path = root.join(format!("{gone}.toml"));
+    let path = record(&root, &gone);
     let text = std::fs::read_to_string(&path).expect("read");
     std::fs::write(
         &path,
@@ -2743,12 +2844,12 @@ fn stored_identifiers_survive_a_pine_data_refresh() {
     };
     let id = add(&root, &keyed).expect("add").id;
     // Simulate the refresh: the stored name no longer resolves.
-    let path = root.join(format!("{id}.toml"));
+    let path = record(&root, &id);
     let text = std::fs::read_to_string(&path).expect("read");
     std::fs::write(&path, text.replace("\"export\"", "\"export_gone\"")).expect("write");
     assert!(!identifier_known("export_gone"));
 
-    load(std::slice::from_ref(&root)).expect("an unknown stored identifier loads");
+    load(&root).expect("an unknown stored identifier loads");
     observe(
         &root,
         &id,
@@ -2770,10 +2871,7 @@ fn stored_identifiers_survive_a_pine_data_refresh() {
     // Shape rules still fail the load.
     for bad in ["f(", "f(a(b))", " export", ""] {
         std::fs::write(&path, text.replace("\"export\"", &format!("{bad:?}"))).expect("write");
-        assert!(
-            load(std::slice::from_ref(&root)).is_err(),
-            "`{bad}` must fail the load"
-        );
+        assert!(load(&root).is_err(), "`{bad}` must fail the load");
     }
 }
 
@@ -2789,7 +2887,7 @@ fn list_filters() {
         ..compile(Source::Editor, "2026-09-27", Outcome::Rejected)
     };
     observe(&root, &a, &rejected).expect("observe");
-    let store = load(&[root]).expect("load");
+    let store = load(&root).expect("load");
     let ids = |f: ListFilter<'_>| -> Vec<String> {
         store.list(&f).into_iter().map(|q| q.id.clone()).collect()
     };
@@ -2824,7 +2922,7 @@ fn list_filters() {
 }
 
 fn disposition(root: &Path, id: &str) -> String {
-    let store = load(&[root.to_path_buf()]).expect("load");
+    let store = load(root).expect("load");
     let q = store.get(id).expect("question").clone();
     store.disposition(&q).to_string()
 }
@@ -2871,7 +2969,7 @@ fn negative_marks_the_answer_without_changing_status() {
         amend(&root, &id, AmendTarget::Negative, Some("true"), "again"),
         "already marked negative",
     );
-    let store = load(std::slice::from_ref(&root)).expect("load");
+    let store = load(&root).expect("load");
     let negative = ListFilter {
         negative: true,
         ..Default::default()
@@ -2921,12 +3019,10 @@ fn negative_marks_the_answer_without_changing_status() {
     );
 
     // A negative history value other than "true" is refused.
-    let path = root.join(format!("{id}.toml"));
+    let path = record(&root, &id);
     let text = std::fs::read_to_string(&path).expect("read");
     std::fs::write(&path, text.replacen("now = \"true\"", "now = \"yes\"", 1)).expect("write");
-    let err = load(std::slice::from_ref(&root))
-        .expect_err("tampered")
-        .to_string();
+    let err = load(&root).expect_err("tampered").to_string();
     assert!(err.contains("must be \"true\" or absent"), "{err}");
 }
 
@@ -2954,7 +3050,7 @@ fn retired_questions_carry_no_negative_qualifier_or_coverage() {
     retire(&root, &id, "mis-filed", &[]).expect("retire");
     assert_eq!(disposition(&root, &id), "retired");
     assert!(!reload(&root, &id).every_candidate_refuted());
-    let store = load(std::slice::from_ref(&root)).expect("load");
+    let store = load(&root).expect("load");
     let negative = ListFilter {
         negative: true,
         ..Default::default()
@@ -2996,7 +3092,7 @@ fn closing_an_open_question_and_ending_the_closure() {
     assert_eq!(disposition(&root, &id), "open, closed");
     refused(close(&root, &id, "again"), "already closed");
 
-    let store = load(std::slice::from_ref(&root)).expect("load");
+    let store = load(&root).expect("load");
     let open = ListFilter {
         status: Some(Status::Open),
         ..Default::default()
@@ -3052,16 +3148,14 @@ fn closing_an_open_question_and_ending_the_closure() {
     refused(close(&root, &settled, "r"), "only an open question");
 
     // A hand-edited history that does not alternate fails the load.
-    let path = root.join(format!("{id}.toml"));
+    let path = record(&root, &id);
     let text = std::fs::read_to_string(&path).expect("read");
     std::fs::write(
         &path,
         text.replace("action = \"reopen\"", "action = \"close\""),
     )
     .expect("w");
-    let err = load(std::slice::from_ref(&root))
-        .expect_err("tampered")
-        .to_string();
+    let err = load(&root).expect_err("tampered").to_string();
     assert!(err.contains("expected a reopen"), "{err}");
 }
 
@@ -3239,7 +3333,7 @@ fn question_text_amends_but_superseded_text_breaks_keyed_reruns() {
         ..both.clone()
     };
     assert!(add(&root, &current).expect("rerun").existing);
-    let found = load(std::slice::from_ref(&root))
+    let found = load(&root)
         .expect("load")
         .search("X reject", 5)
         .expect("search");
@@ -3285,7 +3379,7 @@ fn search_by_exact_id() {
     )
     .expect("add")
     .id;
-    let store = load(std::slice::from_ref(&root)).expect("load");
+    let store = load(&root).expect("load");
     let hits = store.search(&a.to_uppercase(), 5).expect("search");
     let ids: Vec<&str> = hits.iter().map(|h| h.id.as_str()).collect();
     assert_eq!(ids, [a.as_str(), mentions.as_str()]);
@@ -3573,14 +3667,11 @@ fn amend_warning_marks_weaker_pairs() {
     );
 }
 
-/// A records directory `<scratch>/records` beside an evidence directory
-/// `<scratch>/ev` holding a copy of the run 26 probe export, as piners keeps
-/// evidence outside its records.
+/// A verdicts directory whose `evidence/` holds a copy of the run 26 probe
+/// export as `run26.json`.
 fn evidence_store(test: &str) -> (PathBuf, PathBuf, Vec<u8>) {
-    let base = scratch(test);
-    let (root, ev_dir) = (base.join("records"), base.join("ev"));
-    std::fs::create_dir_all(&root).expect("records");
-    std::fs::create_dir_all(&ev_dir).expect("ev");
+    let root = scratch(test);
+    let ev_dir = root.join("evidence");
     let bytes = std::fs::read(testdata("run26-export-outside-library.json")).expect("export");
     std::fs::write(ev_dir.join("run26.json"), &bytes).expect("copy");
     (root, ev_dir, bytes)
@@ -3635,17 +3726,17 @@ fn compressed_evidence_keeps_its_identity_through_a_move() {
     assert_eq!((moved.entries, moved.questions, moved.attested), (2, 2, 0));
     for q in [&id, &other] {
         let e = reload(&root, q).observations[0].evidence[0].clone();
-        assert_eq!(e.path, "../ev/run26.json.zst");
+        assert_eq!(e.path, "run26.json.zst");
         assert_eq!(e.sha256.as_deref(), Some(digest.as_str()));
         assert_eq!(e.moves.len(), 1);
-        assert_eq!(e.moves[0].from, "../ev/run26.json");
+        assert_eq!(e.moves[0].from, "run26.json");
     }
     // Rerunning resumes: nothing is left at the old location.
     let again = relocate(&root, &json, &zst, false, "compressed for LFS").expect("again");
     assert_eq!(again.entries, 0);
 
     std::fs::remove_file(&json).expect("delete the original");
-    let store = load(std::slice::from_ref(&root)).expect("a moved store loads");
+    let store = load(&root).expect("a moved store loads");
     let audit = audit(&store, &[]).expect("audit");
     assert_eq!((audit.entries, audit.matching), (2, 2), "{audit:?}");
 
@@ -3689,30 +3780,30 @@ fn compressed_evidence_keeps_its_identity_through_a_move() {
 #[test]
 fn a_link_to_compressed_evidence_matches_and_merges() {
     let (root, ev_dir, bytes) = evidence_store("evidence-link");
-    let record = ev_dir.join("run26.json");
+    let capture = ev_dir.join("run26.json");
     let probe = ev_dir.join("tv_record.json");
     std::fs::write(&probe, &bytes).expect("probe copy");
-    let id = observed_with(&root, "k", vec![ev(record.clone()), ev(probe.clone())]);
+    let id = observed_with(&root, "k", vec![ev(capture.clone()), ev(probe.clone())]);
 
     let zst = ev_dir.join("run26.json.zst");
     std::fs::write(&zst, zstd_of(&bytes)).expect("zst");
-    relocate(&root, &record, &zst, false, "compressed").expect("move");
-    std::fs::remove_file(&record).expect("delete the original");
+    relocate(&root, &capture, &zst, false, "compressed").expect("move");
+    std::fs::remove_file(&capture).expect("delete the original");
     std::fs::remove_file(&probe).expect("drop the copy");
     std::os::unix::fs::symlink("run26.json.zst", &probe).expect("link");
 
     // A record written while the reading was stored: the legacy key loads,
     // decides nothing, and is gone on the next rewrite.
-    let file = root.join(format!("{id}.toml"));
+    let file = record(&root, &id);
     let text = std::fs::read_to_string(&file).expect("read");
     let legacy = text.replace(
-        "path = \"../ev/tv_record.json\"",
-        "path = \"../ev/tv_record.json\"\nencoding = \"gzip\"",
+        "path = \"tv_record.json\"",
+        "path = \"tv_record.json\"\nencoding = \"gzip\"",
     );
     assert_ne!(legacy, text);
     std::fs::write(&file, legacy).expect("legacy");
 
-    let store = load(std::slice::from_ref(&root)).expect("loads");
+    let store = load(&root).expect("loads");
     let audit = audit(&store, &[]).expect("audit");
     assert_eq!((audit.entries, audit.matching), (2, 2), "{audit:?}");
     let row = store.get(&id).expect("question").observations[0].evidence[1].clone();
@@ -3733,7 +3824,7 @@ fn a_link_to_compressed_evidence_matches_and_merges() {
     refused(merge(&root, &id, 1, &probe, &zst, " "), "needs a --reason");
     refused(merge(&root, &id, 2, &probe, &zst, "r"), "no observation #2");
     refused(
-        merge(&root, &id, 1, &probe, &record, "r"),
+        merge(&root, &id, 1, &probe, &capture, "r"),
         "former or merged location",
     );
     assert_eq!(
@@ -3752,8 +3843,8 @@ fn a_link_to_compressed_evidence_matches_and_merges() {
     );
     let e = reload(&root, &id).observations[0].evidence.clone();
     assert_eq!(e.len(), 1);
-    assert_eq!(e[0].merged[0].entry.path, "../ev/tv_record.json");
-    let store = load(std::slice::from_ref(&root)).expect("loads");
+    assert_eq!(e[0].merged[0].entry.path, "tv_record.json");
+    let store = load(&root).expect("loads");
     let audit = super::audit(&store, &[]).expect("audit");
     assert_eq!((audit.entries, audit.matching), (1, 1), "{audit:?}");
 
@@ -3785,7 +3876,7 @@ fn a_link_to_compressed_evidence_matches_and_merges() {
 
     // Other content behind the survivor is still a change.
     std::fs::write(&elsewhere, zstd_of(b"{\"other\": 1}")).expect("other");
-    let store = load(std::slice::from_ref(&root)).expect("loads");
+    let store = load(&root).expect("loads");
     let audit = super::audit(&store, &[]).expect("audit");
     assert_eq!(audit.failing.len(), 1, "{audit:?}");
     assert!(
@@ -3816,7 +3907,7 @@ fn merging_needs_one_content() {
         Merged::Merged
     );
     // A hand-edited merged entry with another digest is caught on load.
-    let file = root.join(format!("{id}.toml"));
+    let file = record(&root, &id);
     let text = std::fs::read_to_string(&file).expect("read");
     let digest = validate::sha256_hex(&bytes);
     let n = text.matches(digest.as_str()).count();
@@ -3825,7 +3916,7 @@ fn merging_needs_one_content() {
         .replacen(&digest, &"0".repeat(64), 2)
         .replacen(&"0".repeat(64), &digest, 1);
     std::fs::write(&file, tampered).expect("tamper");
-    refused(load(std::slice::from_ref(&root)), "has another digest");
+    refused(load(&root), "has another digest");
 }
 
 #[test]
@@ -3859,8 +3950,8 @@ fn merged_locations_stay_reserved_and_merges_rerun_after_moves() {
     );
     let e = reload(&root, &id).observations[0].evidence.clone();
     assert_eq!(e.len(), 2);
-    assert_eq!(e[0].path, "../ev/c.json");
-    assert_eq!(e[0].merged[0].entry.merged[0].entry.path, "../ev/b.json");
+    assert_eq!(e[0].path, "c.json");
+    assert_eq!(e[0].merged[0].entry.merged[0].entry.path, "b.json");
     // Both earlier merges rerun as no-ops, though A is no longer current.
     assert_eq!(
         merge(&root, &id, 1, &b, &a, "r").expect("b again"),
@@ -3886,7 +3977,7 @@ fn merged_locations_stay_reserved_and_merges_rerun_after_moves() {
     // ... while the survivor may return to one of its own.
     std::fs::write(&b, &bytes).expect("same content at b");
     relocate(&root, &d, &b, false, "back").expect("own merged location");
-    load(std::slice::from_ref(&root)).expect("still valid");
+    load(&root).expect("still valid");
     // The merge reruns as a no-op even with the survivor now at B.
     assert_eq!(
         merge(&root, &id, 1, &b, &a, "r").expect("survivor at the alias"),
@@ -3921,7 +4012,7 @@ fn a_raw_artifact_survives_a_round_trip_through_compression() {
     // Unwrapped in place under the old name, and moved back.
     std::fs::write(&odd, raw_bytes).expect("unwrap");
     relocate(&root, &zst, &odd, false, "unwrap").expect("back to a former location");
-    let store = load(std::slice::from_ref(&root)).expect("loads");
+    let store = load(&root).expect("loads");
     let audit = audit(&store, &[]).expect("audit");
     assert_eq!((audit.entries, audit.matching), (1, 1), "{audit:?}");
     let e = &reload(&root, &id).observations[0].evidence[0];
@@ -3947,13 +4038,13 @@ fn a_raw_match_outranks_a_decoded_pointer() {
             raw: true,
         }],
     );
-    let store = load(std::slice::from_ref(&root)).expect("loads");
+    let store = load(&root).expect("loads");
     let audit = audit(&store, &[]).expect("audit");
     assert_eq!((audit.entries, audit.matching), (1, 1), "{audit:?}");
     // A different stream around the same pointer matches nothing: the
     // pointer is the reason.
     std::fs::write(&gz, zstd_of(pointer.as_bytes())).expect("other wrapper");
-    let store = load(std::slice::from_ref(&root)).expect("loads");
+    let store = load(&root).expect("loads");
     let audit = super::audit(&store, &[]).expect("audit");
     assert_eq!(audit.failing[0].inspection.fault, Some(Fault::Pointer));
 }
@@ -3965,7 +4056,7 @@ fn slimmed_evidence_is_detected_without_changing_status() {
     let id = observed_with(&root, "k", vec![ev(json.clone())]);
     let before = disposition(&root, &id);
     std::fs::write(&json, b"{\"slimmed\": true}").expect("slim");
-    let store = load(std::slice::from_ref(&root)).expect("loads");
+    let store = load(&root).expect("loads");
     let audit = audit(&store, &[]).expect("audit");
     assert_eq!(audit.failing.len(), 1);
     assert!(matches!(
@@ -3979,7 +4070,7 @@ fn slimmed_evidence_is_detected_without_changing_status() {
     );
 
     std::fs::remove_file(&json).expect("delete");
-    let store = load(std::slice::from_ref(&root)).expect("missing evidence still loads");
+    let store = load(&root).expect("missing evidence still loads");
     let audit = super::audit(&store, &[]).expect("audit");
     assert_eq!(audit.failing[0].inspection.fault, Some(Fault::Missing));
 }
@@ -3997,7 +4088,7 @@ fn legacy_entries_gain_only_attested_digests() {
     )
     .expect("observe");
     // A record written before digests: bare path strings.
-    let path = root.join(format!("{id}.toml"));
+    let path = record(&root, &id);
     let text = std::fs::read_to_string(&path).expect("read");
     let gz = ev_dir.join("other.json.gz");
     std::fs::write(&gz, gzip(b"{\"other\": true}\n")).expect("gz");
@@ -4005,11 +4096,11 @@ fn legacy_entries_gain_only_attested_digests() {
         &path,
         text.replace(
             "outcome = ",
-            "evidence = [\"../ev/run26.json\", \"../ev/other.json.gz\"]\noutcome = ",
+            "evidence = [\"run26.json\", \"other.json.gz\"]\noutcome = ",
         ),
     )
     .expect("legacy");
-    let store = load(std::slice::from_ref(&root)).expect("legacy loads");
+    let store = load(&root).expect("legacy loads");
     let audit = super::audit(&store, &[]).expect("audit");
     assert_eq!((audit.unhashed.len(), audit.failing.len()), (2, 0));
 
@@ -4219,7 +4310,7 @@ fn interrupted_maintenance_resumes() {
     for id in [&first, &second] {
         assert_eq!(
             reload(&root, id).observations[0].evidence[0].path,
-            "../ev/run26.json.zst"
+            "run26.json.zst"
         );
     }
 
@@ -4237,13 +4328,13 @@ fn interrupted_maintenance_resumes() {
         &compile(Source::Editor, "2026-09-27", Outcome::Accepted),
     )
     .expect("observe");
-    let path = root.join(format!("{id}.toml"));
+    let path = record(&root, &id);
     let text = std::fs::read_to_string(&path).expect("read");
     std::fs::write(
         &path,
         text.replace(
             "outcome = ",
-            "evidence = [\"../ev/a.json\", \"../ev/b.json\"]\noutcome = ",
+            "evidence = [\"a.json\", \"b.json\"]\noutcome = ",
         ),
     )
     .expect("legacy");
@@ -4266,14 +4357,11 @@ fn legacy_entries_rerun_by_location_and_rewrite_as_tables() {
         ..compile(Source::Editor, "2026-09-27", Outcome::Accepted)
     };
     observe(&root, &id, &landed).expect("observe");
-    let path = root.join(format!("{id}.toml"));
+    let path = record(&root, &id);
     let text = std::fs::read_to_string(&path).expect("read");
     std::fs::write(
         &path,
-        text.replace(
-            "outcome = ",
-            "evidence = [\"../ev/run26.json\"]\noutcome = ",
-        ),
+        text.replace("outcome = ", "evidence = [\"run26.json\"]\noutcome = "),
     )
     .expect("legacy");
     let json = ev_dir.join("run26.json");
@@ -4301,7 +4389,7 @@ fn legacy_entries_rerun_by_location_and_rewrite_as_tables() {
     .expect("amend");
     let text = std::fs::read_to_string(&path).expect("read");
     assert!(
-        text.contains("[[observation.evidence]]\npath = \"../ev/run26.json\"\n"),
+        text.contains("[[observation.evidence]]\npath = \"run26.json\"\n"),
         "{text}"
     );
     assert!(!text.contains("sha256"), "{text}");
@@ -4323,7 +4411,7 @@ fn unfetched_lfs_objects_and_typos() {
         ..compile(Source::Editor, "2026-09-27", Outcome::Accepted)
     };
     observe(&root, &id, &rerun).expect("pointer rerun");
-    let store = load(std::slice::from_ref(&root)).expect("loads");
+    let store = load(&root).expect("loads");
     assert_eq!(
         audit(&store, &[]).expect("audit").failing[0]
             .inspection
@@ -4350,14 +4438,11 @@ fn bare_attest_verifies_digests_sharing_a_location() {
         &compile(Source::Editor, "2026-09-27", Outcome::Accepted),
     )
     .expect("observe");
-    let path = root.join(format!("{id}.toml"));
+    let path = record(&root, &id);
     let text = std::fs::read_to_string(&path).expect("read");
     std::fs::write(
         &path,
-        text.replace(
-            "outcome = ",
-            "evidence = [\"../ev/run26.json\"]\noutcome = ",
-        ),
+        text.replace("outcome = ", "evidence = [\"run26.json\"]\noutcome = "),
     )
     .expect("legacy");
     // The file changed after the hashed reference recorded it: attesting
@@ -4398,14 +4483,11 @@ fn moves_refuse_disagreeing_references() {
         &compile(Source::Editor, "2026-09-27", Outcome::Accepted),
     )
     .expect("observe");
-    let path = root.join(format!("{id}.toml"));
+    let path = record(&root, &id);
     let text = std::fs::read_to_string(&path).expect("read");
     std::fs::write(
         &path,
-        text.replace(
-            "outcome = ",
-            "evidence = [\"../ev/run26.json\"]\noutcome = ",
-        ),
+        text.replace("outcome = ", "evidence = [\"run26.json\"]\noutcome = "),
     )
     .expect("legacy");
     std::fs::write(&json, b"{\"slimmed\": true}").expect("slim");
@@ -4429,7 +4511,7 @@ fn revisiting_a_location_needs_only_the_same_content() {
     relocate(&root, &json, &zst, false, "compress").expect("there");
     relocate(&root, &zst, &json, false, "decompress").expect("and back");
     let e = &reload(&root, &id).observations[0].evidence[0];
-    assert_eq!((e.path.as_str(), e.moves.len()), ("../ev/run26.json", 2));
+    assert_eq!((e.path.as_str(), e.moves.len()), ("run26.json", 2));
 
     relocate(&root, &json, &zst, false, "compress").expect("there again");
     // The original name now holds gzip of the same content: no reading is
@@ -4462,14 +4544,11 @@ fn attest_takes_only_the_identity_already_at_a_location() {
         &compile(Source::Editor, "2026-09-27", Outcome::Accepted),
     )
     .expect("observe");
-    let path = root.join(format!("{id}.toml"));
+    let path = record(&root, &id);
     let text = std::fs::read_to_string(&path).expect("read");
     std::fs::write(
         &path,
-        text.replace(
-            "outcome = ",
-            "evidence = [\"../ev/run26.json.zst\"]\noutcome = ",
-        ),
+        text.replace("outcome = ", "evidence = [\"run26.json.zst\"]\noutcome = "),
     )
     .expect("legacy");
     // Raw would identify the stream's bytes: two records of one file would

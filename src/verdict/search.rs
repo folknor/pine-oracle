@@ -1,6 +1,6 @@
 // BM25 over a loaded verdict store (tantivy, RAM-backed, built per call - the
-// store is loaded per invocation from a caller-named directory, so there is
-// nothing to cache across runs). The title field (question, identifiers,
+// store is loaded per invocation from the repository's `verdicts/`, so there
+// is nothing to cache across runs). The title field (question, identifiers,
 // codes) is boosted over the body (answer, results, messages, notes,
 // citation quotes, fixture source), matching the manual / recipe finder. Void
 // observations and citations are left out: they were withdrawn.

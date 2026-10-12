@@ -3,7 +3,7 @@
 // question's investigation, `amend` corrects a question's wording, its
 // answer, its negative mark or an observation's prose keeping the history, `cite` records a manual passage
 // supporting the answer, `void` withdraws an observation or a citation.
-// Each takes the records directory's lock exclusively,
+// Each takes the verdicts directory's lock exclusively,
 // strictly loads it (never write into a store that is already invalid),
 // validates the new state with the same rules the read side enforces, and
 // only then touches disk. po computes fixture hashes itself from the bytes it
@@ -19,7 +19,7 @@
 // certifies nothing.
 
 use anyhow::{Context as _, Result, bail};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use toml::value::Datetime;
@@ -87,8 +87,8 @@ enum Mode {
 
 /// An observation to append. Paths (`fixture`, `evidence`) are as the caller
 /// named them; `observe` copies the fixture into the store, and records each
-/// evidence file's location relative to the records directory with the
-/// digest of its decoded content.
+/// evidence file's location relative to the evidence directory (refusing
+/// one outside it) with the digest of its decoded content.
 #[derive(Debug, Clone)]
 pub struct NewObservation {
     pub source: Source,
@@ -321,16 +321,16 @@ fn field_diff<T: serde::Serialize>(stored: &T, given: &T) -> Result<Vec<String>>
         .collect())
 }
 
-/// Hold the records directory's write lock until the returned file drops.
+/// Hold the verdicts directory's write lock until the returned file drops.
 /// Every write verb holds it from its strict load through its last write, so
 /// a check (key absent, question not retired) cannot go stale before the
 /// write that relies on it. The lock file is a persistent dot-file (the
 /// loader ignores dot-files); it is never deleted, since recreating it would
-/// let two processes lock different files.
+/// let two processes lock different files. po owns the directory, so the
+/// first write verb creates it to hold the lock; `records/` is created only
+/// when a record is written.
 pub(super) fn lock(root: &Path) -> Result<std::fs::File> {
-    if !root.is_dir() {
-        bail!("records directory {} does not exist", root.display());
-    }
+    ensure_dir(root)?;
     let path = root.join(".lock");
     let file = std::fs::OpenOptions::new()
         .create(true)
@@ -1083,7 +1083,7 @@ fn observe_in(root: &Path, id: &str, new: &NewObservation, mode: Mode) -> Result
     let root = &evidence::absolute(root)?;
     let (_lock, store) = match mode {
         Mode::Write => (Some(lock(root)?), load_unlocked(root)?),
-        Mode::DryRun => (None, load(std::slice::from_ref(root))?),
+        Mode::DryRun => (None, load(root)?),
     };
     let Some(existing) = store.get(id) else {
         bail!("no question `{id}` in {}", root.display());
@@ -1385,6 +1385,7 @@ fn store_fixture(root: &Path, sha: &str, bytes: &[u8]) -> Result<()> {
 /// Write the question record `q` durably.
 pub(super) fn write_question(q: &Question) -> Result<()> {
     let text = toml::to_string(q).context("serializing question")?;
+    ensure_dir(&validate::records_dir(&q.root))?;
     write_atomic(
         &question_path(&q.root, &q.id),
         text.as_bytes(),
@@ -1422,6 +1423,24 @@ fn write_atomic(path: &Path, bytes: &[u8], landed: &str) -> Result<()> {
     })
 }
 
+/// Create directory `dir` if it is missing, and make its entry in the parent
+/// durable, so a write that reports success cannot lose the directory it
+/// wrote into. The parent must exist (the repository root, or `verdicts/`).
+/// The parent is synced even when the directory already exists: whoever
+/// created it may not have synced yet (or failed to), and this write's
+/// success must not rest on that.
+fn ensure_dir(dir: &Path) -> Result<()> {
+    if !dir.is_dir() {
+        match std::fs::create_dir(dir) {
+            Ok(()) => {}
+            // Another writer won the race to create it.
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && dir.is_dir() => {}
+            Err(e) => return Err(e).with_context(|| format!("creating {}", dir.display())),
+        }
+    }
+    sync_dir(dir.parent().unwrap_or(Path::new(".")))
+}
+
 fn sync_file(path: &Path) -> Result<()> {
     std::fs::File::open(path)
         .and_then(|f| f.sync_all())
@@ -1450,7 +1469,7 @@ fn sync_dir(dir: &Path) -> Result<()> {
 fn check(store: &Store, q: &Question, pending_fixture: Option<&str>) -> Result<Vec<String>> {
     let after_store = store.with(q);
     let after = after_store.questions();
-    let known_ids = validate::ids_in(after, &q.root);
+    let known_ids = validate::ids_in(after);
     let mut report = Report::default();
     let cx = Context {
         known_ids: &known_ids,
@@ -1471,13 +1490,10 @@ pub(super) fn check_many(store: &Store, changed: &[Question]) -> Result<()> {
     let after_store = store.with_all(changed);
     let after = after_store.questions();
     let mut report = Report::default();
-    let mut ids_by_root: BTreeMap<&Path, BTreeMap<String, bool>> = BTreeMap::new();
+    let known_ids = validate::ids_in(after);
     for q in changed {
-        let known_ids = ids_by_root
-            .entry(q.root.as_path())
-            .or_insert_with(|| validate::ids_in(after, &q.root));
         let cx = Context {
-            known_ids,
+            known_ids: &known_ids,
             pending_fixture: None,
         };
         validate::question(q, &cx, &mut report);
@@ -1610,14 +1626,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn relative_path_climbs_out_of_the_records_dir() {
-        let base = Path::new("/repo/reference/records");
+    fn relative_path_below_the_evidence_dir() {
+        let base = Path::new("/repo/verdicts/evidence");
         assert_eq!(
-            relative_path(base, Path::new("/repo/reference/fieldwork/run26.json")),
-            "../fieldwork/run26.json"
+            relative_path(base, Path::new("/repo/verdicts/evidence/run26/export.json")),
+            "run26/export.json"
         );
         assert_eq!(
-            relative_path(base, Path::new("/repo/reference/records/x.json")),
+            relative_path(base, Path::new("/repo/verdicts/evidence/x.json")),
             "x.json"
         );
     }

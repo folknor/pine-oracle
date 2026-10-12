@@ -84,8 +84,8 @@ enum Command {
     },
 
     /// Measured TradingView behavior: what each oracle (editor, endpoint,
-    /// chart) did, and whether a question is settled. Every verb names its
-    /// records directory with `--records`; nothing is read by default.
+    /// chart) did, and whether a question is settled. Kept in `verdicts/` at
+    /// the root of the current git repository.
     Verdict {
         #[command(subcommand)]
         command: commands::verdict::VerdictCommand,

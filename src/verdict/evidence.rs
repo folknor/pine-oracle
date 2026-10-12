@@ -21,12 +21,13 @@
 // that had none) is marked `attested`: it identifies the bytes from then on,
 // and says nothing about the capture before.
 //
-// Locations are records-relative paths in one lexical convention: a caller's
-// path is made absolute against the working directory and normalized without
-// touching the filesystem (`.` dropped, `..` folded), and po opens exactly the
-// spelling it stores. Within one observation a location (current, former, or
-// that of an entry merged into it) belongs to one entry, so a keyed rerun
-// naming any of them maps to one entry by lookup.
+// Locations are paths relative to the verdicts directory's `evidence/`, in
+// one lexical convention: a caller's path is made absolute against the
+// working directory and normalized without touching the filesystem (`.`
+// dropped, `..` folded), refused unless it then lies inside `evidence/`, and
+// po opens exactly the spelling it stores. Within one observation a location
+// (current, former, or that of an entry merged into it) belongs to one
+// entry, so a keyed rerun naming any of them maps to one entry by lookup.
 //
 // Availability is never a load error: a missing or unfetched file does not
 // stop the store from loading or from being repaired. `audit` (`po verdict
@@ -43,6 +44,7 @@ use std::path::{Component, Path, PathBuf};
 use toml::value::Datetime;
 
 use super::load::load_unlocked;
+use super::validate::evidence_dir;
 use super::write::{check_many, lock, now_utc, relative_path, write_question};
 use super::{Question, Store};
 
@@ -79,7 +81,7 @@ pub struct Attested {
 pub struct Move {
     /// UTC timestamp of the move.
     pub at: Datetime,
-    /// The former location, records-relative.
+    /// The former location, relative to the evidence directory.
     pub from: String,
     pub reason: String,
 }
@@ -124,7 +126,7 @@ pub struct Merge {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, from = "EvidenceRecord")]
 pub struct Evidence {
-    /// Current location, relative to the records directory.
+    /// Current location, relative to the evidence directory.
     pub path: String,
     /// sha256 of the content (decoded, where it was established from a
     /// compressed stream).
@@ -259,10 +261,11 @@ pub(super) fn absolute(path: &Path) -> Result<PathBuf> {
     Ok(out)
 }
 
-/// Where a caller's `path` is stored: relative to the records directory,
-/// `/`-separated, UTF-8.
+/// Where a caller's `path` is stored: relative to the evidence directory,
+/// `/`-separated, UTF-8. A path outside the evidence directory is refused:
+/// po cites only files inside the tree it owns.
 pub(super) fn stored_location(root: &Path, path: &Path) -> Result<String> {
-    let (base, target) = (absolute(root)?, absolute(path)?);
+    let (base, target) = (absolute(&evidence_dir(root))?, absolute(path)?);
     for p in [&base, &target] {
         if p.to_str().is_none() {
             bail!(
@@ -271,28 +274,33 @@ pub(super) fn stored_location(root: &Path, path: &Path) -> Result<String> {
             );
         }
     }
+    if target == base || !target.starts_with(&base) {
+        bail!(
+            "evidence {} is outside {}: put capture evidence under the evidence directory",
+            path.display(),
+            base.display()
+        );
+    }
     Ok(relative_path(&base, &target))
 }
 
-/// The file a stored location names: opened by its lexical spelling, never
-/// handing `..` to the kernel.
+/// The file a stored location names: opened by its lexical spelling.
 fn located(root: &Path, location: &str) -> Result<PathBuf> {
-    absolute(&root.join(location))
+    absolute(&evidence_dir(root).join(location))
 }
 
 /// Why a stored location is malformed, if it is: it must be the form
-/// `stored_location` writes (relative, `/`-separated, leading `..` only, no
-/// `.` or empty components).
+/// `stored_location` writes (relative to the evidence directory,
+/// `/`-separated, no `.`, `..` or empty components).
 fn location_shape(location: &str) -> Option<String> {
     if location.trim().is_empty() {
         return Some("an empty evidence path".to_string());
     }
     if location.starts_with('/') || Path::new(location).is_absolute() {
         return Some(format!(
-            "evidence `{location}` is absolute: locations are relative to the records directory"
+            "evidence `{location}` is absolute: locations are relative to the evidence directory"
         ));
     }
-    let mut climbing = true;
     for part in location.split('/') {
         match part {
             "" | "." => {
@@ -300,17 +308,13 @@ fn location_shape(location: &str) -> Option<String> {
                     "evidence `{location}` has an empty or `.` component"
                 ));
             }
-            ".." if !climbing => {
+            ".." => {
                 return Some(format!(
-                    "evidence `{location}` has `..` after a directory name"
+                    "evidence `{location}` climbs out of the evidence directory"
                 ));
             }
-            ".." => {}
-            _ => climbing = false,
+            _ => {}
         }
-    }
-    if climbing {
-        return Some(format!("evidence `{location}` names no file"));
     }
     None
 }
@@ -1513,7 +1517,7 @@ pub fn audit(store: &Store, ids: &[String]) -> Result<Audit> {
     for id in ids {
         match store.get(id) {
             Some(q) => chosen.push(q),
-            None => bail!("no question `{id}` under the given --records"),
+            None => bail!("no question `{id}`"),
         }
     }
     if ids.is_empty() {
@@ -1572,11 +1576,45 @@ mod tests {
     }
 
     #[test]
+    fn stored_locations_stay_inside_the_evidence_directory() {
+        let root = Path::new("/repo/verdicts");
+        let at = |p: &str| stored_location(root, Path::new(p));
+        assert_eq!(
+            at("/repo/verdicts/evidence/a/b.json").expect("inside"),
+            "a/b.json"
+        );
+        assert_eq!(
+            at("/repo/verdicts/evidence/./x/../b.json").expect("folded"),
+            "b.json"
+        );
+        // Containment is by whole components: a sibling sharing the name as
+        // a string prefix is outside.
+        for outside in [
+            "/repo/verdicts/evidence2/b.json",
+            "/repo/verdicts/evidence",
+            "/repo/verdicts/evidence/../records/x.toml",
+            "/repo/other.json",
+        ] {
+            let err = at(outside).expect_err(outside).to_string();
+            assert!(err.contains("is outside"), "{outside}: {err}");
+        }
+    }
+
+    #[test]
     fn location_shapes() {
-        for good in ["x.json", "../fieldwork/run26.json", "../../a/b.json.zst"] {
+        for good in ["x.json", "run26/export.json", "a/b.json.zst"] {
             assert_eq!(location_shape(good), None, "{good}");
         }
-        for bad in ["", "/abs.json", "a/../b", "./a", "a//b", "..", "a/"] {
+        for bad in [
+            "",
+            "/abs.json",
+            "a/../b",
+            "./a",
+            "a//b",
+            "..",
+            "a/",
+            "../fieldwork/run26.json",
+        ] {
             assert!(location_shape(bad).is_some(), "{bad}");
         }
     }
