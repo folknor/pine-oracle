@@ -1621,6 +1621,126 @@ fn evidence_outside_the_evidence_tree_is_refused() {
     refused(attest(&root, &[outside], false, "r"), "is outside");
 }
 
+/// Evidence is never reached through a symbolic link: not the file, not a
+/// directory below `evidence/`, not `evidence/` itself. Every verb that reads
+/// a file refuses one, and a stored entry that became a link fails the audit.
+#[cfg(unix)]
+#[test]
+fn evidence_through_a_link_is_refused() {
+    use std::os::unix::fs::symlink;
+    let (root, ev_dir, bytes) = evidence_store("evidence-links");
+    let json = ev_dir.join("run26.json");
+    let id = observed_with(&root, "k", vec![ev(json.clone())]);
+    let outside = root
+        .parent()
+        .expect("parent")
+        .join("evidence-links-outside");
+    std::fs::create_dir_all(&outside).expect("mkdir");
+    std::fs::write(outside.join("run26.json"), &bytes).expect("copy");
+
+    // The file, and a directory on the way to it.
+    symlink(outside.join("run26.json"), ev_dir.join("linked.json")).expect("file link");
+    symlink(&outside, ev_dir.join("dir")).expect("dir link");
+    for path in [ev_dir.join("linked.json"), ev_dir.join("dir/run26.json")] {
+        let o = NewObservation {
+            evidence: vec![ev(path.clone())],
+            ..compile(Source::Editor, "2026-09-28", Outcome::Accepted)
+        };
+        refused(observe(&root, &id, &o), "is a symbolic link");
+        refused(
+            relocate(&root, &json, &path, false, "r"),
+            "is a symbolic link",
+        );
+    }
+    std::fs::remove_file(ev_dir.join("dir")).expect("unlink");
+
+    // A recorded file replaced by a link fails the audit.
+    std::fs::remove_file(&json).expect("rm");
+    symlink(outside.join("run26.json"), &json).expect("link in place");
+    let store = load(&root).expect("loads");
+    let audit = audit(&store, &[]).expect("audit");
+    assert_eq!(audit.failing.len(), 1, "{audit:?}");
+    assert!(
+        audit.failing[0]
+            .inspection
+            .to_string()
+            .contains("is a symbolic link"),
+        "{}",
+        audit.failing[0].inspection
+    );
+    refused(
+        attest(&root, std::slice::from_ref(&json), false, "r"),
+        "is a symbolic link",
+    );
+    // A keyed rerun naming the recorded location, now a link, is refused,
+    // not matched by location.
+    let rerun = NewObservation {
+        key: Some("k".into()),
+        evidence: vec![ev(json.clone())],
+        ..compile(Source::Editor, "2026-09-27", Outcome::Accepted)
+    };
+    refused(observe(&root, &id, &rerun), "is a symbolic link");
+    std::fs::remove_file(&json).expect("unlink");
+    std::fs::write(&json, &bytes).expect("restore");
+
+    // `evidence/` itself as a link.
+    let real = root.parent().expect("parent").join("evidence-links-real");
+    if real.exists() {
+        std::fs::remove_dir_all(&real).expect("clear");
+    }
+    std::fs::rename(&ev_dir, &real).expect("move evidence away");
+    symlink(&real, &ev_dir).expect("evidence link");
+    let o = NewObservation {
+        evidence: vec![ev(ev_dir.join("run26.json"))],
+        ..compile(Source::Editor, "2026-09-28", Outcome::Accepted)
+    };
+    refused(observe(&root, &id, &o), "is a symbolic link");
+    std::fs::remove_file(&ev_dir).expect("unlink evidence");
+    std::fs::rename(&real, &ev_dir).expect("restore evidence");
+
+    // `verdicts/` itself as a link: evidence through it is refused.
+    let linked_root = root.parent().expect("parent").join("evidence-links-alias");
+    if linked_root.symlink_metadata().is_ok() {
+        std::fs::remove_file(&linked_root).expect("clear");
+    }
+    symlink(&root, &linked_root).expect("root link");
+    let o = NewObservation {
+        evidence: vec![ev(linked_root.join("evidence/run26.json"))],
+        ..compile(Source::Editor, "2026-09-28", Outcome::Accepted)
+    };
+    refused(observe(&linked_root, &id, &o), "is a symbolic link");
+}
+
+/// A directory renamed and replaced by a link to its new place after a read
+/// keeps every file's fingerprint; the read is still reported changed.
+#[cfg(unix)]
+#[test]
+fn a_directory_turned_link_after_a_read_is_a_change() {
+    let (root, ev_dir, bytes) = evidence_store("evidence-dir-turned-link");
+    std::fs::create_dir(ev_dir.join("run26")).expect("mkdir");
+    let file = ev_dir.join("run26/export.json");
+    std::fs::write(&file, &bytes).expect("write");
+    let id = observed_with(&root, "k", vec![ev(file)]);
+    let entry = reload(&root, &id).observations[0].evidence[0].clone();
+
+    let mut inspector = Inspector::new();
+    assert_eq!(
+        inspector.inspect(&root, &entry).comparison,
+        Comparison::Matches
+    );
+    inspector.stable().expect("nothing changed yet");
+    std::fs::rename(ev_dir.join("run26"), ev_dir.join("moved")).expect("rename");
+    std::os::unix::fs::symlink("moved", ev_dir.join("run26")).expect("link");
+    refused(inspector.stable(), "evidence changed while it was read");
+    // Inspected again, the remembered result is not reused.
+    assert!(
+        inspector
+            .inspect(&root, &entry)
+            .to_string()
+            .contains("is a symbolic link")
+    );
+}
+
 /// A write that is refused creates nothing in a repository that never held
 /// verdicts beyond `verdicts/.lock`.
 #[test]
@@ -3773,13 +3893,11 @@ fn compressed_evidence_keeps_its_identity_through_a_move() {
 
 /// The piners migration: one capture cited twice in an observation, once
 /// directly and once through a probe's copy. The record is compressed and
-/// moved; the probe's copy becomes a link to the compressed file. Both still
-/// match (the digest is the identity, however the bytes are reached), and
-/// the redundant citation merges into the other.
-#[cfg(unix)]
+/// moved, the probe's redundant copy is deleted, and its citation merges
+/// into the other (no file is read to merge).
 #[test]
-fn a_link_to_compressed_evidence_matches_and_merges() {
-    let (root, ev_dir, bytes) = evidence_store("evidence-link");
+fn a_redundant_copy_of_compressed_evidence_merges() {
+    let (root, ev_dir, bytes) = evidence_store("evidence-redundant-copy");
     let capture = ev_dir.join("run26.json");
     let probe = ev_dir.join("tv_record.json");
     std::fs::write(&probe, &bytes).expect("probe copy");
@@ -3790,7 +3908,6 @@ fn a_link_to_compressed_evidence_matches_and_merges() {
     relocate(&root, &capture, &zst, false, "compressed").expect("move");
     std::fs::remove_file(&capture).expect("delete the original");
     std::fs::remove_file(&probe).expect("drop the copy");
-    std::os::unix::fs::symlink("run26.json.zst", &probe).expect("link");
 
     // A record written while the reading was stored: the legacy key loads,
     // decides nothing, and is gone on the next rewrite.
@@ -3805,14 +3922,15 @@ fn a_link_to_compressed_evidence_matches_and_merges() {
 
     let store = load(&root).expect("loads");
     let audit = audit(&store, &[]).expect("audit");
-    assert_eq!((audit.entries, audit.matching), (2, 2), "{audit:?}");
+    assert_eq!((audit.entries, audit.matching), (2, 1), "{audit:?}");
     let row = store.get(&id).expect("question").observations[0].evidence[1].clone();
     assert_eq!(
-        Inspector::new().inspect(&root, &row).comparison,
-        Comparison::Matches
+        Inspector::new().inspect(&root, &row).fault,
+        Some(Fault::Missing)
     );
 
-    // The landing script naming both locations is still a no-op rerun.
+    // The landing script naming both locations is still a no-op rerun: an
+    // absent file matches by its location.
     let rerun = NewObservation {
         key: Some("k".into()),
         evidence: vec![ev(zst.clone()), ev(probe.clone())],

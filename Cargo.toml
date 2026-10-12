@@ -78,6 +78,9 @@ chrono = { version = "0.4.45", default-features = false, features = ["std", "now
 flate2 = "1.1"
 zstd = "0.13"
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

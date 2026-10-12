@@ -826,6 +826,7 @@ dependencies = [
  "clap",
  "flate2",
  "include_dir",
+ "libc",
  "owo-colors",
  "pulldown-cmark",
  "serde",

@@ -284,9 +284,15 @@ pub(super) fn stored_location(root: &Path, path: &Path) -> Result<String> {
     Ok(relative_path(&base, &target))
 }
 
-/// The file a stored location names: opened by its lexical spelling.
+/// The file a stored location names: opened by its lexical spelling. Every
+/// read of evidence resolves its location here, so this is where links are
+/// refused: neither `verdicts/`, nor `evidence/`, nor a directory below it,
+/// nor the file may be a symbolic link, or a location inside the tree could
+/// name bytes outside it. `hash_file` walks again after reading.
 fn located(root: &Path, location: &str) -> Result<PathBuf> {
-    absolute(&evidence_dir(root).join(location))
+    let path = absolute(&evidence_dir(root).join(location))?;
+    no_links(root, &path)?;
+    Ok(path)
 }
 
 /// Why a stored location is malformed, if it is: it must be the form
@@ -456,9 +462,10 @@ enum Seen {
     File(Fingerprint),
 }
 
-/// What `path` is now, if that can be told.
+/// What `path` is now, if that can be told. Never follows a link: a file
+/// swapped for a link to an identical one is a change.
 fn seen_now(path: &Path) -> Option<Seen> {
-    match std::fs::metadata(path) {
+    match std::fs::symlink_metadata(path) {
         Ok(m) => Some(Seen::File(fingerprint(&m))),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(Seen::Absent),
         Err(_) => None,
@@ -472,26 +479,36 @@ fn seen_now(path: &Path) -> Option<Seen> {
 /// that decodes to nothing, and a file whose fingerprint changed during the
 /// read, which overrides any other outcome: a fault is only reported for a
 /// file version that held still while it was found.
-fn hash_file(path: &Path, reading: Reading) -> (Result<Hashed, Fault>, Option<Seen>) {
+///
+/// No link is followed: the file is examined with `symlink_metadata` and
+/// opened without following a final link (Unix), and after the read the
+/// path from `root` down is walked for links again, so a file or directory
+/// swapped for a link during the read is caught. A link swapped in and back
+/// out between those checks is not; "no links" is a store rule, not a
+/// security boundary.
+fn hash_file(root: &Path, path: &Path, reading: Reading) -> (Result<Hashed, Fault>, Option<Seen>) {
     use std::io::ErrorKind;
     let unreadable = |e: std::io::Error| match e.kind() {
         ErrorKind::NotFound => Fault::Missing,
         _ => Fault::Unreadable(e.to_string()),
     };
-    let before = match std::fs::metadata(path) {
+    let before = match std::fs::symlink_metadata(path) {
         Ok(m) => m,
         Err(e) if e.kind() == ErrorKind::NotFound => {
             return (Err(Fault::Missing), Some(Seen::Absent));
         }
         Err(e) => return (Err(unreadable(e)), None),
     };
+    if before.file_type().is_symlink() {
+        return (Err(Fault::Unreadable(link_refusal(path))), None);
+    }
     if !before.is_file() {
         return (
             Err(Fault::Unreadable("not a regular file".to_string())),
             None,
         );
     }
-    let file = match std::fs::File::open(path) {
+    let file = match open_no_follow(path) {
         Ok(f) => f,
         // It was there a moment ago.
         Err(e) if e.kind() == ErrorKind::NotFound => return (Err(Fault::Unstable), None),
@@ -503,14 +520,62 @@ fn hash_file(path: &Path, reading: Reading) -> (Result<Hashed, Fault>, Option<Se
     };
     let result = read_open(&file, reading);
     let read = file.metadata().map(|m| fingerprint(&m)).ok();
-    let now = std::fs::metadata(path).map(|m| fingerprint(&m)).ok();
+    let now = std::fs::symlink_metadata(path)
+        .map(|m| fingerprint(&m))
+        .ok();
     if opened != fingerprint(&before)
         || read.as_ref() != Some(&opened)
         || now.as_ref() != Some(&opened)
     {
         return (Err(Fault::Unstable), None);
     }
+    if let Err(e) = no_links(root, path) {
+        return (Err(Fault::Unreadable(e.to_string())), None);
+    }
     (result, Some(Seen::File(opened)))
+}
+
+/// Open `path` for reading, refusing (Unix) to follow a link at its last
+/// component.
+fn open_no_follow(path: &Path) -> std::io::Result<std::fs::File> {
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.custom_flags(libc::O_NOFOLLOW);
+    }
+    options.open(path)
+}
+
+fn link_refusal(at: &Path) -> String {
+    format!(
+        "{} is a symbolic link: evidence is never reached through a link",
+        at.display()
+    )
+}
+
+/// Fails when the verdicts directory `root`, or any component from it down
+/// to `path`, is a symbolic link. A component that does not exist ends the
+/// walk (the read then reports the file missing).
+fn no_links(root: &Path, path: &Path) -> Result<()> {
+    let base = absolute(root)?;
+    let Ok(below) = path.strip_prefix(&base) else {
+        bail!("{} is not inside {}", path.display(), base.display());
+    };
+    let mut at = base;
+    for step in std::iter::once(None).chain(below.components().map(Some)) {
+        if let Some(c) = step {
+            at.push(c);
+        }
+        match std::fs::symlink_metadata(&at) {
+            Ok(m) if m.file_type().is_symlink() => bail!(link_refusal(&at)),
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => break,
+            Err(e) => return Err(e).with_context(|| format!("reading {}", at.display())),
+        }
+    }
+    Ok(())
 }
 
 /// The digest of an open file under `reading`, stability aside.
@@ -580,7 +645,8 @@ fn read_open(file: &std::fs::File, reading: Reading) -> Result<Hashed, Fault> {
 #[derive(Debug, Default)]
 pub struct Inspector {
     memo: HashMap<(PathBuf, Reading), (Seen, Result<Hashed, Fault>)>,
-    reads: Vec<(PathBuf, Seen)>,
+    /// Every tracked read: the verdicts root, the path, and its state then.
+    reads: Vec<(PathBuf, PathBuf, Seen)>,
     unstable: BTreeSet<PathBuf>,
 }
 
@@ -589,19 +655,24 @@ impl Inspector {
         Inspector::default()
     }
 
-    fn hash(&mut self, path: &Path, reading: Reading) -> Result<Hashed, Fault> {
+    /// `path` (inside the verdicts directory `root`) read under `reading`.
+    fn hash(&mut self, root: &Path, path: &Path, reading: Reading) -> Result<Hashed, Fault> {
         let key = (path.to_path_buf(), reading);
+        // A directory on the way may have become a link since: the file's
+        // own fingerprint would not show it.
         if let Some((seen, result)) = self.memo.get(&key)
             && seen_now(path).as_ref() == Some(seen)
+            && no_links(root, path).is_ok()
         {
             return result.clone();
         }
-        let (result, seen) = hash_file(path, reading);
+        let (result, seen) = hash_file(root, path, reading);
         if result == Err(Fault::Unstable) {
             self.unstable.insert(path.to_path_buf());
         }
         if let Some(seen) = seen {
-            self.reads.push((path.to_path_buf(), seen.clone()));
+            self.reads
+                .push((root.to_path_buf(), path.to_path_buf(), seen.clone()));
             self.memo.insert(key, (seen, result.clone()));
         }
         result
@@ -610,14 +681,14 @@ impl Inspector {
     /// Compare the file at `path` with a recorded digest, guided by it: the
     /// raw bytes first, then, when they start like a stream, the decoded
     /// content. Either matching is the same evidence (a file compressed or
-    /// decompressed in place, a link to a compressed copy, a raw artifact
-    /// that merely starts like a stream), and the raw match short-circuits.
+    /// decompressed in place, a raw artifact that merely starts like a
+    /// stream), and the raw match short-circuits.
     /// A file that changed while read fails whatever matched; an absent or
     /// unreadable one fails before decoding. When nothing matches, an LFS
     /// pointer found by either reading is that fault, and otherwise every
     /// reading tried is reported.
-    fn verify(&mut self, path: &Path, sha256: &str) -> Result<Verified, Fault> {
-        let raw = self.hash(path, Reading::As(None));
+    fn verify(&mut self, root: &Path, path: &Path, sha256: &str) -> Result<Verified, Fault> {
+        let raw = self.hash(root, path, Reading::As(None));
         match &raw {
             Ok(h) if h.sha256 == sha256 => return Ok(Verified::Matches),
             Err(f @ (Fault::Unstable | Fault::Missing | Fault::Unreadable(_))) => {
@@ -630,7 +701,7 @@ impl Inspector {
         // checked file version. A file that does not start like a stream
         // yields the raw reading again: nothing more to try.
         let mut pointer = raw == Err(Fault::Pointer);
-        let decoded = match self.hash(path, Reading::Sniff) {
+        let decoded = match self.hash(root, path, Reading::Sniff) {
             Ok(h) if h.sha256 == sha256 => return Ok(Verified::Matches),
             Ok(h) => h.encoding.map(|enc| (enc, Ok(h.sha256))),
             Err(Fault::Undecodable { encoding, why }) => {
@@ -654,8 +725,8 @@ impl Inspector {
     /// differs from one a remembered result was found in.
     fn changed_since_read(&self) -> Vec<PathBuf> {
         let mut out: BTreeSet<PathBuf> = self.unstable.clone();
-        for (path, seen) in &self.reads {
-            if seen_now(path).as_ref() != Some(seen) {
+        for (root, path, seen) in &self.reads {
+            if seen_now(path).as_ref() != Some(seen) || no_links(root, path).is_err() {
                 out.insert(path.clone());
             }
         }
@@ -714,7 +785,7 @@ impl Inspector {
             }
         };
         match &e.sha256 {
-            Some(recorded) => match self.verify(&path, recorded) {
+            Some(recorded) => match self.verify(root, &path, recorded) {
                 Ok(Verified::Matches) => Inspection {
                     fault: None,
                     comparison: Comparison::Matches,
@@ -729,7 +800,7 @@ impl Inspector {
                 },
             },
             None => Inspection {
-                fault: self.hash(&path, Reading::Sniff).err(),
+                fault: self.hash(root, &path, Reading::Sniff).err(),
                 comparison: Comparison::Unhashed,
             },
         }
@@ -837,7 +908,7 @@ pub(super) fn capture(
             Reading::Sniff
         };
         let h = inspector
-            .hash(&located(root, &location)?, reading)
+            .hash(root, &located(root, &location)?, reading)
             .map_err(|fault| anyhow::anyhow!("evidence {}: {fault}", g.path.display()))?;
         out.push(Evidence {
             path: location,
@@ -901,7 +972,7 @@ pub(super) fn rerun_differences(
         }
         let path = located(root, &location)?;
         match &entry.sha256 {
-            Some(recorded) => match inspector.verify(&path, recorded) {
+            Some(recorded) => match inspector.verify(root, &path, recorded) {
                 // An unfetched LFS object is absent content, as on a fresh
                 // clone: the location alone names the entry.
                 Ok(Verified::Matches) | Err(Fault::Missing | Fault::Pointer) => {}
@@ -918,7 +989,7 @@ pub(super) fn rerun_differences(
             // asked (there is no identity to decode it for). Read through
             // the inspector, so its state is checked again before the
             // write like every other read's.
-            None => match inspector.hash(&path, Reading::Sniff) {
+            None => match inspector.hash(root, &path, Reading::Sniff) {
                 Ok(_) | Err(Fault::Missing | Fault::Pointer | Fault::Undecodable { .. }) => {}
                 Err(fault) => diffs.push(format!("`evidence`: `{location}`: {fault}")),
             },
@@ -1140,7 +1211,7 @@ pub fn relocate(
         };
         Some(
             inspector
-                .hash(&located(root, &old_at)?, reading)
+                .hash(root, &located(root, &old_at)?, reading)
                 .map_err(|fault| {
                     anyhow::anyhow!(
                         "{}: {fault} (an entry without a digest is compared with it)",
@@ -1167,7 +1238,7 @@ pub fn relocate(
             .expect("an entry without a digest has the baseline");
         let verdict = verdicts
             .entry(expected.clone())
-            .or_insert_with(|| inspector.verify(&new_path, &expected));
+            .or_insert_with(|| inspector.verify(root, &new_path, &expected));
         match verdict {
             Ok(Verified::Matches) => {}
             Ok(Verified::Changed(readings)) => problems.push(format!(
@@ -1276,7 +1347,7 @@ pub fn attest(root: &Path, paths: &[PathBuf], raw: bool, reason: &str) -> Result
                 .entry(location.clone())
                 .or_default()
                 .insert(recorded.clone());
-            match inspector.verify(&located(root, location)?, recorded) {
+            match inspector.verify(root, &located(root, location)?, recorded) {
                 Ok(Verified::Matches) => {}
                 Ok(Verified::Changed(readings)) => problems.push(format!(
                     "{}: `{location}` reads {}, not its digest {}",
@@ -1306,7 +1377,7 @@ pub fn attest(root: &Path, paths: &[PathBuf], raw: bool, reason: &str) -> Result
         if digests.contains_key(&location) || faulted.contains(&location) {
             continue;
         }
-        match inspector.hash(&located(root, &location)?, reading) {
+        match inspector.hash(root, &located(root, &location)?, reading) {
             Ok(h) => {
                 // A location whose hashed entries identify other content (or
                 // disagree among themselves) supplies no one identity: the
@@ -1381,8 +1452,8 @@ pub enum Merged {
 
 /// Merge the entry at `redundant` into the entry at `into`, both evidence of
 /// question `id`'s observation `observation` (1-based): two citations of the
-/// same content, as when one capture is cited directly and through a link
-/// to it. Both must carry digests and they must be equal; no file is read,
+/// same content, as when one capture is cited both directly and through a
+/// probe's copy of it. Both must carry digests and they must be equal; no file is read,
 /// so it works where the evidence is not checked out. The redundant entry is
 /// kept whole under the survivor's `[[merged]]` (its locations stay
 /// reserved to the survivor and still name it in keyed reruns, its

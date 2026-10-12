@@ -640,9 +640,8 @@ Verifying an identity (`check`, `show`, `move`, `attest`, keyed reruns) is
 guided by the digest: the file's raw bytes are tried first, then, when they
 start like a stream, the decoded content, and either matching is the same
 evidence. How a file was read is not recorded, because it was only ever how
-the bytes were reached: a file compressed or decompressed in place, a
-symlink to a compressed copy, and a raw artifact that starts like a stream
-all match. So `record.json` and its `record.json.zst` are the same
+the bytes were reached: a file compressed or decompressed in place and a
+raw artifact that starts like a stream both match. So `record.json` and its `record.json.zst` are the same
 evidence, while the same JSON rewritten compactly is not: whitespace is
 content. When nothing matches, an LFS pointer found by either reading is
 reported as the pointer it is (a raw match still wins over a pointer inside
@@ -664,16 +663,20 @@ never climbing out of it (a stored location with a `..` component fails the
 load). Paths are resolved lexically, never through the filesystem: a path
 given relative to the working directory is made absolute, `.` is dropped and
 `..` folds into the directory before it, the result must lie inside
-`verdicts/evidence/`, and po opens exactly the spelling it stores. Symlinks
-are therefore not resolved: a link inside `evidence/` may point anywhere,
-but it is cited by its own spelling. Records
-written before digests stored symlink-resolved paths, so a landing script
-that reaches its evidence through a symlinked directory now names a
-different location, and its keyed rerun fails until it names the evidence
-by the stored spelling. For the same reason a path reached through a
-symlink is a location of its own: an observation citing a file directly and
-through a link to it holds two entries, and no move merges them (a location
-belongs to one entry); `evidence merge` does. Entries are stored
+`verdicts/evidence/`, and po opens exactly the spelling it stores.
+
+**No symbolic links.** Evidence is never reached through a link: neither
+`verdicts/`, nor `evidence/`, nor any directory below it, nor the file may
+be one, or a location inside the tree could name bytes outside it. Every
+verb that reads a file (`observe` including keyed reruns, `evidence move`,
+`evidence attest`) refuses one, and `show` and `evidence check` report a
+stored entry whose path has since become a link as failing (`... is a
+symbolic link`). The file is opened without following a final link and the
+path is checked again after the read, so a link swapped in during a read is
+caught; one swapped in and back out between checks is not, since this is a
+rule for keeping the store honest, not a security boundary. Copy the file
+into `evidence/` instead; a redundant copy cited twice is folded together
+with `evidence merge`. Entries are stored
 `--evidence` first, then `--evidence-raw`; the order carries no meaning.
 Within one observation a location (current, former, or one of an entry
 merged into it) belongs to one entry, for good: a location an entry left
@@ -729,7 +732,7 @@ written, and one that cannot be read fails the whole run.
 
 `po verdict evidence merge <id> <redundant> <into> --observation N` folds
 one evidence entry of an observation into another when both cite the same
-content: a capture cited directly and through a probe's copy or link, say.
+content: a capture cited directly and through a probe's copy, say.
 Both must be the entries' current locations and carry equal digests (attest
 first otherwise); no file is read, so it works where the evidence is not
 checked out. The redundant entry is kept whole in the survivor's
