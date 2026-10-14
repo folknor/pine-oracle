@@ -23,6 +23,11 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 CATALOG_DIR = "vendor/pine-data/v6"
 
+# No-break space and zero-width space, spelled by code point so the source
+# stays plain ASCII.
+NBSP = chr(0xA0)
+ZWSP = chr(0x200B)
+
 
 def resolve(arg: str) -> str:
     """Accept a repo-relative path, an absolute path, or a bare catalog file name."""
@@ -51,7 +56,7 @@ def load_head(rel: str):
 def norm(value):
     """Collapse invisible/odd whitespace so a whitespace-only rescrape reads as equal."""
     if isinstance(value, str):
-        return " ".join(value.replace(" ", " ").replace("​", "").split())
+        return " ".join(value.replace(NBSP, " ").replace(ZWSP, "").split())
     if isinstance(value, list):
         return [norm(v) for v in value]
     if isinstance(value, dict):
