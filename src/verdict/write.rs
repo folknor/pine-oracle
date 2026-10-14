@@ -30,7 +30,7 @@ use super::validate::{self, Context, Report, fixture_path, question_path, sha256
 use super::{
     AmendField, Amendment, Candidate, CandidateState, Citation, Closure, ClosureAction, Diag,
     Disagreement, Disposition, Kind, Observation, Outcome, Question, Relation, Retired, Source,
-    Status, Store, Void, citation, load,
+    Status, Store, Supersedes, Void, citation, load,
 };
 
 /// A question to create.
@@ -76,6 +76,9 @@ pub struct Observed {
     /// for a keyed rerun), as `show` prints it.
     pub was: Disposition,
     pub now: Disposition,
+    /// With `--release`: each released location of the superseded
+    /// observation and the unreleased entries (`<id> #N`) still requiring it.
+    pub released: Vec<(String, Vec<String>)>,
 }
 
 /// Whether `observe` writes, or only reports what writing would do.
@@ -114,6 +117,15 @@ pub struct NewObservation {
     pub consistent: Vec<String>,
     pub refuted: Vec<String>,
     pub evidence: Vec<NewEvidence>,
+    /// An earlier observation (`#N`) this one replaces, voided in the same
+    /// write unless it already is. Needs `supersede_reason`.
+    pub supersedes: Option<usize>,
+    pub supersede_reason: Option<String>,
+    /// Evidence of the superseded observation to release in the same write
+    /// (its locations), or all of it; the release reason is the supersede
+    /// reason.
+    pub release: Vec<PathBuf>,
+    pub release_all: bool,
     pub environment: Option<String>,
     pub note: Option<String>,
     pub inconclusive: Option<String>,
@@ -1121,6 +1133,32 @@ fn observe_in(root: &Path, id: &str, new: &NewObservation, mode: Mode) -> Result
     );
     let fixture_name = if by_store_path { None } else { passed_name };
     let mut inspector = Inspector::new();
+    let supersede_reason = new
+        .supersede_reason
+        .as_deref()
+        .map(str::trim)
+        .filter(|r| !r.is_empty());
+    match (new.supersedes, supersede_reason) {
+        (Some(_), None) => bail!("--supersedes needs a --supersede-reason"),
+        (None, Some(_)) => bail!("--supersede-reason needs --supersedes"),
+        _ => {}
+    }
+    if new.supersedes.is_none() && (new.release_all || !new.release.is_empty()) {
+        bail!("--release and --release-all apply to the observation --supersedes replaces");
+    }
+    if new.release_all && !new.release.is_empty() {
+        bail!("--release names entries and --release-all takes every one: give one");
+    }
+    let release_scope = if new.release_all {
+        Some(evidence::ReleaseScope::All)
+    } else if new.release.is_empty() {
+        None
+    } else {
+        Some(evidence::ReleaseScope::Paths(&new.release))
+    };
+    // The superseded observation's locations a release names, for reporting
+    // who still requires each.
+    let mut released_at: Vec<String> = Vec::new();
 
     let observation = Observation {
         source: new.source,
@@ -1149,6 +1187,9 @@ fn observe_in(root: &Path, id: &str, new: &NewObservation, mode: Mode) -> Result
             &new.refuted,
         )?,
         void: None,
+        // Set below: a keyed rerun compares them, a new observation records
+        // them.
+        supersedes: None,
         amendments: Vec::new(),
     };
     if let Some(key) = &observation.key
@@ -1193,6 +1234,33 @@ fn observe_in(root: &Path, id: &str, new: &NewObservation, mode: Mode) -> Result
             evidence::rerun_differences(root, &stored.evidence, &new.evidence, &mut inspector)?;
         warnings.extend(moved);
         given.evidence.clone_from(&stored.evidence);
+        // Supersession: the predecessor and the reason are the payload; the
+        // time is when it landed. A rerun never voids or releases again: the
+        // release it names must already be recorded.
+        let stored_supersedes = stored
+            .supersedes
+            .as_ref()
+            .map(|s| (s.observation, s.reason.as_str()));
+        let given_supersedes = new.supersedes.zip(supersede_reason);
+        if stored_supersedes != given_supersedes {
+            let show = |s: Option<(usize, &str)>| {
+                s.map_or("(absent)".to_string(), |(n, r)| format!("#{n} ({r})"))
+            };
+            diff.push(format!(
+                "`supersedes`: stored {}, given {}",
+                show(stored_supersedes),
+                show(given_supersedes)
+            ));
+        } else if let (Some((n, reason)), Some(scope)) = (stored_supersedes, release_scope)
+            && let Some(target) = n.checked_sub(1).and_then(|t| q.observations.get(t))
+        {
+            diff.extend(evidence::release_differences(root, target, scope, reason)?);
+            released_at = evidence::release_targets(root, &target.evidence, scope)?
+                .into_iter()
+                .map(|i| target.evidence[i].path.clone())
+                .collect();
+        }
+        given.supersedes.clone_from(&stored.supersedes);
         let current = Observation {
             amendments: Vec::new(),
             ..stored.clone()
@@ -1215,15 +1283,60 @@ fn observe_in(root: &Path, id: &str, new: &NewObservation, mode: Mode) -> Result
             warnings,
             was: now.clone(),
             now,
+            released: evidence::holders(store.questions(), &released_at),
         });
     }
     let mut observation = observation;
     observation.evidence = evidence::capture(root, &new.evidence, &mut inspector)?;
+    let mut did = format!("adding observation #{}", q.observations.len() + 1);
+    if let (Some(n), Some(reason)) = (new.supersedes, supersede_reason) {
+        let at = now_utc()?;
+        let count = q.observations.len();
+        let Some(t) = n.checked_sub(1).filter(|t| *t < count) else {
+            bail!("question {} has no observation #{n} (it has {count})", q.id);
+        };
+        if let Some(s) = q
+            .observations
+            .iter()
+            .position(|o| o.supersedes.as_ref().is_some_and(|s| s.observation == n))
+        {
+            bail!(
+                "observation #{n} is already superseded by #{}: supersede that one instead",
+                s + 1
+            );
+        }
+        let target = &mut q.observations[t];
+        // An observation voided earlier keeps its own void: the reason it
+        // was withdrawn then is not this replacement's.
+        if target.void.is_none() {
+            target.void = Some(Void {
+                at,
+                reason: reason.to_string(),
+            });
+        }
+        if let Some(scope) = release_scope {
+            let named = evidence::release_targets(root, &target.evidence, scope)?;
+            evidence::release_in(root, target, scope, reason, at)?;
+            released_at = named
+                .iter()
+                .map(|i| target.evidence[*i].path.clone())
+                .collect();
+        }
+        observation.supersedes = Some(Supersedes {
+            observation: n,
+            at,
+            reason: reason.to_string(),
+        });
+        did.push_str(&format!(" superseding #{n}"));
+    }
+    // Decided with the predecessor already withdrawn, as a void then an
+    // observe would: a void observation's name does not vote.
     if by_store_path && let Some(sha) = &fixture_sha {
-        observation.fixture_name = known_fixture_name(store.questions(), sha);
+        let after = store.with(&q);
+        observation.fixture_name = known_fixture_name(after.questions(), sha);
     }
     q.observations.push(observation);
-    let did = format!("adding observation #{}", q.observations.len());
+    let released = evidence::holders(store.with(&q).questions(), &released_at);
     end_closure_if_decided(&store, &mut q, &did)?;
     let mut warnings = check(&store, &q, fixture_sha.as_deref())?;
     let (was, now) = (store.disposition(existing), store.with(&q).disposition(&q));
@@ -1243,6 +1356,7 @@ fn observe_in(root: &Path, id: &str, new: &NewObservation, mode: Mode) -> Result
         warnings,
         was,
         now,
+        released,
     })
 }
 

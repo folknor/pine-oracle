@@ -357,6 +357,26 @@ pub(crate) struct ObserveArgs {
     /// stream. Repeatable.
     #[arg(long = "evidence-raw", value_name = "PATH")]
     evidence_raw: Vec<PathBuf>,
+    /// The earlier observation `#N` this one replaces (a reanalysis, a
+    /// corrected transcription), voided in the same write unless it already
+    /// is. Needs --supersede-reason.
+    #[arg(long, value_name = "N", requires = "supersede_reason")]
+    supersedes: Option<usize>,
+    /// Why the new observation replaces the old one.
+    #[arg(long, value_name = "REASON", requires = "supersedes")]
+    supersede_reason: Option<String>,
+    /// Release this evidence of the superseded observation (any of its
+    /// locations) in the same write, for the supersede reason. Repeatable.
+    #[arg(
+        long,
+        value_name = "PATH",
+        requires = "supersedes",
+        conflicts_with = "release_all"
+    )]
+    release: Vec<PathBuf>,
+    /// Release every evidence entry of the superseded observation.
+    #[arg(long, requires = "supersedes")]
+    release_all: bool,
     /// Free text, e.g. `TradingView Desktop 3.4.1`.
     #[arg(long)]
     environment: Option<String>,
@@ -473,6 +493,9 @@ pub(crate) fn run(command: VerdictCommand, style: Style, quiet: bool) -> Result<
                 verdict::observe(&root, &args.id, &new)?
             };
             print_warnings(&observed.warnings, quiet);
+            if !quiet {
+                print_holders(&observed.released, true, args.dry_run && !observed.existing);
+            }
             let (id, n, was, now) = (&observed.id, observed.number, &observed.was, &observed.now);
             // The answer a dry run was asked for, so stdout and never quieted.
             if args.dry_run {
@@ -810,7 +833,7 @@ fn run_evidence(command: EvidenceCommand, root: &Path, quiet: bool) -> Result<()
                     String::new()
                 }
             );
-            print_holders(&done.holders);
+            print_holders(&done.holders, false, false);
             Ok(())
         }
     }
@@ -926,22 +949,41 @@ fn new_observation(a: &ObserveArgs) -> Result<NewObservation> {
                 raw,
             })
             .collect(),
+        supersedes: a.supersedes,
+        supersede_reason: a.supersede_reason.clone(),
+        release: a.release.clone(),
+        release_all: a.release_all,
         environment: a.environment.clone(),
         note: a.note.clone(),
         inconclusive: a.inconclusive.clone(),
     })
 }
 
-/// Per released location, the unreleased entries still requiring the file.
-fn print_holders(holders: &[(String, Vec<String>)]) {
+/// Per released location, the unreleased entries still requiring the file
+/// (stdout, or stderr beside `observe`'s own report). `would`: a dry run's
+/// prediction, nothing released yet.
+fn print_holders(holders: &[(String, Vec<String>)], stderr: bool, would: bool) {
     for (location, still) in holders {
-        if still.is_empty() {
-            println!("released {location}: no unreleased entry in this store requires it");
-        } else {
-            println!(
+        let line = match (would, still.is_empty()) {
+            (false, true) => {
+                format!("released {location}: no unreleased entry in this store requires it")
+            }
+            (false, false) => format!(
                 "released {location}: still required by {}",
                 still.join(", ")
-            );
+            ),
+            (true, true) => {
+                format!("would release {location}: no unreleased entry would require it")
+            }
+            (true, false) => format!(
+                "would release {location}: still required by {}",
+                still.join(", ")
+            ),
+        };
+        if stderr {
+            eprintln!("{line}");
+        } else {
+            println!("{line}");
         }
     }
 }
@@ -1109,11 +1151,12 @@ fn print_question(store: &Store, q: &Question, inspector: &mut Inspector, style:
     }
     for r in q.ranked() {
         println!();
-        print_observation(&r, &q.root, inspector, style);
+        print_observation(&r, q, inspector, style);
     }
 }
 
-fn print_observation(r: &Ranked<'_>, root: &Path, inspector: &mut Inspector, style: Style) {
+fn print_observation(r: &Ranked<'_>, q: &Question, inspector: &mut Inspector, style: Style) {
+    let root = &q.root;
     let o = r.observation;
     let verdict = o.outcome.map_or("run", Outcome::as_str);
     let mut head = format!(
@@ -1176,6 +1219,19 @@ fn print_observation(r: &Ranked<'_>, root: &Path, inspector: &mut Inspector, sty
             Some(model) => detail("candidate", &format!("{} {marker}: {model}", c.name)),
             None => detail("candidate", &format!("{} {marker}", c.name)),
         }
+    }
+    if let Some(s) = &o.supersedes {
+        detail(
+            "supersedes",
+            &format!("#{} {}: {}", s.observation, s.at, s.reason),
+        );
+    }
+    if let Some(next) = q.observations.iter().position(|x| {
+        x.supersedes
+            .as_ref()
+            .is_some_and(|s| s.observation == r.number)
+    }) {
+        detail("superseded by", &format!("#{}", next + 1));
     }
     match (&o.fixture, &o.fixture_name) {
         (Some(sha), Some(name)) => detail("fixture", &format!("fixtures/{sha}.pine ({name})")),

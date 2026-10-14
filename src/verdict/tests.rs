@@ -80,6 +80,10 @@ fn obs(source: Source, date: &str) -> NewObservation {
         consistent: Vec::new(),
         refuted: Vec::new(),
         evidence: Vec::new(),
+        supersedes: None,
+        supersede_reason: None,
+        release: Vec::new(),
+        release_all: false,
         environment: None,
         note: None,
         inconclusive: None,
@@ -2072,6 +2076,7 @@ fn show_json_carries_the_resolved_question() {
             "counts",
             "void",
             "inconclusive",
+            "supersedes",
             "errors",
             "warnings",
             "result",
@@ -5115,6 +5120,183 @@ fn corrupt_streams_are_refused() {
         };
         refused(observe(&root, &id, &o), needle);
     }
+}
+
+fn reload_status(root: &Path, id: &str) -> String {
+    let store = load(root).expect("load");
+    store.disposition(store.get(id).expect("q")).to_string()
+}
+
+#[test]
+fn supersession_voids_and_releases_in_one_write() {
+    let root = scratch("supersede");
+    let ev_dir = root.join("evidence");
+    let record = ev_dir.join("record.json");
+    let script = ev_dir.join("reader.py");
+    std::fs::write(&record, b"{\"bars\": 58}").expect("record");
+    std::fs::write(&script, b"print(58)").expect("script");
+    let id = add(&root, &question(Kind::Runtime, &[])).expect("add").id;
+    let old = NewObservation {
+        key: Some("old".into()),
+        evidence: vec![ev(record.clone()), ev(script.clone())],
+        ..runtime("2026-09-01")
+    };
+    observe(&root, &id, &old).expect("old");
+
+    let new = NewObservation {
+        key: Some("new".into()),
+        evidence: vec![ev(record.clone())],
+        supersedes: Some(1),
+        supersede_reason: Some("ported onto the shared reader".into()),
+        release: vec![script.clone()],
+        ..runtime("2026-09-01")
+    };
+    refused(
+        observe(
+            &root,
+            &id,
+            &NewObservation {
+                supersede_reason: None,
+                ..new.clone()
+            },
+        ),
+        "--supersedes needs a --supersede-reason",
+    );
+    refused(
+        observe(
+            &root,
+            &id,
+            &NewObservation {
+                supersedes: Some(3),
+                ..new.clone()
+            },
+        ),
+        "has no observation #3",
+    );
+    refused(
+        observe(
+            &root,
+            &id,
+            &NewObservation {
+                supersedes: None,
+                supersede_reason: None,
+                ..new.clone()
+            },
+        ),
+        "apply to the observation --supersedes replaces",
+    );
+
+    // A dry run predicts the release without making it.
+    let dry = observe_dry_run(&root, &id, &new).expect("dry run");
+    assert_eq!(dry.released, vec![("reader.py".to_string(), vec![])]);
+    assert!(reload(&root, &id).observations[0].void.is_none());
+
+    let observed = observe(&root, &id, &new).expect("supersede");
+    assert_eq!(observed.number, 2);
+    assert_eq!(observed.released, vec![("reader.py".to_string(), vec![])]);
+    let q = reload(&root, &id);
+    let (o1, o2) = (&q.observations[0], &q.observations[1]);
+    assert_eq!(
+        o1.void.as_ref().map(|v| v.reason.as_str()),
+        Some("ported onto the shared reader")
+    );
+    assert!(o1.evidence[1].released.is_some(), "the script is released");
+    assert!(o1.evidence[0].released.is_none(), "the capture is kept");
+    assert_eq!(o2.supersedes.as_ref().map(|s| s.observation), Some(1));
+    assert_eq!(reload_status(&root, &id), "settled");
+
+    // The script can go: the store loads and the audit passes.
+    std::fs::remove_file(&script).expect("delete the script");
+    let store = load(&root).expect("loads");
+    let a = audit(&store, &[]).expect("audit");
+    assert!(a.failing.is_empty(), "{a:?}");
+    assert_eq!((a.entries, a.matching, a.released), (3, 2, 1));
+    let j = store.json(store.get(&id).expect("q"));
+    assert_eq!(j["observations"][1]["supersedes"]["observation"], 1);
+
+    // The keyed rerun is a no-op; asking it to release more differs, and a
+    // different reason differs.
+    assert!(observe(&root, &id, &new).expect("rerun").existing);
+    refused(
+        observe(
+            &root,
+            &id,
+            &NewObservation {
+                release: vec![],
+                release_all: true,
+                ..new.clone()
+            },
+        ),
+        "`release`: `record.json` is not released",
+    );
+    refused(
+        observe(
+            &root,
+            &id,
+            &NewObservation {
+                supersede_reason: Some("another".into()),
+                ..new.clone()
+            },
+        ),
+        "`supersedes`: stored #1",
+    );
+
+    // One successor per predecessor: a later correction supersedes #2.
+    refused(
+        observe(
+            &root,
+            &id,
+            &NewObservation {
+                key: Some("third".into()),
+                release: vec![],
+                ..new.clone()
+            },
+        ),
+        "already superseded by #2",
+    );
+    // An observation already void keeps its own void when superseded.
+    void(
+        &root,
+        &id,
+        VoidTarget::Observation(2),
+        "wrong reader version",
+    )
+    .expect("void #2");
+    observe(
+        &root,
+        &id,
+        &NewObservation {
+            key: Some("third".into()),
+            supersedes: Some(2),
+            supersede_reason: Some("reader 2".into()),
+            release: vec![],
+            ..new.clone()
+        },
+    )
+    .expect("supersede the void replacement");
+    let q = reload(&root, &id);
+    assert_eq!(
+        q.observations[1].void.as_ref().map(|v| v.reason.as_str()),
+        Some("wrong reader version")
+    );
+
+    // A successor of an observation that is not void is invalid.
+    let store = load(&root).expect("load");
+    let mut q = store.get(&id).expect("q").clone();
+    q.observations[0].void = None;
+    q.observations[0].evidence[1].released = None;
+    let known = validate::ids_in(store.questions());
+    let cx = validate::Context {
+        known_ids: &known,
+        pending_fixture: None,
+    };
+    let mut report = validate::Report::default();
+    validate::question(&q, &cx, &mut report);
+    let errors = report.errors.join("\n");
+    assert!(
+        errors.contains("supersedes #1, which is not void"),
+        "{errors}"
+    );
 }
 
 #[test]

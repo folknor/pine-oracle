@@ -336,6 +336,20 @@ pub struct Void {
     pub reason: String,
 }
 
+/// What an observation replaces: an earlier observation of the same
+/// question (`#N`, 1-based file order), void since, typically a reanalysis of
+/// the same capture with a new reader. Its own time and reason, apart from
+/// the predecessor's void (which may be older). One successor per
+/// predecessor: a later correction supersedes the replacement.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Supersedes {
+    pub observation: usize,
+    /// UTC timestamp.
+    pub at: Datetime,
+    pub reason: String,
+}
+
 /// A Pine User Manual passage cited as support for the answer. Not an
 /// observation: the manual is not a measurement of TradingView, so a
 /// citation never makes a question settled, only `documented`. All active
@@ -455,6 +469,9 @@ pub struct Observation {
     /// code or candidate): it stays visible and never counts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub void: Option<Void>,
+    /// The earlier observation this one replaces; see `Supersedes`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supersedes: Option<Supersedes>,
     /// The supporting artifacts (exports, probe JSON): a set; the stored
     /// order carries no meaning. See `Evidence`.
     #[serde(

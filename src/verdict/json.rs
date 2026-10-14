@@ -55,6 +55,11 @@ impl Store {
                     "counts": o.counts(),
                     "void": o.void.as_ref().map(|v| &v.reason),
                     "inconclusive": o.inconclusive,
+                    "supersedes": o.supersedes.as_ref().map(|s| json!({
+                        "observation": s.observation,
+                        "at": s.at.to_string(),
+                        "reason": s.reason,
+                    })),
                     "errors": o.errors.iter().map(diag).collect::<Vec<_>>(),
                     "warnings": o.warnings.iter().map(diag).collect::<Vec<_>>(),
                     "result": o.result,

@@ -26,6 +26,8 @@ po verdict observe  <id> --source editor|endpoint|chart [--key K]
                              [--consistent name]... [--refuted name]...
                     [--inconclusive "<reason>"] [--evidence <path>]...
                     [--evidence-raw <path>]...
+                    [--supersedes N --supersede-reason "..."
+                     [--release <path>... | --release-all]]
                     [--environment "..."] [--note "..."] [--dry-run]
 po verdict retire   <id> --reason "..." [--replaced-by <id>]...
 po verdict close    <id> --reason "..."
@@ -183,6 +185,26 @@ marking the question exclusive`) and naming each pair with only its new
 axes (`observations newly contradict: #1 ... and #2 ... [...]`). Status is recomputed
 from the result, and the write is validated like any other, so clearing a
 runtime `result` is refused.
+
+**Superseding an observation.** `observe --supersedes N --supersede-reason
+"..."` records a new observation that replaces `#N` of the same question,
+in one write: `#N` is voided with that reason (an observation already void
+keeps its own void) and the new one carries `supersedes` (`#N`, the time
+and the reason). Use it to reanalyze a capture with another reader, or to
+correct a measured field, where void-then-observe would leave a moment in
+which neither counts. Nothing is copied from `#N`: give every field as you
+would to `observe`, the capture's own date included (the supersession's
+time is recorded apart). The warnings, the automatic reopen, the fixture
+name taken from the store and the status are those of the final state,
+with `#N` withdrawn. `#N` has one successor: a later correction supersedes
+the replacement, giving a chain, and voiding the replacement does not
+revive `#N`. `--release <path>...` or `--release-all` releases `#N`'s
+evidence in the same write (see Evidence), with the supersede reason, and
+reports on stderr the unreleased entries still requiring each location (a
+dry run says what it would release). A keyed rerun compares `#N` and the
+reason, never voids or releases again, and differs when a release it names
+is not already recorded with that reason. `show` prints `supersedes: #N`
+and, on `#N`, `superseded by: #M`.
 
 **Rewording a question.** `amend --question` is for a wording correction:
 every retained observation still tests the reworded claim, and the retained
@@ -648,6 +670,8 @@ An observation:
 - `void` (the reason, or null), `inconclusive` (the reason, or null);
 - `errors`, `warnings`: each `code`, `message`, `span`, `bar`, `ctx` (an
   object of strings);
+- `supersedes`: the observation this one replaces, `observation` (its
+  number), `at` and `reason`, or null;
 - `result`, `settings`, `candidates` (each `name`, `model`, `state`:
   `selected` / `consistent` / `refuted` / `undecided`);
 - `fixture` (the sha256), `fixture_path`, `fixture_name`;
@@ -882,6 +906,7 @@ already made still reruns as a no-op), `attest` neither gives them a
 digest nor lets them constrain a file at their location (a given location
 only they hold is skipped and named, the rest of the run goes ahead), and
 `merge` refuses them (a finished merge still reruns as a no-op).
+`observe --supersedes` can release in the same write (see Corrections).
 
 Every verb that reads evidence compares each file's device, inode, size
 and modification time before and after reading it, and again before
@@ -961,7 +986,8 @@ once released, `[[observation.evidence.moved]]` tables (`at`, `from`,
 `reason`), and `[[observation.evidence.merged]]` tables (`at`, `reason`, and
 the merged entry as an `entry` table of the same shape)); an entry recorded before
 digests may be a bare path string, which po rewrites as a table the next
-time it writes the file. A negative answer carries `negative = true`
+time it writes the file. A superseding observation carries an
+`[observation.supersedes]` table (`observation`, `at`, `reason`). A negative answer carries `negative = true`
 and an exclusive question `exclusive = true` among the plain fields (each
 absent when unmarked), and the investigation history
 is question-level `[[closure]]` tables (`at`, `action` = `close` or
@@ -1052,6 +1078,9 @@ Errors:
   reason, or a non-UTC time; a released entry on an observation that is not
   void, or a `released` table on a merged entry. Whether the files
   exist and still match is not validation: see Evidence;
+- a `supersedes` naming no earlier observation, or one that is not void, or
+  one another observation already supersedes; an empty reason or a non-UTC
+  time;
 - a directory entry that is not a question file, `fixtures/`, a markdown note
   or a dot-file (a dot-directory is an error, in `fixtures/` too); an id
   present in two directories.

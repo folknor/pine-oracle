@@ -226,6 +226,7 @@ pub(super) fn question(q: &Question, cx: &Context<'_>, out: &mut Report) {
             }
         }
     }
+    let mut successors: BTreeMap<usize, usize> = BTreeMap::new();
     for (i, o) in q.observations.iter().enumerate() {
         let label = format!(
             "observation {} ({} {})",
@@ -242,6 +243,39 @@ pub(super) fn question(q: &Question, cx: &Context<'_>, out: &mut Report) {
             errs.push(format!(
                 "{label}: released evidence on an observation that is not void"
             ));
+        }
+        if let Some(s) = &o.supersedes {
+            if s.reason.trim().is_empty() {
+                errs.push(format!("{label}: `supersedes.reason` is empty"));
+            }
+            if !is_utc_timestamp(&s.at) {
+                errs.push(format!(
+                    "{label}: `supersedes.at` `{}` must be a UTC timestamp",
+                    s.at
+                ));
+            }
+            // Earlier in file order: supersession chains cannot cycle.
+            match s.observation.checked_sub(1).filter(|t| *t < i) {
+                None => errs.push(format!(
+                    "{label}: supersedes #{}, which is not an earlier observation",
+                    s.observation
+                )),
+                Some(t) => {
+                    if q.observations[t].void.is_none() {
+                        errs.push(format!(
+                            "{label}: supersedes #{}, which is not void",
+                            s.observation
+                        ));
+                    }
+                    if let Some(first) = successors.insert(t, i) {
+                        errs.push(format!(
+                            "{label}: #{} is already superseded by #{}: supersede that one instead",
+                            s.observation,
+                            first + 1
+                        ));
+                    }
+                }
+            }
         }
         if q.kind == Kind::Compile && o.outcome == Some(Outcome::Rejected) && o.errors.is_empty() {
             warns.push(format!("{label}: rejected with no error recorded"));

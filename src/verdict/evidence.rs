@@ -1709,6 +1709,32 @@ pub(super) fn release_in(
     Ok(newly)
 }
 
+/// For a keyed rerun of a supersession: why the release it asks for is not
+/// the one recorded on the superseded observation `o` (empty: it is). Every
+/// named entry must already be released for `reason`; a rerun never
+/// releases more.
+pub(super) fn release_differences(
+    root: &Path,
+    o: &super::Observation,
+    scope: ReleaseScope<'_>,
+    reason: &str,
+) -> Result<Vec<String>> {
+    Ok(release_targets(root, &o.evidence, scope)?
+        .into_iter()
+        .filter_map(|i| {
+            let e = &o.evidence[i];
+            match &e.released {
+                Some(r) if r.reason == reason => None,
+                Some(r) => Some(format!(
+                    "`release`: `{}` was released for another reason ({})",
+                    e.path, r.reason
+                )),
+                None => Some(format!("`release`: `{}` is not released", e.path)),
+            }
+        })
+        .collect())
+}
+
 /// What `release` did.
 #[derive(Debug, Clone)]
 pub struct Release {
