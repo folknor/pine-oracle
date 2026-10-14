@@ -11,7 +11,7 @@
 
 use serde_json::{Value, json};
 
-use super::{Diag, Outcome, Question, Relation, Resolved, Store};
+use super::{Diag, Outcome, Question, Relation, Resolved, Store, tally};
 
 /// Bumped on any change a consumer could notice other than an added key.
 pub const SCHEMA: u32 = 1;
@@ -73,6 +73,35 @@ impl Store {
                             "state": c.state.as_str(),
                         }))
                         .collect::<Vec<_>>(),
+                    "tally": o.tally.as_ref().map(|t| json!({
+                        "schema": t.schema,
+                        "reader": t.reader,
+                        "path": format!(
+                            "verdicts/evidence/{}",
+                            tally::current(&o.evidence, &t.path)
+                        ),
+                        "sha256": t.sha256,
+                        "inputs": t
+                            .inputs
+                            .iter()
+                            .map(|i| json!({
+                                "path": format!(
+                                    "verdicts/evidence/{}",
+                                    tally::current(&o.evidence, &i.path)
+                                ),
+                                "sha256": i.sha256,
+                            }))
+                            .collect::<Vec<_>>(),
+                        "candidates": t
+                            .candidates
+                            .iter()
+                            .map(|(name, f)| json!({
+                                "name": name,
+                                "matched": f.matched,
+                                "of": f.of,
+                            }))
+                            .collect::<Vec<_>>(),
+                    })),
                     "fixture": o.fixture,
                     "fixture_path": o
                         .fixture

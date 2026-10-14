@@ -468,11 +468,16 @@ struct Sink {
     hasher: Sha256,
     head: Vec<u8>,
     total: u64,
+    /// Every byte hashed, when the caller parses what it hashed.
+    kept: Option<Vec<u8>>,
 }
 
 impl std::io::Write for Sink {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         self.hasher.update(buf);
+        if let Some(kept) = &mut self.kept {
+            kept.extend_from_slice(buf);
+        }
         let room = (POINTER_MAX + 1).saturating_sub(self.head.len());
         self.head.extend_from_slice(&buf[..room.min(buf.len())]);
         self.total += buf.len() as u64;
@@ -515,6 +520,19 @@ fn seen_now(path: &Path) -> Option<Seen> {
 /// out between those checks is not; "no links" is a store rule, not a
 /// security boundary.
 fn hash_file(root: &Path, path: &Path, reading: Reading) -> (Result<Hashed, Fault>, Option<Seen>) {
+    let (result, seen) = read_file(root, path, reading, false);
+    (result.map(|(h, _)| h), seen)
+}
+
+/// `hash_file`, also returning the bytes hashed when `keep` is set: what is
+/// parsed is then exactly what the digest identifies, from one read.
+type Content = (Hashed, Option<Vec<u8>>);
+fn read_file(
+    root: &Path,
+    path: &Path,
+    reading: Reading,
+    keep: bool,
+) -> (Result<Content, Fault>, Option<Seen>) {
     use std::io::ErrorKind;
     let unreadable = |e: std::io::Error| match e.kind() {
         ErrorKind::NotFound => Fault::Missing,
@@ -546,7 +564,7 @@ fn hash_file(root: &Path, path: &Path, reading: Reading) -> (Result<Hashed, Faul
         Ok(m) => fingerprint(&m),
         Err(e) => return (Err(unreadable(e)), None),
     };
-    let result = read_open(&file, reading);
+    let result = read_open(&file, reading, keep);
     let read = file.metadata().map(|m| fingerprint(&m)).ok();
     let now = std::fs::symlink_metadata(path)
         .map(|m| fingerprint(&m))
@@ -607,7 +625,7 @@ fn no_links(root: &Path, path: &Path) -> Result<()> {
 }
 
 /// The digest of an open file under `reading`, stability aside.
-fn read_open(file: &std::fs::File, reading: Reading) -> Result<Hashed, Fault> {
+fn read_open(file: &std::fs::File, reading: Reading, keep: bool) -> Result<Content, Fault> {
     let unreadable = |e: std::io::Error| Fault::Unreadable(e.to_string());
     let mut head = Vec::with_capacity(4);
     file.take(4).read_to_end(&mut head).map_err(unreadable)?;
@@ -620,6 +638,7 @@ fn read_open(file: &std::fs::File, reading: Reading) -> Result<Hashed, Fault> {
         hasher: Sha256::new(),
         head: Vec::new(),
         total: 0,
+        kept: keep.then(Vec::new),
     };
     // A raw pointer is caught by the same check as a decoded one: raw, the
     // sink sees the file's own bytes.
@@ -658,7 +677,7 @@ fn read_open(file: &std::fs::File, reading: Reading) -> Result<Hashed, Fault> {
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect();
-    Ok(Hashed { sha256, encoding })
+    Ok((Hashed { sha256, encoding }, sink.kept))
 }
 
 /// Reads evidence for one operation, hashing each (file, reading) once. A
@@ -702,6 +721,32 @@ impl Inspector {
             self.reads
                 .push((root.to_path_buf(), path.to_path_buf(), seen.clone()));
             self.memo.insert(key, (seen, result.clone()));
+        }
+        result
+    }
+
+    /// `path` read by its leading bytes like a new entry, returning the
+    /// content hashed with its digest from that one read, which is tracked
+    /// like every other (`unchanged` checks it before a write).
+    fn snapshot(&mut self, root: &Path, path: &Path) -> Result<(Hashed, Vec<u8>), Fault> {
+        let (result, seen) = read_file(root, path, Reading::Sniff, true);
+        if result.as_ref().err() == Some(&Fault::Unstable) {
+            self.unstable.insert(path.to_path_buf());
+        }
+        let result = result.map(|(h, kept)| (h, kept.unwrap_or_default()));
+        if let Some(seen) = seen {
+            self.reads
+                .push((root.to_path_buf(), path.to_path_buf(), seen.clone()));
+            self.memo.insert(
+                (path.to_path_buf(), Reading::Sniff),
+                (
+                    seen,
+                    result
+                        .as_ref()
+                        .map(|(h, _)| h.clone())
+                        .map_err(Clone::clone),
+                ),
+            );
         }
         result
     }
@@ -960,6 +1005,31 @@ pub(super) fn capture(
         });
     }
     Ok(out)
+}
+
+/// The tally file `path` for a new observation: its entry (read by its
+/// leading bytes, like `--evidence`) and the content that digest identifies,
+/// from one tracked read, for parsing.
+pub(super) fn capture_tally(
+    root: &Path,
+    path: &Path,
+    inspector: &mut Inspector,
+) -> Result<(Evidence, Vec<u8>)> {
+    let location = stored_location(root, path)?;
+    let (h, bytes) = inspector
+        .snapshot(root, &located(root, &location)?)
+        .map_err(|fault| anyhow::anyhow!("tally {}: {fault}", path.display()))?;
+    Ok((
+        Evidence {
+            path: location,
+            sha256: Some(h.sha256),
+            attested: None,
+            released: None,
+            moves: Vec::new(),
+            merged: Vec::new(),
+        },
+        bytes,
+    ))
 }
 
 /// For a keyed `observe` rerun: whether `given` is the evidence of `stored`.

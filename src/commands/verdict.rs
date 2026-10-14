@@ -357,6 +357,11 @@ pub(crate) struct ObserveArgs {
     /// stream. Repeatable.
     #[arg(long = "evidence-raw", value_name = "PATH")]
     evidence_raw: Vec<PathBuf>,
+    /// Runtime: a tally JSON under `verdicts/evidence/` (schema 1: reader,
+    /// inputs, per-candidate matched / of), recorded as evidence. Every
+    /// candidate must be declared and its state must fit the counts.
+    #[arg(long, value_name = "PATH")]
+    tally: Option<PathBuf>,
     /// The earlier observation `#N` this one replaces (a reanalysis, a
     /// corrected transcription), voided in the same write unless it already
     /// is. Needs --supersede-reason.
@@ -949,6 +954,7 @@ fn new_observation(a: &ObserveArgs) -> Result<NewObservation> {
                 raw,
             })
             .collect(),
+        tally: a.tally.clone(),
         supersedes: a.supersedes,
         supersede_reason: a.supersede_reason.clone(),
         release: a.release.clone(),
@@ -1218,6 +1224,29 @@ fn print_observation(r: &Ranked<'_>, q: &Question, inspector: &mut Inspector, st
         match &c.model {
             Some(model) => detail("candidate", &format!("{} {marker}: {model}", c.name)),
             None => detail("candidate", &format!("{} {marker}", c.name)),
+        }
+    }
+    if let Some(t) = &o.tally {
+        // The counts stored when the tally landed: the file is not reread.
+        let here = |at: &str| verdict::tally::current(&o.evidence, at).to_string();
+        detail(
+            "tally",
+            &format!(
+                "{} (reader {}, schema {})",
+                here(&t.path),
+                t.reader,
+                t.schema
+            ),
+        );
+        for (name, f) in &t.candidates {
+            println!("              {name}: matched {} of {}", f.matched, f.of);
+        }
+        for i in &t.inputs {
+            println!(
+                "              input {} ({})",
+                here(&i.path),
+                &i.sha256[..12.min(i.sha256.len())]
+            );
         }
     }
     if let Some(s) = &o.supersedes {

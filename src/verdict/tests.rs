@@ -80,6 +80,7 @@ fn obs(source: Source, date: &str) -> NewObservation {
         consistent: Vec::new(),
         refuted: Vec::new(),
         evidence: Vec::new(),
+        tally: None,
         supersedes: None,
         supersede_reason: None,
         release: Vec::new(),
@@ -2082,6 +2083,7 @@ fn show_json_carries_the_resolved_question() {
             "result",
             "settings",
             "candidates",
+            "tally",
             "fixture",
             "fixture_path",
             "fixture_name",
@@ -5120,6 +5122,241 @@ fn corrupt_streams_are_refused() {
         };
         refused(observe(&root, &id, &o), needle);
     }
+}
+
+/// A tally under `root`'s evidence directory at `name`, deriving from the
+/// capture `input` (an evidence location and its bytes), counting `fits`.
+fn write_tally(
+    root: &Path,
+    name: &str,
+    input: (&str, &[u8]),
+    fits: &[(&str, u64, u64)],
+) -> PathBuf {
+    let candidates: serde_json::Map<String, serde_json::Value> = fits
+        .iter()
+        .map(|(n, matched, of)| {
+            (
+                (*n).to_string(),
+                serde_json::json!({"matched": matched, "of": of}),
+            )
+        })
+        .collect();
+    let body = serde_json::json!({
+        "schema": 1,
+        "reader": "piners-reader 1",
+        "query": "reach-3d.query",
+        "separating": 27,
+        "inputs": [{"path": input.0, "sha256": validate::sha256_hex(input.1)}],
+        "candidates": candidates,
+    });
+    let path = root.join("evidence").join(name);
+    std::fs::write(&path, serde_json::to_vec_pretty(&body).expect("json")).expect("tally");
+    path
+}
+
+fn rivals(names: &[&str]) -> Vec<Candidate> {
+    names
+        .iter()
+        .map(|n| parse_candidate(&format!("{n}|model {n}")).expect("candidate"))
+        .collect()
+}
+
+#[test]
+fn tallies_check_candidate_states_against_counts() {
+    let root = scratch("tally-states");
+    let record = b"{\"bars\": 58}";
+    std::fs::write(root.join("evidence/record.json"), record).expect("record");
+    let record_path = root.join("evidence/record.json");
+    let id = add(
+        &root,
+        &NewQuestion {
+            exclusive: true,
+            ..question(Kind::Runtime, &[])
+        },
+    )
+    .expect("add")
+    .id;
+    let tally = write_tally(
+        &root,
+        "reach.tally.json",
+        ("record.json", record),
+        &[("reach", 58, 58), ("contains", 31, 58), ("touch", 0, 0)],
+    );
+    let base = NewObservation {
+        key: Some("reach".into()),
+        candidates: rivals(&["reach", "contains", "touch"]),
+        selected: vec!["reach".into()],
+        refuted: vec!["contains".into()],
+        evidence: vec![ev(record_path.clone())],
+        tally: Some(tally.clone()),
+        ..runtime("2026-10-14")
+    };
+
+    // A refuted count marked consistent, a tested candidate left undecided,
+    // and an untested one marked anything are each refused.
+    for (o, needle) in [
+        (
+            NewObservation {
+                refuted: vec![],
+                consistent: vec!["contains".into()],
+                ..base.clone()
+            },
+            "the tally allows refuted",
+        ),
+        (
+            NewObservation {
+                refuted: vec![],
+                ..base.clone()
+            },
+            "`contains` is undecided but matched 31 of 58",
+        ),
+        (
+            NewObservation {
+                refuted: vec!["contains".into(), "touch".into()],
+                ..base.clone()
+            },
+            "the tally allows undecided",
+        ),
+        (
+            NewObservation {
+                candidates: rivals(&["reach", "contains"]),
+                ..base.clone()
+            },
+            "the tally counts `touch`, which is not a declared candidate",
+        ),
+        (
+            NewObservation {
+                evidence: vec![],
+                ..base.clone()
+            },
+            "tally input `record.json` is not evidence of the observation",
+        ),
+        (
+            NewObservation {
+                evidence: vec![ev(record_path.clone()), ev(tally.clone())],
+                ..base.clone()
+            },
+            "given twice",
+        ),
+    ] {
+        refused(observe(&root, &id, &o), needle);
+    }
+    assert!(reload(&root, &id).observations.is_empty());
+
+    let observed = observe(&root, &id, &base).expect("a fitting tally lands");
+    let o = reload(&root, &id).observations[0].clone();
+    let t = o.tally.clone().expect("tally stored");
+    assert_eq!(
+        (t.reader.as_str(), t.path.as_str()),
+        ("piners-reader 1", "reach.tally.json")
+    );
+    assert_eq!(
+        t.candidates["contains"],
+        tally::Fit {
+            matched: 31,
+            of: 58
+        }
+    );
+    assert_eq!(t.inputs.len(), 1);
+    assert_eq!(o.evidence.len(), 2, "the tally is an evidence entry");
+    assert_eq!(reload_status(&root, &id), "settled");
+
+    // A keyed rerun matches without reparsing, after the tally is
+    // compressed and moved; naming the input as the tally, or no tally,
+    // differs.
+    let zst = root.join("evidence/reach.tally.json.zst");
+    std::fs::write(&zst, zstd_of(&std::fs::read(&tally).expect("read"))).expect("zst");
+    relocate(&root, &tally, &zst, false, "compressed").expect("move");
+    std::fs::remove_file(&tally).expect("delete");
+    assert!(observe(&root, &id, &base).expect("old location").existing);
+    let current = NewObservation {
+        tally: Some(zst.clone()),
+        ..base.clone()
+    };
+    assert_eq!(
+        observe(&root, &id, &current).expect("new").number,
+        observed.number
+    );
+    refused(
+        observe(
+            &root,
+            &id,
+            &NewObservation {
+                tally: Some(record_path.clone()),
+                evidence: vec![ev(zst.clone())],
+                ..base.clone()
+            },
+        ),
+        "is not the stored tally",
+    );
+    refused(
+        observe(
+            &root,
+            &id,
+            &NewObservation {
+                tally: None,
+                evidence: vec![ev(record_path.clone()), ev(zst.clone())],
+                ..base.clone()
+            },
+        ),
+        "`tally`: stored",
+    );
+
+    // Two candidates matching everything under an exclusive question: a
+    // counting run selecting one is refused; both consistent is the record.
+    let both = write_tally(
+        &root,
+        "both.tally.json",
+        ("record.json", record),
+        &[("reach", 58, 58), ("contains", 58, 58)],
+    );
+    let ambiguous = NewObservation {
+        key: Some("both".into()),
+        candidates: rivals(&["reach", "contains"]),
+        selected: vec!["reach".into()],
+        refuted: vec![],
+        tally: Some(both.clone()),
+        ..base.clone()
+    };
+    refused(
+        observe(&root, &id, &ambiguous),
+        "cannot separate are consistent",
+    );
+    observe(
+        &root,
+        &id,
+        &NewObservation {
+            selected: vec![],
+            consistent: vec!["reach".into(), "contains".into()],
+            ..ambiguous.clone()
+        },
+    )
+    .expect("both consistent");
+
+    // The facts are in the JSON view, without reading the file.
+    let store = load(&root).expect("load");
+    let j = store.json(store.get(&id).expect("q"));
+    let jt = &j["observations"][0]["tally"];
+    assert_eq!(jt["path"], "verdicts/evidence/reach.tally.json.zst");
+    assert_eq!(jt["candidates"][0]["name"], "contains");
+    assert_eq!(jt["inputs"][0]["path"], "verdicts/evidence/record.json");
+
+    // A compile observation takes no tally.
+    let c = add(&root, &question(Kind::Compile, &["export"]))
+        .expect("add")
+        .id;
+    refused(
+        observe(
+            &root,
+            &c,
+            &NewObservation {
+                evidence: vec![ev(record_path)],
+                tally: Some(zst),
+                ..compile(Source::Editor, "2026-10-14", Outcome::Accepted)
+            },
+        ),
+        "`tally` belongs to runtime observations",
+    );
 }
 
 fn reload_status(root: &Path, id: &str) -> String {

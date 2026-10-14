@@ -237,6 +237,9 @@ pub(super) fn question(q: &Question, cx: &Context<'_>, out: &mut Report) {
         for msg in observation(q.kind, o, &q.root, cx) {
             errs.push(format!("{label}: {msg}"));
         }
+        for msg in super::tally::validate(o, q.exclusive) {
+            errs.push(format!("{label}: {msg}"));
+        }
         // A file is released only once the measurement it supports stopped
         // counting.
         if o.void.is_none() && o.evidence.iter().any(|e| e.released.is_some()) {
@@ -670,6 +673,7 @@ fn compile_fields(o: &Observation, errs: &mut Vec<String>) {
         ("result", o.result.is_some()),
         ("settings", o.settings.is_some()),
         ("candidate", !o.candidates.is_empty()),
+        ("tally", o.tally.is_some()),
     ] {
         if present {
             errs.push(format!("`{field}` belongs to runtime observations"));

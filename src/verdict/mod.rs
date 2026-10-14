@@ -53,6 +53,7 @@ pub mod json;
 mod load;
 mod search;
 mod spec;
+pub mod tally;
 #[cfg(test)]
 mod tests;
 mod validate;
@@ -66,6 +67,7 @@ pub use evidence::{
 pub use load::{ListFilter, Relation, Store, load};
 pub use search::SearchHit;
 pub use spec::{parse_candidate, parse_diag};
+pub use tally::Tally;
 pub use validate::identifier_known;
 pub use write::{
     Added, AmendTarget, Amended, Cited, NewObservation, NewQuestion, Observed, VoidTarget, add,
@@ -472,6 +474,10 @@ pub struct Observation {
     /// The earlier observation this one replaces; see `Supersedes`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub supersedes: Option<Supersedes>,
+    /// Runtime: the reader's fit counts the candidate states are checked
+    /// against; see `tally`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tally: Option<Tally>,
     /// The supporting artifacts (exports, probe JSON): a set; the stored
     /// order carries no meaning. See `Evidence`.
     #[serde(

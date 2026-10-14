@@ -30,7 +30,7 @@ use super::validate::{self, Context, Report, fixture_path, question_path, sha256
 use super::{
     AmendField, Amendment, Candidate, CandidateState, Citation, Closure, ClosureAction, Diag,
     Disagreement, Disposition, Kind, Observation, Outcome, Question, Relation, Retired, Source,
-    Status, Store, Supersedes, Void, citation, load,
+    Status, Store, Supersedes, Tally, Void, citation, load, tally,
 };
 
 /// A question to create.
@@ -117,6 +117,9 @@ pub struct NewObservation {
     pub consistent: Vec<String>,
     pub refuted: Vec<String>,
     pub evidence: Vec<NewEvidence>,
+    /// Runtime: a tally file under the evidence directory, recorded as an
+    /// evidence entry; the candidate states are checked against its counts.
+    pub tally: Option<PathBuf>,
     /// An earlier observation (`#N`) this one replaces, voided in the same
     /// write unless it already is. Needs `supersede_reason`.
     pub supersedes: Option<usize>,
@@ -1156,6 +1159,11 @@ fn observe_in(root: &Path, id: &str, new: &NewObservation, mode: Mode) -> Result
     } else {
         Some(evidence::ReleaseScope::Paths(&new.release))
     };
+    let tally_location = new
+        .tally
+        .as_ref()
+        .map(|p| evidence::stored_location(root, p))
+        .transpose()?;
     // The superseded observation's locations a release names, for reporting
     // who still requires each.
     let mut released_at: Vec<String> = Vec::new();
@@ -1190,6 +1198,7 @@ fn observe_in(root: &Path, id: &str, new: &NewObservation, mode: Mode) -> Result
         // Set below: a keyed rerun compares them, a new observation records
         // them.
         supersedes: None,
+        tally: None,
         amendments: Vec::new(),
     };
     if let Some(key) = &observation.key
@@ -1230,10 +1239,42 @@ fn observe_in(root: &Path, id: &str, new: &NewObservation, mode: Mode) -> Result
         // Evidence is compared on its own: by location (a former one names
         // the entry, since a landing script may predate a move) and by the
         // digest of whatever file is there now.
+        // The tally file is one of the evidence entries; which one carries
+        // the tally is compared on its own, by owner (any location of the
+        // stored tally's entry names it). Its facts were parsed when it
+        // landed and are never reparsed.
+        let mut given_evidence = new.evidence.clone();
+        let mut tally_diff = Vec::new();
+        match (&stored.tally, &tally_location) {
+            (None, None) => {}
+            (Some(t), None) => {
+                tally_diff.push(format!("`tally`: stored `{}`, none given", t.path));
+            }
+            (None, Some(at)) => {
+                tally_diff.push(format!("`tally`: none stored, given `{at}`"));
+            }
+            (Some(t), Some(at)) => {
+                let stored_owner = evidence::owner(&stored.evidence, &t.path);
+                if evidence::owner(&stored.evidence, at) != stored_owner {
+                    tally_diff.push(format!(
+                        "`tally`: `{at}` is not the stored tally `{}`",
+                        t.path
+                    ));
+                }
+            }
+        }
+        if let Some(p) = &new.tally {
+            given_evidence.push(NewEvidence {
+                path: p.clone(),
+                raw: false,
+            });
+        }
         let (mut diff, moved) =
-            evidence::rerun_differences(root, &stored.evidence, &new.evidence, &mut inspector)?;
+            evidence::rerun_differences(root, &stored.evidence, &given_evidence, &mut inspector)?;
+        diff.extend(tally_diff);
         warnings.extend(moved);
         given.evidence.clone_from(&stored.evidence);
+        given.tally.clone_from(&stored.tally);
         // Supersession: the predecessor and the reason are the payload; the
         // time is when it landed. A rerun never voids or releases again: the
         // release it names must already be recorded.
@@ -1288,6 +1329,22 @@ fn observe_in(root: &Path, id: &str, new: &NewObservation, mode: Mode) -> Result
     }
     let mut observation = observation;
     observation.evidence = evidence::capture(root, &new.evidence, &mut inspector)?;
+    if let (Some(path), Some(at)) = (&new.tally, &tally_location) {
+        if observation.evidence.iter().any(|e| e.path == *at) {
+            bail!("evidence `{at}` is given twice (as --tally and as --evidence)");
+        }
+        let (entry, bytes) = evidence::capture_tally(root, path, &mut inspector)?;
+        let parsed = tally::parse(&bytes).with_context(|| format!("tally {}", path.display()))?;
+        observation.tally = Some(Tally {
+            schema: tally::SCHEMA,
+            reader: parsed.reader,
+            path: entry.path.clone(),
+            sha256: entry.sha256.clone().unwrap_or_default(),
+            candidates: parsed.candidates,
+            inputs: parsed.inputs,
+        });
+        observation.evidence.push(entry);
+    }
     let mut did = format!("adding observation #{}", q.observations.len() + 1);
     if let (Some(n), Some(reason)) = (new.supersedes, supersede_reason) {
         let at = now_utc()?;

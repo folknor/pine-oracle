@@ -24,6 +24,7 @@ po verdict observe  <id> --source editor|endpoint|chart [--key K]
                     runtime: --result "..." --settings "..." [--error SPEC]...
                              [--candidate "name|model"]... [--selected name]...
                              [--consistent name]... [--refuted name]...
+                    [--tally <file>]
                     [--inconclusive "<reason>"] [--evidence <path>]...
                     [--evidence-raw <path>]...
                     [--supersedes N --supersede-reason "..."
@@ -342,6 +343,80 @@ undoes it; refused on compile questions). Then:
 
 `show` prints `exclusive: the candidates are mutually exclusive
 alternatives` with the mark's history.
+
+### Tallies
+
+A capture reader (a script outside po that reads the capture and evaluates
+each candidate's predictions against it) can write its counts as a tally
+file, and `observe --tally <file>` lands them with the observation, so the
+candidate states are checked against numbers instead of being transcribed
+from the reader's printed text. The file lives under `verdicts/evidence/`
+and becomes one of the observation's evidence entries (read by its leading
+bytes like `--evidence`, so a compressed tally is decoded); naming it as
+`--evidence` too is an error. Schema 1:
+
+```json
+{
+  "schema": 1,
+  "reader": "piners-reader 1",
+  "inputs": [
+    {"path": "l10-shapes-2026-10/record.json.zst", "sha256": "..."}
+  ],
+  "candidates": {
+    "reach":    {"matched": 58, "of": 58},
+    "contains": {"matched": 31, "of": 58}
+  }
+}
+```
+
+- `reader`: the reader's name and version, non-empty.
+- `inputs`: what the reader derived the counts from, each an evidence
+  location (relative to `verdicts/evidence/`) and the sha256 of what it
+  read. Every input must be an evidence entry of the same observation with
+  that digest (any of the entry's locations, as for keyed reruns). Pin the
+  query or configuration that decides what the reader counts as an input
+  too: a reader's name does not make its choices reproducible.
+- `candidates`: per candidate, `of` predictions evaluated and `matched` the
+  ones that agreed with the run (`matched <= of`). At least one. What
+  counts as an evaluated prediction (missing rows, tolerances, exclusions)
+  is the reader's.
+- Any other key (a query name, the reader's own separating counts) is
+  allowed and stays in the file; po does not read it. A member given twice
+  in any object, at any depth, is refused: JSON readers disagree on which
+  one wins.
+
+po reads the file once, takes the digest and the facts from that one read,
+and stores the facts on the observation (`[observation.tally]`): validation
+and `show` never reopen the file, so a tally later compressed, moved,
+unfetched or released keeps its counts. Another `schema` is refused.
+
+The tally checks the declared states; it never sets them:
+
+| Counts | Allowed state |
+|---|---|
+| `of` = 0 (not evaluated) | undecided |
+| `matched` < `of` | refuted |
+| `matched` = `of` > 0 | consistent or selected |
+
+The candidates the observation declares and the ones the tally counts must
+be the same names. Fit never establishes selection: a candidate that
+matched every prediction may still not be separated from an undeclared
+alternative, so choosing `selected` over `consistent` stays the author's
+claim. On an exclusive question a counting run may select a candidate only
+when no other declared candidate also matched every prediction: two
+survivors the run cannot separate are both consistent. That is a necessary
+condition, not a sufficient one.
+
+po checks the bookkeeping, never the claim: that the counts fit the states,
+and that the inputs are pinned evidence. It does not check that the reader
+read those inputs, nor any number in `--result`, which stays prose; `show`
+prints the stored counts beside it (`tally: <path> (reader ..., schema 1)`
+with `<name>: matched M of N` and each input, at the entries' current
+locations).
+
+On a keyed rerun the tally is not reparsed: `--tally` must name the entry
+holding the stored tally (any of its locations), it is matched with the
+rest of the evidence, and a rerun that omits or adds a tally differs.
 
 A question that would be `open` is `documented` instead when its manual
 citations hold (see Manual citations). `documented` is never a measurement:
@@ -674,6 +749,10 @@ An observation:
   number), `at` and `reason`, or null;
 - `result`, `settings`, `candidates` (each `name`, `model`, `state`:
   `selected` / `consistent` / `refuted` / `undecided`);
+- `tally`: the stored tally facts, or null: `schema`, `reader`, `path`,
+  `sha256`, `inputs` (each `path` and `sha256`) and `candidates` (each
+  `name`, `matched`, `of`, by name). `path` and the inputs' are the current
+  locations of the evidence entries they name;
 - `fixture` (the sha256), `fixture_path`, `fixture_name`;
 - `evidence`: each `path`, `sha256` (null for an entry recorded before
   digests) and `released` (`at` and `reason`, or null). Attestation, move
@@ -987,7 +1066,12 @@ once released, `[[observation.evidence.moved]]` tables (`at`, `from`,
 the merged entry as an `entry` table of the same shape)); an entry recorded before
 digests may be a bare path string, which po rewrites as a table the next
 time it writes the file. A superseding observation carries an
-`[observation.supersedes]` table (`observation`, `at`, `reason`). A negative answer carries `negative = true`
+`[observation.supersedes]` table (`observation`, `at`, `reason`), and a
+tallied one an `[observation.tally]` table (`schema`, `reader`, `path`,
+`sha256`, an `[observation.tally.candidates]` table of `{matched, of}` per
+name, and `[[observation.tally.input]]` tables (`path`, `sha256`)); the
+tally's `path` and inputs stay the locations it landed with, resolved
+through the evidence entries' location history. A negative answer carries `negative = true`
 and an exclusive question `exclusive = true` among the plain fields (each
 absent when unmarked), and the investigation history
 is question-level `[[closure]]` tables (`at`, `action` = `close` or
@@ -1081,6 +1165,12 @@ Errors:
 - a `supersedes` naming no earlier observation, or one that is not void, or
   one another observation already supersedes; an empty reason or a non-UTC
   time;
+- a tally on a compile observation; a tally of another schema, with an
+  empty reader, no candidates, a count above its total, a candidate set
+  other than the declared one, a declared state its counts do not allow, or
+  (on a counting run of an exclusive question) a selected candidate another
+  candidate matched as fully; a tally file or input that is not an evidence
+  entry of the observation with that digest;
 - a directory entry that is not a question file, `fixtures/`, a markdown note
   or a dot-file (a dot-directory is an error, in `fixtures/` too); an id
   present in two directories.
