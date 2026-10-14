@@ -60,8 +60,8 @@ mod write;
 
 pub use evidence::{
     Attestation, Attested, Audit, AuditRow, Comparison, Encoding, Evidence, Fault, Inspection,
-    Inspector, Merge, Merged, Move, NewEvidence, Readings, Relocated, attest, audit, merge,
-    relocate,
+    Inspector, Merge, Merged, Move, NewEvidence, Readings, Release, ReleaseScope, Released,
+    Relocated, attest, audit, merge, release, relocate,
 };
 pub use load::{ListFilter, Relation, Store, load};
 pub use search::SearchHit;

@@ -120,6 +120,18 @@ pub struct Merge {
     pub entry: Evidence,
 }
 
+/// When and why a void observation's entry stopped requiring its file. The
+/// entry keeps its digest and locations as the record of what was cited;
+/// po no longer reads it, and the file may be deleted unless another
+/// unreleased entry is at that location.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Released {
+    /// UTC timestamp.
+    pub at: Datetime,
+    pub reason: String,
+}
+
 /// One evidence artifact of an observation. A legacy entry (written before
 /// digests, or as a bare path string) has only `path`, and po never invents
 /// a digest for it silently.
@@ -136,6 +148,11 @@ pub struct Evidence {
     /// recorded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attested: Option<Attested>,
+    /// Set on a void observation's entry whose file is no longer required.
+    /// Only on an entry itself, never on one merged into it: releasing an
+    /// entry covers its merged history.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub released: Option<Released>,
     /// Former locations, oldest first.
     #[serde(default, rename = "moved", skip_serializing_if = "Vec::is_empty")]
     pub moves: Vec<Move>,
@@ -155,6 +172,8 @@ struct EvidenceRecord {
     _encoding: Option<Encoding>,
     #[serde(default)]
     attested: Option<Attested>,
+    #[serde(default)]
+    released: Option<Released>,
     #[serde(default, rename = "moved")]
     moves: Vec<Move>,
     #[serde(default)]
@@ -167,6 +186,7 @@ impl From<EvidenceRecord> for Evidence {
             path: r.path,
             sha256: r.sha256,
             attested: r.attested,
+            released: r.released,
             moves: r.moves,
             merged: r.merged,
         }
@@ -194,6 +214,7 @@ impl Evidence {
             path,
             sha256: None,
             attested: None,
+            released: None,
             moves: Vec::new(),
             merged: Vec::new(),
         }
@@ -217,9 +238,16 @@ impl Evidence {
         out
     }
 
-    fn has_location(&self, location: &str) -> bool {
+    pub(super) fn has_location(&self, location: &str) -> bool {
         self.locations().contains(&location)
     }
+}
+
+/// The entry of `entries` (one observation's evidence) that answers to
+/// `location`: its current, a former, or a merged location. Within one
+/// observation a location belongs to one entry, so this is a lookup.
+pub(super) fn owner(entries: &[Evidence], location: &str) -> Option<usize> {
+    entries.iter().position(|e| e.has_location(location))
 }
 
 /// An evidence file for `observe`, as the caller named it. `raw` hashes it
@@ -775,6 +803,13 @@ impl Inspector {
     /// An unhashed entry is still read (by its leading bytes), so a missing
     /// or unfetched file is reported for it too.
     pub fn inspect(&mut self, root: &Path, e: &Evidence) -> Inspection {
+        // A released entry no longer requires its file: never read.
+        if let Some(r) = &e.released {
+            return Inspection {
+                fault: None,
+                comparison: Comparison::Released(r.clone()),
+            };
+        }
         let path = match located(root, &e.path) {
             Ok(p) => p,
             Err(err) => {
@@ -845,6 +880,8 @@ pub enum Comparison {
     Unhashed,
     /// The file could not be read (see the fault).
     Unknown,
+    /// The entry was released: its file is not read.
+    Released(Released),
 }
 
 /// One entry's state, in two dimensions: availability, and the digest
@@ -873,6 +910,9 @@ impl fmt::Display for Inspection {
             ),
             Comparison::Unhashed => "no digest recorded".to_string(),
             Comparison::Unknown => String::new(),
+            Comparison::Released(r) => {
+                format!("released {}: {}; not read", r.at, r.reason)
+            }
         };
         match (&self.fault, comparison.is_empty()) {
             (Some(fault), true) => write!(f, "{fault}"),
@@ -914,6 +954,7 @@ pub(super) fn capture(
             path: location,
             sha256: Some(h.sha256),
             attested: None,
+            released: None,
             moves: Vec::new(),
             merged: Vec::new(),
         });
@@ -1059,8 +1100,21 @@ fn entry_errors(
             }
         }
     }
+    if let Some(r) = &e.released {
+        if r.reason.trim().is_empty() {
+            errs.push(format!("{label}: `released.reason` is empty"));
+        }
+        if !utc(&r.at) {
+            errs.push(format!("{label}: `released.at` must be a UTC timestamp"));
+        }
+    }
     for m in &e.merged {
         let merged_label = format!("{label}: merged `{}`", m.entry.path);
+        if m.entry.released.is_some() {
+            errs.push(format!(
+                "{merged_label} is released: release is recorded on the entry it was merged into"
+            ));
+        }
         if m.entry.sha256 != e.sha256 {
             errs.push(format!(
                 "{merged_label} has another digest: only the same content merges"
@@ -1179,12 +1233,19 @@ pub fn relocate(
         bail!("`{old_at}` and `{new_at}` are the same location");
     }
     let mut questions: Vec<Question> = store.questions().to_vec();
-    let targets = slots(&questions, |e| e.path == old_at);
+    // A released entry no longer requires its file, so it stays where it
+    // was released: its location is history, like a former one.
+    let targets = slots(&questions, |e| e.path == old_at && e.released.is_none());
     if targets.is_empty() {
         // Nothing left at OLD is a finished move only if something left it
         // (itself, or an entry since merged into another); otherwise OLD is
         // most likely mistyped.
-        if slots(&questions, |e| e.has_location(&old_at)).is_empty() {
+        // An entry released since it left still marks the move finished;
+        // one released while at OLD never moves.
+        if slots(&questions, |e| e.path != old_at && e.has_location(&old_at)).is_empty() {
+            if !slots(&questions, |e| e.path == old_at).is_empty() {
+                bail!("only released entries are at `{old_at}`: they are not moved");
+            }
             bail!("no evidence entry is or was at `{old_at}`");
         }
         return Ok(Relocated {
@@ -1297,6 +1358,9 @@ pub struct Attestation {
     pub entries: usize,
     pub files: usize,
     pub questions: usize,
+    /// Given locations held only by released entries: not read, nothing to
+    /// attest there.
+    pub skipped: Vec<String>,
 }
 
 /// Establish digests for evidence entries that have none: those at the
@@ -1318,11 +1382,14 @@ pub fn attest(root: &Path, paths: &[PathBuf], raw: bool, reason: &str) -> Result
     let mut questions: Vec<Question> = store.questions().to_vec();
     let mut inspector = Inspector::new();
     let mut problems = Vec::new();
+    let mut skipped = Vec::new();
     // The locations attested: the given ones, or every one holding an entry
     // without a digest.
     let mut locations = BTreeSet::new();
+    // Released entries are never read, so they neither gain a digest nor
+    // constrain the identity a file at their location may take.
     if paths.is_empty() {
-        for s in slots(&questions, |e| e.sha256.is_none()) {
+        for s in slots(&questions, |e| e.sha256.is_none() && e.released.is_none()) {
             locations.insert(questions[s.0].observations[s.1].evidence[s.2].path.clone());
         }
     } else {
@@ -1336,9 +1403,15 @@ pub fn attest(root: &Path, paths: &[PathBuf], raw: bool, reason: &str) -> Result
     // identity a new one there may take (below).
     let mut existing: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for location in &locations {
-        let here = slots(&questions, |e| e.path == *location);
+        let here = slots(&questions, |e| e.path == *location && e.released.is_none());
         if here.is_empty() {
-            problems.push(format!("no evidence entry is at `{location}`"));
+            if slots(&questions, |e| e.path == *location).is_empty() {
+                problems.push(format!("no evidence entry is at `{location}`"));
+            } else {
+                // Released history: skipped, never read, and no reason to
+                // refuse the rest of the run.
+                skipped.push(location.clone());
+            }
         }
         for s in &here {
             let e = &questions[s.0].observations[s.1].evidence[s.2];
@@ -1363,7 +1436,7 @@ pub fn attest(root: &Path, paths: &[PathBuf], raw: bool, reason: &str) -> Result
         }
     }
     let targets = slots(&questions, |e| {
-        e.sha256.is_none() && locations.contains(&e.path)
+        e.sha256.is_none() && e.released.is_none() && locations.contains(&e.path)
     });
     let reading = if raw {
         Reading::As(None)
@@ -1420,6 +1493,7 @@ pub fn attest(root: &Path, paths: &[PathBuf], raw: bool, reason: &str) -> Result
             entries: 0,
             files: 0,
             questions: 0,
+            skipped,
         });
     }
     let at = now_utc()?;
@@ -1439,6 +1513,7 @@ pub fn attest(root: &Path, paths: &[PathBuf], raw: bool, reason: &str) -> Result
         entries: targets.len(),
         files: digests.len(),
         questions: changed.len(),
+        skipped,
     })
 }
 
@@ -1526,6 +1601,11 @@ pub fn merge(
             None => format!("`{redundant_at}` is not evidence of {id} #{observation}"),
         });
     };
+    for (at, i) in [(&redundant_at, gone), (&into_at, survivor)] {
+        if evidence[i].released.is_some() {
+            bail!("`{at}` is released: a released entry is history and takes no merge");
+        }
+    }
     let (theirs, ours) = (&evidence[gone].sha256, &evidence[survivor].sha256);
     match (theirs, ours) {
         (Some(a), Some(b)) if a == b => {}
@@ -1550,6 +1630,165 @@ pub fn merge(
     evidence[survivor].merged.push(Merge { at, reason, entry });
     publish(&store, &questions, &BTreeSet::from([qi]), &Inspector::new())?;
     Ok(Merged::Merged)
+}
+
+/// Which evidence entries of one observation a release names.
+#[derive(Debug, Clone, Copy)]
+pub enum ReleaseScope<'a> {
+    /// The entries these paths are locations of (current, former or
+    /// merged), each once however many of its locations are named.
+    Paths(&'a [PathBuf]),
+    All,
+}
+
+/// The entries of `entries` that `scope` names, in order, each once.
+pub(super) fn release_targets(
+    root: &Path,
+    entries: &[Evidence],
+    scope: ReleaseScope<'_>,
+) -> Result<Vec<usize>> {
+    match scope {
+        ReleaseScope::All => Ok((0..entries.len()).collect()),
+        ReleaseScope::Paths(paths) => {
+            let mut out = BTreeSet::new();
+            for p in paths {
+                let location = stored_location(root, p)?;
+                match owner(entries, &location) {
+                    Some(i) => {
+                        out.insert(i);
+                    }
+                    None => bail!("`{location}` is not evidence of that observation"),
+                }
+            }
+            Ok(out.into_iter().collect())
+        }
+    }
+}
+
+/// Release the entries `scope` names of observation `o`, which must be void:
+/// a measurement that still counts keeps every file it rests on. An entry
+/// already released for `reason` is left as it is (a rerun); one released for
+/// another reason refuses the whole release. Returns how many entries were
+/// newly released.
+pub(super) fn release_in(
+    root: &Path,
+    o: &mut super::Observation,
+    scope: ReleaseScope<'_>,
+    reason: &str,
+    at: Datetime,
+) -> Result<usize> {
+    if o.void.is_none() {
+        bail!("only a void observation's evidence can be released: void it first");
+    }
+    let targets = release_targets(root, &o.evidence, scope)?;
+    if targets.is_empty() {
+        bail!("the observation has no evidence to release");
+    }
+    for i in &targets {
+        if let Some(r) = &o.evidence[*i].released
+            && r.reason != reason
+        {
+            bail!(
+                "`{}` was already released for another reason ({}): a release is final",
+                o.evidence[*i].path,
+                r.reason
+            );
+        }
+    }
+    let mut newly = 0;
+    for i in targets {
+        let e = &mut o.evidence[i];
+        if e.released.is_none() {
+            e.released = Some(Released {
+                at,
+                reason: reason.to_string(),
+            });
+            newly += 1;
+        }
+    }
+    Ok(newly)
+}
+
+/// What `release` did.
+#[derive(Debug, Clone)]
+pub struct Release {
+    pub released: usize,
+    /// Entries named that were already released for the same reason.
+    pub already: usize,
+    /// For each released entry's current location: the unreleased entries
+    /// anywhere in the store (`<id> #N`) still at it, which keep requiring
+    /// the file.
+    pub holders: Vec<(String, Vec<String>)>,
+}
+
+/// Release the evidence `scope` names of question `id`'s void observation
+/// `observation` (1-based): po stops requiring the files, keeping each
+/// entry's digest and locations as the record of what was cited. No file is
+/// read. Whether a file may be deleted is the caller's call: `holders` names
+/// the entries still requiring each location.
+pub fn release(
+    root: &Path,
+    id: &str,
+    observation: usize,
+    scope: ReleaseScope<'_>,
+    reason: &str,
+) -> Result<Release> {
+    let root = &absolute(root)?;
+    let _lock = lock(root)?;
+    let store = load_unlocked(root)?;
+    let reason = reason.trim().to_string();
+    if reason.is_empty() {
+        bail!("a release needs a --reason");
+    }
+    let mut questions: Vec<Question> = store.questions().to_vec();
+    let Some(qi) = questions.iter().position(|q| q.id == id) else {
+        bail!("no question `{id}` under {}", root.display());
+    };
+    let Some(oi) = observation
+        .checked_sub(1)
+        .filter(|i| *i < questions[qi].observations.len())
+    else {
+        bail!(
+            "question {id} has no observation #{observation} (it has {})",
+            questions[qi].observations.len()
+        );
+    };
+    let named = release_targets(root, &questions[qi].observations[oi].evidence, scope)?;
+    let newly = release_in(
+        root,
+        &mut questions[qi].observations[oi],
+        scope,
+        &reason,
+        now_utc()?,
+    )?;
+    if newly > 0 {
+        publish(&store, &questions, &BTreeSet::from([qi]), &Inspector::new())?;
+    }
+    let locations: Vec<String> = named
+        .iter()
+        .map(|i| questions[qi].observations[oi].evidence[*i].path.clone())
+        .collect();
+    Ok(Release {
+        released: newly,
+        already: named.len() - newly,
+        holders: holders(&questions, &locations),
+    })
+}
+
+/// For each location: the unreleased entries anywhere in `questions` (void
+/// and retired included, `<id> #N`) whose current location it is. They keep
+/// requiring the file; former and merged locations do not.
+pub(super) fn holders(questions: &[Question], locations: &[String]) -> Vec<(String, Vec<String>)> {
+    locations
+        .iter()
+        .map(|location| {
+            let still = slots(questions, |e| e.path == *location && e.released.is_none())
+                .into_iter()
+                .map(|s| format!("{} #{}", questions[s.0].id, s.1 + 1))
+                .collect();
+            (location.clone(), still)
+        })
+        .collect()
 }
 
 /// Whether `location` belongs to an entry merged (at any depth) into `e`.
@@ -1578,11 +1817,13 @@ pub struct Audit {
     pub failing: Vec<AuditRow>,
     /// Entries with no digest (they fail only when unavailable).
     pub unhashed: Vec<AuditRow>,
+    /// Released entries: not read, so neither matching nor failing.
+    pub released: usize,
 }
 
 /// Inspect every evidence entry of the questions `ids` (all when empty), void
 /// observations and retired questions included: their files are still the
-/// record of what was observed.
+/// record of what was observed, unless released (counted, never read).
 pub fn audit(store: &Store, ids: &[String]) -> Result<Audit> {
     let mut chosen: Vec<&Question> = Vec::new();
     for id in ids {
@@ -1600,6 +1841,10 @@ pub fn audit(store: &Store, ids: &[String]) -> Result<Audit> {
         for (oi, o) in q.observations.iter().enumerate() {
             for e in &o.evidence {
                 out.entries += 1;
+                if e.released.is_some() {
+                    out.released += 1;
+                    continue;
+                }
                 let inspection = inspector.inspect(&q.root, e);
                 let row = AuditRow {
                     id: q.id.clone(),

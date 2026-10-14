@@ -42,6 +42,7 @@ po verdict void     <id> (--observation N | --citation N) --reason "..."
 po verdict evidence move   <old> <new> --reason "..." [--old-raw]
 po verdict evidence merge  <id> <redundant> <into> --observation N --reason "..."
 po verdict evidence attest [<path>...] --reason "..." [--raw]
+po verdict evidence release <id> --observation N (<path>... | --all) --reason "..."
 po verdict evidence check  [<id>...]
 po verdict citations [<pathspec>...]
 po verdict search   <query> [--limit N]
@@ -650,8 +651,9 @@ An observation:
 - `result`, `settings`, `candidates` (each `name`, `model`, `state`:
   `selected` / `consistent` / `refuted` / `undecided`);
 - `fixture` (the sha256), `fixture_path`, `fixture_name`;
-- `evidence`: each `path` and `sha256` (null for an entry recorded before
-  digests). Attestation, move and merge history is not included;
+- `evidence`: each `path`, `sha256` (null for an entry recorded before
+  digests) and `released` (`at` and `reason`, or null). Attestation, move
+  and merge history is not included;
 - `environment`, `note`.
 
 `negative` and `closed` are the disposition's, as `status` is: a retired
@@ -808,7 +810,8 @@ what the record says, and the file is the artifact behind it.
 
 `po verdict evidence check` is the content audit. It reads every evidence
 file of the given questions (all when none), void observations and retired
-questions included, and prints one line per entry that fails, `<id> #N
+questions included (released entries are counted, never read), and prints
+one line per entry that fails, `<id> #N
 <path>  <state>`: missing, unreadable, an unfetched Git LFS pointer,
 changed while being read, or `CHANGED since its digest was recorded`
 (slimmed, rewritten, replaced; the readings tried follow). It exits
@@ -860,6 +863,25 @@ landing script naming them still matches, and `check` reads only the
 survivor. Rerunning a finished merge is a no-op. Entries with different
 digests never merge: a wrongly cited file is a measurement question, void
 and re-observe.
+
+`po verdict evidence release <id> --observation N (<path>... | --all)`
+stops requiring evidence files of a **void** observation (a measurement
+that counts keeps every file it rests on), for a superseded reader script,
+say. Each released entry keeps its digest, its locations and its history as
+the record of what was cited, gains a `released` table (time, reason), and
+is never read again: `check` counts it released (neither matching nor
+failing) and `show` prints `released <time>: <reason>; not read`. A path
+names the entry it is any location of; releasing an entry covers what was
+merged into it. Release is final: rerunning it with the same reason is a
+no-op, with another reason it is refused. No file is read or deleted. The
+output lists, per released location, the unreleased entries anywhere in the
+store (void and retired ones included) still at it, which keep requiring the
+file: whether to delete it is your call. Released entries are history to
+maintenance: `move` leaves them where they were released (a move they had
+already made still reruns as a no-op), `attest` neither gives them a
+digest nor lets them constrain a file at their location (a given location
+only they hold is skipped and named, the rest of the run goes ahead), and
+`merge` refuses them (a finished merge still reruns as a no-op).
 
 Every verb that reads evidence compares each file's device, inode, size
 and modification time before and after reading it, and again before
@@ -934,7 +956,8 @@ amendments are question-level `[[amendment]]` tables. Citations are question-lev
 optional `[citation.void]`). Evidence entries are
 `[[observation.evidence]]` tables (`path`, and with a digest `sha256`, an
 `[observation.evidence.attested]` table (`at`, `reason`) when established
-after the fact, `[[observation.evidence.moved]]` tables (`at`, `from`,
+after the fact, an `[observation.evidence.released]` table (`at`, `reason`)
+once released, `[[observation.evidence.moved]]` tables (`at`, `from`,
 `reason`), and `[[observation.evidence.merged]]` tables (`at`, `reason`, and
 the merged entry as an `entry` table of the same shape)); an entry recorded before
 digests may be a bare path string, which po rewrites as a table the next
@@ -1025,8 +1048,9 @@ Errors:
   share; an
   entry moving in place; a `sha256` that is not a lowercase sha256, or
   `attested`, `moved` or `merged` without one; a merged entry whose digest
-  differs from its survivor's; an empty attestation, move or merge reason,
-  or a non-UTC time. Whether the files
+  differs from its survivor's; an empty attestation, move, merge or release
+  reason, or a non-UTC time; a released entry on an observation that is not
+  void, or a `released` table on a merged entry. Whether the files
   exist and still match is not validation: see Evidence;
 - a directory entry that is not a question file, `fixtures/`, a markdown note
   or a dot-file (a dot-directory is an error, in `fixtures/` too); an id

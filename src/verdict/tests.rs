@@ -2089,7 +2089,7 @@ fn show_json_carries_the_resolved_question() {
         keys(&ob["errors"][0]),
         ["code", "message", "span", "bar", "ctx"]
     );
-    assert_eq!(keys(&ob["evidence"][0]), ["path", "sha256"]);
+    assert_eq!(keys(&ob["evidence"][0]), ["path", "sha256", "released"]);
 
     // Runtime candidates, and an inferred question naming its premise.
     let run = add(&root, &question(Kind::Runtime, &[])).expect("add").id;
@@ -5115,4 +5115,140 @@ fn corrupt_streams_are_refused() {
         };
         refused(observe(&root, &id, &o), needle);
     }
+}
+
+#[test]
+fn released_evidence_is_history() {
+    let root = scratch("release");
+    let ev_dir = root.join("evidence");
+    let record = ev_dir.join("record.json");
+    let script = ev_dir.join("reader.py");
+    std::fs::write(&record, b"{\"bars\": 58}").expect("record");
+    std::fs::write(&script, b"print(58)").expect("script");
+    let id = add(&root, &question(Kind::Runtime, &[])).expect("add").id;
+    let cited = NewObservation {
+        evidence: vec![ev(record.clone()), ev(script.clone())],
+        ..runtime("2026-09-01")
+    };
+    observe(&root, &id, &cited).expect("#1");
+    observe(&root, &id, &cited).expect("#2");
+
+    // A measurement that counts keeps every file it rests on.
+    refused(
+        release(&root, &id, 1, ReleaseScope::All, "obsolete"),
+        "only a void observation's evidence",
+    );
+    void(&root, &id, VoidTarget::Observation(1), "mis-transcribed").expect("void");
+    refused(
+        release(
+            &root,
+            &id,
+            1,
+            ReleaseScope::Paths(std::slice::from_ref(&ev_dir.join("nope.json"))),
+            "x",
+        ),
+        "is not evidence of that observation",
+    );
+    let done = release(
+        &root,
+        &id,
+        1,
+        ReleaseScope::Paths(std::slice::from_ref(&script)),
+        "the reader was rewritten",
+    )
+    .expect("release");
+    assert_eq!((done.released, done.already), (1, 0));
+    // #2 still cites the script, so the file stays required.
+    assert_eq!(
+        done.holders,
+        vec![("reader.py".to_string(), vec![format!("{id} #2")])]
+    );
+    // Final: the same reason is a no-op, another is refused.
+    let again = release(
+        &root,
+        &id,
+        1,
+        ReleaseScope::Paths(std::slice::from_ref(&script)),
+        "the reader was rewritten",
+    )
+    .expect("same reason");
+    assert_eq!((again.released, again.already), (0, 1));
+    refused(
+        release(&root, &id, 1, ReleaseScope::All, "another reason"),
+        "already released for another reason",
+    );
+
+    // The audit counts it released, never reads it, and the store loads
+    // with the file gone once #2 releases it too.
+    void(&root, &id, VoidTarget::Observation(2), "same mistake").expect("void #2");
+    let done = release(
+        &root,
+        &id,
+        2,
+        ReleaseScope::Paths(std::slice::from_ref(&script)),
+        "the reader was rewritten",
+    )
+    .expect("release #2");
+    assert_eq!(done.holders, vec![("reader.py".to_string(), vec![])]);
+    std::fs::remove_file(&script).expect("delete the script");
+    let store = load(&root).expect("loads");
+    let a = audit(&store, &[]).expect("audit");
+    assert!(a.failing.is_empty(), "{a:?}");
+    assert_eq!((a.entries, a.matching, a.released), (4, 2, 2));
+    let j = store.json(store.get(&id).expect("q"));
+    assert!(j["observations"][0]["evidence"][1]["released"]["reason"].is_string());
+    assert!(j["observations"][0]["evidence"][0]["released"].is_null());
+
+    // Maintenance treats released entries as history: a move skips them,
+    // attest skips a location only they hold, a merge refuses them.
+    refused(
+        relocate(&root, &script, &ev_dir.join("x.py"), false, "x"),
+        "only released entries are at",
+    );
+    let done = attest(&root, std::slice::from_ref(&script), false, "x").expect("attest");
+    assert_eq!(done.skipped, vec!["reader.py".to_string()]);
+    refused(merge(&root, &id, 1, &script, &record, "x"), "is released");
+    // A move made before the release still reruns as a no-op.
+    let zst = ev_dir.join("record.json.zst");
+    std::fs::write(&zst, zstd_of(b"{\"bars\": 58}")).expect("zst");
+    assert_eq!(
+        relocate(&root, &record, &zst, false, "compress")
+            .expect("move")
+            .entries,
+        2
+    );
+    release(
+        &root,
+        &id,
+        1,
+        ReleaseScope::Paths(std::slice::from_ref(&zst)),
+        "the reader was rewritten",
+    )
+    .expect("release the moved entry");
+    assert_eq!(
+        relocate(&root, &record, &zst, false, "compress")
+            .expect("rerun")
+            .entries,
+        0
+    );
+
+    // A released entry on a counting observation is invalid.
+    let store = load(&root).expect("load");
+    let mut q = store.get(&id).expect("q").clone();
+    q.observations[0].void = None;
+    let known = validate::ids_in(store.questions());
+    let cx = validate::Context {
+        known_ids: &known,
+        pending_fixture: None,
+    };
+    let mut report = validate::Report::default();
+    validate::question(&q, &cx, &mut report);
+    assert!(
+        report
+            .errors
+            .join("\n")
+            .contains("released evidence on an observation that is not void"),
+        "{:?}",
+        report.errors
+    );
 }

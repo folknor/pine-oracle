@@ -236,6 +236,13 @@ pub(super) fn question(q: &Question, cx: &Context<'_>, out: &mut Report) {
         for msg in observation(q.kind, o, &q.root, cx) {
             errs.push(format!("{label}: {msg}"));
         }
+        // A file is released only once the measurement it supports stopped
+        // counting.
+        if o.void.is_none() && o.evidence.iter().any(|e| e.released.is_some()) {
+            errs.push(format!(
+                "{label}: released evidence on an observation that is not void"
+            ));
+        }
         if q.kind == Kind::Compile && o.outcome == Some(Outcome::Rejected) && o.errors.is_empty() {
             warns.push(format!("{label}: rejected with no error recorded"));
         }

@@ -80,6 +80,10 @@ impl Store {
                         .map(|e| json!({
                             "path": format!("verdicts/evidence/{}", e.path),
                             "sha256": e.sha256,
+                            "released": e.released.as_ref().map(|r| json!({
+                                "at": r.at.to_string(),
+                                "reason": r.reason,
+                            })),
                         }))
                         .collect::<Vec<_>>(),
                     "environment": o.environment,

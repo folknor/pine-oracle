@@ -3,7 +3,7 @@ use clap::{ArgGroup, Subcommand};
 use pine_oracle::verdict::{
     self, AmendField, AmendTarget, Amendment, AuditRow, Citation, ClosureAction, Evidence,
     Inspector, Kind, ListFilter, NewEvidence, NewObservation, NewQuestion, Outcome, Question,
-    Ranked, Relation, Source, Status, Store, VoidTarget, cited,
+    Ranked, Relation, ReleaseScope, Source, Status, Store, VoidTarget, cited,
 };
 use std::path::{Path, PathBuf};
 
@@ -254,8 +254,30 @@ pub(crate) enum EvidenceCommand {
     /// Read every evidence file of the given questions (all when none) and
     /// compare it with its digest. Fails when any file is missing,
     /// unreadable, undecodable, an unfetched Git LFS pointer, or changed.
-    /// Entries without a digest fail only when unavailable.
+    /// Entries without a digest fail only when unavailable; released ones
+    /// are not read.
     Check { ids: Vec<String> },
+
+    /// Stop requiring evidence files of a void observation: the entries keep
+    /// their digests and locations as the record of what was cited, and are
+    /// never read again. No file is read or deleted; prints which other
+    /// entries still require each location.
+    #[command(group(ArgGroup::new("which").required(true).args(["paths", "all"])))]
+    Release {
+        /// Question id.
+        id: String,
+        /// Locations of the entries to release (any location of an entry).
+        paths: Vec<PathBuf>,
+        /// The void observation's #N.
+        #[arg(long)]
+        observation: usize,
+        /// Release every evidence entry of the observation.
+        #[arg(long)]
+        all: bool,
+        /// Why the files are no longer needed.
+        #[arg(long)]
+        reason: String,
+    },
 }
 
 #[derive(clap::Args)]
@@ -721,6 +743,9 @@ fn run_evidence(command: EvidenceCommand, root: &Path, quiet: bool) -> Result<()
         }
         EvidenceCommand::Attest { paths, reason, raw } => {
             let done = verdict::attest(root, &paths, raw, &reason)?;
+            for location in &done.skipped {
+                println!("skipped {location}: only released entries are there");
+            }
             if done.entries == 0 {
                 println!("no evidence entry without a digest: nothing attested");
             } else {
@@ -748,17 +773,44 @@ fn run_evidence(command: EvidenceCommand, root: &Path, quiet: bool) -> Result<()
                 }
             }
             let summary = format!(
-                "{} evidence entr{}: {} match, {} without a digest, {} failing",
+                "{} evidence entr{}: {} match, {} without a digest, {} released, {} failing",
                 audit.entries,
                 if audit.entries == 1 { "y" } else { "ies" },
                 audit.matching,
                 audit.unhashed.len(),
+                audit.released,
                 audit.failing.len()
             );
             if !audit.failing.is_empty() {
                 bail!("{summary}");
             }
             println!("{summary}");
+            Ok(())
+        }
+        EvidenceCommand::Release {
+            id,
+            paths,
+            observation,
+            all,
+            reason,
+        } => {
+            let scope = if all {
+                ReleaseScope::All
+            } else {
+                ReleaseScope::Paths(&paths)
+            };
+            let done = verdict::release(root, &id, observation, scope, &reason)?;
+            println!(
+                "released {} evidence entr{} of {id} #{observation}{}",
+                done.released,
+                if done.released == 1 { "y" } else { "ies" },
+                if done.already > 0 {
+                    format!(" ({} already released)", done.already)
+                } else {
+                    String::new()
+                }
+            );
+            print_holders(&done.holders);
             Ok(())
         }
     }
@@ -878,6 +930,20 @@ fn new_observation(a: &ObserveArgs) -> Result<NewObservation> {
         note: a.note.clone(),
         inconclusive: a.inconclusive.clone(),
     })
+}
+
+/// Per released location, the unreleased entries still requiring the file.
+fn print_holders(holders: &[(String, Vec<String>)]) {
+    for (location, still) in holders {
+        if still.is_empty() {
+            println!("released {location}: no unreleased entry in this store requires it");
+        } else {
+            println!(
+                "released {location}: still required by {}",
+                still.join(", ")
+            );
+        }
+    }
 }
 
 fn parse_all<T>(specs: &[String], parse: impl Fn(&str) -> Result<T>) -> Result<Vec<T>> {
