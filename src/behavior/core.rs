@@ -931,6 +931,42 @@ fn parse_behavior_kind(raw: &str) -> Result<BehaviorKind> {
     }
 }
 
+/// Pine identifiers a non-identifier surface (the `po recipe` miss path) can
+/// point at, as `po lookup` handles. An exact full-name hit wins alone (`time`
+/// gives `time`, not also `input.time`); otherwise the whole query is matched
+/// against each name's final dot-separated component (`nvi` gives `ta.nvi`,
+/// `max` gives every `*.max`), deduplicated by name and sorted. Generic
+/// placeholders are stripped (`array.new<type>` answers as `array.new`). A
+/// qualified query that misses is never reduced to its terminal component.
+pub fn identifier_matches(query: &str) -> Vec<String> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Vec::new();
+    }
+    let strip_generic = |name: &str| match name.find('<') {
+        Some(i) if i > 0 => name[..i].to_string(),
+        _ => name.to_string(),
+    };
+    if !lookup_all(query).is_empty() {
+        return vec![strip_generic(query)];
+    }
+    if query.contains('.') {
+        return Vec::new();
+    }
+    let mut out: Vec<String> = search_entries()
+        .into_iter()
+        .map(|e| strip_generic(&e.name))
+        .filter(|name| {
+            name.rsplit('.')
+                .next()
+                .is_some_and(|last| last.eq_ignore_ascii_case(query))
+        })
+        .collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
 pub fn search_entries() -> Vec<BehaviorSearchEntry> {
     let idx = index();
     let mut out = Vec::new();

@@ -24,6 +24,10 @@ Subagent prompt rules:
 - Don't restate rules the agent already inherits. Subagents load the same CLAUDE.md / AGENTS.md as the main session, so the bash rules, no-cargo, no-worktrees, gremlins, etc. are already in scope. Re-listing them is noise.
 - Do pass anything learned in *this* conversation that the agent can't see: the user's framing, prior decisions, what's already been ruled out, the specific claim being audited.
 
+### tvr
+
+`tvr` drives a live TradingView chart for parity captures: the measured behavior that `po verdict` records. `tvr doctor` checks the connection, `tvr compile` runs a fixture through the editor, `tvr capture` runs a spec end to end, `tvr bars` exports bars, `tvr tables` turns a record into NDJSON. Docs: `tvr man`, `tvr man spec`. It talks to the real TradingView, so never run it from a test.
+
 ### Codex agents
 
 Never tell a codex agent to read CLAUDE.md (it is Claude-specific and contradicts their job), and never tell them to read AGENTS.md (codex loads it automatically). Put any rule they need directly in the prompt.

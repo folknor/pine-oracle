@@ -546,3 +546,24 @@ use super::*;
             other => panic!("expected Function, got {other:?}"),
         }
     }
+
+    #[test]
+    fn identifier_matches_resolves_terminal_names_to_qualified_handles() {
+        assert_eq!(identifier_matches("NVI"), vec!["ta.nvi"]);
+        assert_eq!(identifier_matches(" tr "), vec!["ta.tr"], "function + variable dedup to one handle");
+        assert_eq!(
+            identifier_matches("max"),
+            vec!["array.max", "math.max", "matrix.max", "ta.max"]
+        );
+        assert!(identifier_matches("new").contains(&"array.new".to_string()));
+    }
+
+    #[test]
+    fn identifier_matches_exact_name_wins_and_qualified_miss_stays_empty() {
+        assert_eq!(identifier_matches("time"), vec!["time"], "input.time must not join an exact hit");
+        assert!(identifier_matches("ta.mad").is_empty());
+        assert!(identifier_matches("dema").is_empty());
+        assert!(identifier_matches("").is_empty());
+        assert_eq!(identifier_matches("array.new<type>"), vec!["array.new"]);
+        assert_eq!(identifier_matches(">"), vec![">"], "an operator answers as itself");
+    }

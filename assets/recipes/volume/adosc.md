@@ -18,8 +18,7 @@ indicator("Chaikin Oscillator", "ADOSC")
 fast = input.int(3,  "Fast", minval = 1)
 slow = input.int(10, "Slow", minval = 1)
 
-mfm    = (2 * close - high - low) / (high - low)
-adLine = ta.cum(mfm * volume)
+adLine = ta.accdist
 
 plot(ta.ema(adLine, fast) - ta.ema(adLine, slow), "ADOSC", style = plot.style_histogram)
 ```

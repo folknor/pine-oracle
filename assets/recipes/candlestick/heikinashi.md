@@ -8,8 +8,9 @@ aliases: heikin ashi, heikin-ashi, ha candles
 Heikin-Ashi ("average bar") redraws candles from averaged prices to filter noise
 and make trends easier to read. Each HA close is the bar's OHLC average and each
 HA open is the average of the prior HA open and close, producing smooth runs of
-same-colored candles. There is no Heikin-Ashi builtin in Pine (though
-`ticker.heikinashi()` can request HA data; this computes it inline).
+same-colored candles. Pine can request HA bars through `ticker.heikinashi()` and
+`request.security()`; this recipe instead computes them locally from the chart's
+own OHLC, with no data request and an explicit first-bar seed.
 
 ## Recipe
 

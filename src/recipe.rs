@@ -1,15 +1,19 @@
-// Authored TA-recipe surface, backing `po recipe`. Unlike `manual` (scraped from
-// TradingView) and `behavior` (pine-data exports), this corpus is hand-authored
-// in-repo: technical-analysis instruments that have no TradingView builtin and
-// no manual page (custom moving averages, composite indicators, candlestick
-// patterns, market-structure concepts). Each entry is a markdown file under
+// Authored Pine-cookbook surface, backing `po recipe`. Unlike `manual` (scraped
+// from TradingView) and `behavior` (pine-data exports), this corpus is
+// hand-authored in-repo: things that have no TradingView builtin and no manual
+// page - indicators (custom moving averages, composite indicators, candlestick
+// patterns) and general helpers (easing curves, risk metrics). A card that
+// merely reproduces a builtin instrument or statistic, or changes its units,
+// does not belong; a distinct named construction built from builtins does, as
+// does a local implementation offering what the builtin interface cannot. Each
+// entry is a markdown file under
 // `assets/recipes/<category>/<name>.md` carrying `title` + optional `aliases`
 // frontmatter and a freeform body (prose + a Pine v6 code fence). The tree is
 // embedded with `include_dir` and rendered through `crate::render`, exactly like
 // the manual - the difference is provenance, not shape.
 //
 // This is the "how do I build X in Pine" half of the oracle: where `po lookup`
-// answers "what is `ta.sma`", `po recipe` answers "how do I compute an HMA".
+// answers "what is `ta.sma`", `po recipe` answers "how do I compute a DEMA".
 
 use include_dir::{Dir, include_dir};
 use std::collections::{BTreeMap, HashMap};
@@ -17,14 +21,14 @@ use std::sync::OnceLock;
 
 static RECIPES: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/assets/recipes");
 
-/// One authored TA recipe: an instrument with no TradingView builtin, described
-/// as prose + a Pine v6 snippet.
+/// One authored recipe: something no TradingView builtin already provides (see
+/// the module comment for the boundary), described as prose + a Pine v6 snippet.
 #[derive(Debug, Clone)]
 pub struct Recipe {
-    /// Lookup key: the file stem (e.g. `hma`). Lowercase by authoring
+    /// Lookup key: the file stem (e.g. `dema`). Lowercase by authoring
     /// convention; matched case-insensitively.
     pub name: String,
-    /// Human title from frontmatter (e.g. `Hull Moving Average`).
+    /// Human title from frontmatter (e.g. `Double Exponential Moving Average`).
     pub title: String,
     /// Category = the first path component under `assets/recipes`
     /// (e.g. `moving-average`, `candlestick`).

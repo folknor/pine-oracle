@@ -1,19 +1,21 @@
 use anyhow::{Result, bail};
-use pine_oracle::{recipe, render};
+use pine_oracle::{behavior, recipe, render};
 
 use crate::output::{Style, is_catalog_request, print_catalog};
 
 /// How many "did you mean ...?" suggestions to offer on a recipe miss.
 const SUGGEST_LIMIT: usize = 8;
 
-/// `po recipe <name>` describes a technical-analysis instrument that has no
-/// TradingView builtin and no manual page (custom moving averages, composite
-/// indicators, candlestick patterns, market-structure concepts). Each entry is
-/// authored markdown (prose + a Pine v6 snippet) from the `recipe` corpus,
-/// rendered through `crate::render` - the recipe analogue of `po lookup`.
+/// `po recipe <name>` describes how to build something that has no TradingView
+/// builtin and no manual page (indicators like custom moving averages and
+/// candlestick patterns, plus general helpers like easing curves and risk
+/// metrics). Each entry is authored markdown (prose + a Pine v6 snippet) from
+/// the `recipe` corpus, rendered through `crate::render` - the recipe analogue
+/// of `po lookup`.
 ///
-/// `--list` / `--category` / `--grep` browse the corpus; a miss offers BM25-free
-/// "did you mean ...?" suggestions.
+/// `--list` / `--category` / `--grep` browse the corpus; a miss points at any
+/// exactly matching Pine identifier, then offers BM25-free "did you mean ...?"
+/// suggestions.
 pub(crate) fn run(
     name: Option<&str>,
     list: bool,
@@ -83,14 +85,33 @@ fn print_recipe_list(category: Option<&str>, grep: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-/// No exact hit: offer the closest recipe names via the fuzzy suggestion engine.
+/// No exact hit: first point at any Pine identifier the name matches exactly
+/// (the corpus deliberately holds no recipe for a builtin, so `po recipe nvi`
+/// must still lead to `ta.nvi`), then offer the closest recipe names via the
+/// fuzzy suggestion engine.
 fn did_you_mean(name: &str, quiet: bool) -> Result<()> {
+    let idents = behavior::identifier_matches(name);
+    if !idents.is_empty() {
+        if !quiet {
+            eprintln!("no recipe named `{name}`. matching Pine identifiers:");
+        }
+        for ident in &idents {
+            println!("{}", lookup_command(ident));
+        }
+    }
     let hits = recipe::suggest(name, SUGGEST_LIMIT);
     if hits.is_empty() {
+        if !idents.is_empty() {
+            return Ok(());
+        }
         bail!("no recipe for `{name}` (run `po recipe --list`)");
     }
     if !quiet {
-        eprintln!("no recipe named `{name}`. did you mean:");
+        if idents.is_empty() {
+            eprintln!("no recipe named `{name}`. did you mean:");
+        } else {
+            eprintln!("closest recipes:");
+        }
     }
     for r in &hits {
         println!("{:<22} {}", r.name, r.title);
@@ -98,9 +119,30 @@ fn did_you_mean(name: &str, quiet: bool) -> Result<()> {
     Ok(())
 }
 
+/// A runnable `po lookup` command for `ident`. Plain names print bare; an
+/// operator (`>`, `*`, `-=`, ...) is single-quoted so the shell passes it
+/// through, behind `--` so a leading `-` is not read as a flag.
+fn lookup_command(ident: &str) -> String {
+    if ident
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
+    {
+        format!("po lookup {ident}")
+    } else {
+        format!("po lookup -- '{}'", ident.replace('\'', r"'\''"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lookup_command_quotes_shell_sensitive_operators() {
+        assert_eq!(lookup_command("ta.nvi"), "po lookup ta.nvi");
+        assert_eq!(lookup_command(">"), "po lookup -- '>'");
+        assert_eq!(lookup_command("-="), "po lookup -- '-='");
+    }
 
     #[test]
     fn list_name_becomes_implicit_grep() {
