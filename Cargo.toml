@@ -71,7 +71,7 @@ serde_json = { version = "1", features = ["preserve_order"] }
 include_dir = { version = "0.7", features = ["glob"] }
 owo-colors = "4"
 pulldown-cmark = "0.13"
-tantivy = "0.26"
+tantivy = "0.27.0"
 sha2 = "0.11"
 toml = "1"
 chrono = { version = "0.4.45", default-features = false, features = ["std", "now"] }
